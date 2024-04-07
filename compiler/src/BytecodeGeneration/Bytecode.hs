@@ -1,39 +1,40 @@
-module BytecodeGeneration.Bytecode (
- Chunk(Chunk, code, constants),
- Instruction(
-    ReturnInstruction,
-    PrintInstruction,
-    ConstantInstruction,
-    NegateInstruction,
-    AddInstruction,
-    SubtractInstruction,
-    MultiplyInstruction,
-    DivideInstruction,
-    ModuloInstruction
- ),
- Value(Value),
- encodeChunk
-) where
+module BytecodeGeneration.Bytecode
+  ( Chunk (Chunk, code, constants),
+    Instruction
+      ( ReturnInstruction,
+        PrintInstruction,
+        ConstantInstruction,
+        NegateInstruction,
+        AddInstruction,
+        SubtractInstruction,
+        MultiplyInstruction,
+        DivideInstruction,
+        ModuloInstruction
+      ),
+    Value (Value),
+    encodeChunk,
+  )
+where
 
-import Data.Sequence(Seq(Empty, (:<|), (:|>)))
-import Data.Int
-import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
 import Data.Foldable
+import Data.Int
+import Data.Sequence (Seq)
 
-data Chunk = Chunk {
-    code :: Seq Instruction,
+data Chunk = Chunk
+  { code :: Seq Instruction,
     constants :: Seq Value
-} deriving (Show)
+  }
+  deriving (Show)
 
 encodeChunk :: Chunk -> BB.Builder
-encodeChunk (Chunk code constants) = 
+encodeChunk (Chunk code constants) =
   BB.int32BE (fromIntegral $ length constants)
-  <> fold (BB.int32BE <$> (\(Value value) -> value) <$> constants)
-  <> fold (encodeInstruction <$> code)
+    <> fold (BB.int32BE <$> (\(Value value) -> value) <$> constants)
+    <> fold (encodeInstruction <$> code)
 
-data Instruction =
-    ReturnInstruction
+data Instruction
+  = ReturnInstruction
   | PrintInstruction
   | ConstantInstruction ConstIndex
   | NegateInstruction
@@ -60,4 +61,5 @@ encodeInstruction ModuloInstruction = BB.int8 9
 data Value = Value Int32
   deriving (Show)
 
+encodeValue :: Value -> BB.Builder
 encodeValue (Value value) = BB.int32BE value

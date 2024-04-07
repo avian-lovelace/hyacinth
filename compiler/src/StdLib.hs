@@ -1,6 +1,7 @@
-module StdLib (
-  stdLibIdentifiers
-) where
+module StdLib
+  ( stdLibIdentifiers,
+  )
+where
 
 import qualified Data.Text as Text
 

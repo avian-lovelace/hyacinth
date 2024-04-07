@@ -1,25 +1,22 @@
-module Parsing.Parsing (
-  Parser(runParser),
-  (<&&>),
-  pNext,
-  pEnd,
-  pTry,
-  pOneOrMore,
-  pZeroOrMore,
---   pTryAll,
---   pTryOr
-) where
+module Parsing.Parsing
+  ( Parser (runParser),
+    (<&&>),
+    pNext,
+    pEnd,
+    pTry,
+    pOneOrMore,
+    pZeroOrMore,
+    --   pTryAll,
+    --   pTryOr
+  )
+where
 
-import Core.Utils
-import Core.Errors
-import Lexing.Tokens
-import Parsing.SyntaxTree
-import Data.Functor
 import Control.Applicative
+import Core.Errors
+import Data.Sequence (Seq (Empty, (:<|)))
+import Lexing.Tokens
 
-import Data.Sequence(Seq(Empty, (:<|)), (><), singleton)
-
-newtype Parser a = Parser { runParser :: (Seq Token -> (Seq Token, WithError a)) };
+newtype Parser a = Parser {runParser :: (Seq Token -> (Seq Token, WithError a))}
 
 instance Functor Parser where
   -- test
@@ -40,21 +37,19 @@ instance Monad Parser where
     case runParser parserA tokens of
       (restTokens, Success a) -> runParser (makeParserB a) restTokens
       (restTokens, Error e) -> (restTokens, Error e)
-  return a = Parser $ \tokens -> (tokens, Success a)
 
 instance Alternative Parser where
-    empty = Parser $ \tokens -> (tokens, Error DummyError)
-    parser1 <|> parser2 = Parser $ \tokens -> 
-        case runParser parser1 tokens of
-            (restTokens, Success a) -> (restTokens, Success a)
-            (_, Error _) -> runParser parser2 tokens
-
+  empty = Parser $ \tokens -> (tokens, Error DummyError)
+  parser1 <|> parser2 = Parser $ \tokens ->
+    case runParser parser1 tokens of
+      (restTokens, Success a) -> (restTokens, Success a)
+      (_, Error _) -> runParser parser2 tokens
 
 (<&&>) :: Parser a -> (a -> WithError b) -> Parser b
 parser <&&> f = Parser $ \tokens ->
-    case runParser parser tokens of
-      (restTokens, Success a) -> (restTokens, f a)
-      (restTokens, Error e) -> (restTokens, Error e)
+  case runParser parser tokens of
+    (restTokens, Success a) -> (restTokens, f a)
+    (restTokens, Error e) -> (restTokens, Error e)
 
 --  |test
 pNext :: Parser Token
@@ -82,7 +77,7 @@ pEnd = Parser $ \tokens ->
 
 -- test
 pTry :: Parser a -> Parser a
-pTry parser = Parser $ \tokens -> 
+pTry parser = Parser $ \tokens ->
   case runParser parser tokens of
     (restTokens, Success a) -> (restTokens, Success a)
     (_, Error e) -> (tokens, Error e)
@@ -94,11 +89,10 @@ pTry parser = Parser $ \tokens ->
 --     (restTokens, Success a) -> (restTokens, Success a)
 --     (_, Error e) -> runParser (pTryAll restParsers) tokens
 
-
 pZeroOrMore :: Parser a -> Parser [a]
-pZeroOrMore parser = Parser $ \tokens -> 
+pZeroOrMore parser = Parser $ \tokens ->
   case runParser parser tokens of
-    (restTokens, Success a) ->  runParser (fmap (a:) (pZeroOrMore parser)) restTokens
+    (restTokens, Success a) -> runParser (fmap (a :) (pZeroOrMore parser)) restTokens
     (_, Error _) -> (tokens, Success [])
 
 pOneOrMore :: Parser a -> Parser [a]

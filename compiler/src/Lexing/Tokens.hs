@@ -1,69 +1,67 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-module Lexing.Tokens (
-  Token(
-    Token,
-    value,
-    range
-  ),
-  TokenValue (
-    TypeToken,
-    LetToken,
-    IfToken,
-    ElseToken,
-    FnToken,
-    MatchToken,
-    OfToken,
-    PrintToken,
-    SemicolonToken,
-    ColonToken,
-    EqualsToken,
-    PipeToken,
-    SingleRightArrowToken,
-    DoubleRightArrowToken,
-    CommaToken,
-    LeftParenToken,
-    RightParenToken,
-    LeftBraceToken,
-    RightBraceToken,
-    IdentifierToken,
-    IntToken,
-    DoubleToken,
-    CharToken,
-    StringToken,
-    BoolToken,
-    IntLiteralToken,
-    DoubleLiteralToken,
-    CharLiteralToken,
-    StringLiteralToken,
-    BoolLiteralToken,
-    PlusToken,
-    MinusToken,
-    StarToken,
-    SlashToken,
-    BangToken,
-    AndToken,
-    OrToken,
-    PlusPlusToken,
-    GreaterToken,
-    LessToken,
-    GreaterEqualToken,
-    LessEqualToken
-  ),
-) where
+module Lexing.Tokens
+  ( Token
+      ( Token,
+        value,
+        range
+      ),
+    TokenValue
+      ( TypeToken,
+        LetToken,
+        IfToken,
+        ElseToken,
+        FnToken,
+        MatchToken,
+        OfToken,
+        PrintToken,
+        SemicolonToken,
+        ColonToken,
+        EqualsToken,
+        PipeToken,
+        SingleRightArrowToken,
+        DoubleRightArrowToken,
+        CommaToken,
+        LeftParenToken,
+        RightParenToken,
+        LeftBraceToken,
+        RightBraceToken,
+        IdentifierToken,
+        IntToken,
+        DoubleToken,
+        CharToken,
+        StringToken,
+        BoolToken,
+        IntLiteralToken,
+        DoubleLiteralToken,
+        CharLiteralToken,
+        StringLiteralToken,
+        BoolLiteralToken,
+        PlusToken,
+        MinusToken,
+        StarToken,
+        SlashToken,
+        BangToken,
+        AndToken,
+        OrToken,
+        PlusPlusToken,
+        GreaterToken,
+        LessToken,
+        GreaterEqualToken,
+        LessEqualToken
+      ),
+  )
+where
 
 import Core.Utils
-
 import qualified Data.Text as Text
 
-
-data Token = Token { value :: TokenValue, range :: Range }
+data Token = Token {value :: TokenValue, range :: Range}
   deriving (Show, Eq)
 
 instance Pretty Token where
-  pretty Token { value, range } = "Token{ " ++ pretty value ++ " " ++ pretty range ++ " }"
+  pretty Token {value, range} = "Token{ " ++ pretty value ++ " " ++ pretty range ++ " }"
 
-data TokenValue =
-  -- Keywords
+data TokenValue
+  = -- Keywords
     TypeToken
   | LetToken
   | IfToken
@@ -72,35 +70,35 @@ data TokenValue =
   | MatchToken
   | OfToken
   | PrintToken
-   -- Separators
-  | SemicolonToken
+  | -- Separators
+    SemicolonToken
   | ColonToken
   | EqualsToken
   | PipeToken
   | SingleRightArrowToken
   | DoubleRightArrowToken
   | CommaToken
-  -- Grouping
-  | LeftParenToken
+  | -- Grouping
+    LeftParenToken
   | RightParenToken
   | LeftBraceToken
   | RightBraceToken
-  -- Identifiers
-  | IdentifierToken Identifier
-  -- Primitive types
-  | IntToken
+  | -- Identifiers
+    IdentifierToken Identifier
+  | -- Primitive types
+    IntToken
   | DoubleToken
   | CharToken
   | StringToken
   | BoolToken
-  -- Literals
-  | IntLiteralToken Int
+  | -- Literals
+    IntLiteralToken Int
   | DoubleLiteralToken Double
   | CharLiteralToken Char
   | StringLiteralToken Text.Text
   | BoolLiteralToken Bool
-  -- Operators
-  | PlusToken
+  | -- Operators
+    PlusToken
   | MinusToken
   | StarToken
   | SlashToken
@@ -124,6 +122,7 @@ instance Pretty TokenValue where
   pretty OfToken = "of"
   pretty PrintToken = "print"
   pretty SemicolonToken = ";"
+  pretty ColonToken = ":"
   pretty EqualsToken = "="
   pretty PipeToken = "|"
   pretty SingleRightArrowToken = "->"
@@ -155,4 +154,4 @@ instance Pretty TokenValue where
   pretty GreaterToken = ">"
   pretty LessToken = "<"
   pretty GreaterEqualToken = ">="
-  pretty LessEqualToken ="<="
+  pretty LessEqualToken = "<="

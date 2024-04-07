@@ -1,4 +1,5 @@
 module Interpreter () where
+
 --   ( evaluateExpression
 --   )
 -- where
@@ -31,7 +32,6 @@ module Interpreter () where
 -- evaluateExpression (NegateExpression inner) = do
 --   innerValue <- evaluateExpression inner >>= takeIntValue
 --   return $ IntValue (-innerValue)
-
 
 -- takeIntValue :: Value -> WithRuntimeError Integer
 -- takeIntValue value = case value of

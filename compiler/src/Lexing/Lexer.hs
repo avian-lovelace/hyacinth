@@ -1,18 +1,17 @@
-module Lexing.Lexer (
-  lexText
-) where
+module Lexing.Lexer
+  ( lexText,
+  )
+where
 
-import Core.Utils
+import Control.Monad.State (State, get, put, runState)
 import Core.Errors
-import Lexing.Tokens
-import Lexing.TextWalker
-
-import Data.Sequence(Seq(Empty), (><), singleton)
-import Data.Char(isSpace, isDigit, isAlpha)
-import Data.Foldable(asum)
-import Control.Monad.State(State, runState, get, put)
-
+import Core.Utils
+import Data.Char (isAlpha, isDigit, isSpace)
+import Data.Foldable (asum)
+import Data.Sequence (Seq (Empty), singleton, (><))
 import qualified Data.Text as Text
+import Lexing.TextWalker
+import Lexing.Tokens
 
 type Lexer = State FileState (Maybe (WithError (Seq Token)))
 
@@ -25,10 +24,10 @@ lexHelper tokens = do
   if
     | (text fileState == Text.empty) -> return $ Success tokens
     | otherwise -> do
-      lexResult <- combinedLexer
-      case lexResult of
-        Error _ -> return lexResult
-        Success lexedTokens -> lexHelper (tokens >< lexedTokens)
+        lexResult <- combinedLexer
+        case lexResult of
+          Error _ -> return lexResult
+          Success lexedTokens -> lexHelper (tokens >< lexedTokens)
 
 combinedLexer :: State FileState (WithError (Seq Token))
 combinedLexer = do
@@ -48,9 +47,8 @@ combinedLexer = do
       Nothing -> Nothing
 
 lexers :: [Lexer]
-lexers = [
-    lexWhiteSpace,
-
+lexers =
+  [ lexWhiteSpace,
     -- Multiple character symbols
     lexMultiCharSymbol "->" SingleRightArrowToken,
     lexMultiCharSymbol "=>" DoubleRightArrowToken,
@@ -59,20 +57,17 @@ lexers = [
     lexMultiCharSymbol "++" PlusPlusToken,
     lexMultiCharSymbol ">=" GreaterEqualToken,
     lexMultiCharSymbol "<=" LessEqualToken,
-
     -- Symbols
     lexSymbol ';' SemicolonToken,
     lexSymbol ':' ColonToken,
     lexSymbol '=' EqualsToken,
     lexSymbol '|' PipeToken,
     lexSymbol ',' CommaToken,
-
     -- Grouping
     lexSymbol '(' LeftParenToken,
     lexSymbol ')' RightParenToken,
     lexSymbol '{' LeftBraceToken,
     lexSymbol '}' RightBraceToken,
-
     -- Operators
     lexSymbol '+' PlusToken,
     lexSymbol '-' MinusToken,
@@ -81,7 +76,6 @@ lexers = [
     lexSymbol '!' BangToken,
     lexSymbol '>' GreaterToken,
     lexSymbol '<' LessToken,
-
     -- Alphanumeric
     lexNumericLiteral,
     lexStringLiteral,
@@ -99,11 +93,11 @@ lexWhiteSpace = do
 lexSymbol :: Char -> TokenValue -> Lexer
 lexSymbol char tokenValue = do
   start <- getPosition
-  consumeResult <- consumeIf (==char)
+  consumeResult <- consumeIf (== char)
   case consumeResult of
     Consumed (Just _) -> do
       end <- getPosition
-      let token = Token { value = tokenValue, range = Range { start, end } }
+      let token = Token {value = tokenValue, range = Range {start, end}}
       return $ Just $ Success $ singleton token
     _ -> return Nothing
 
@@ -114,12 +108,13 @@ lexMultiCharSymbol keyword tokenValue = do
   case consumeResult of
     Just _ -> do
       end <- getPosition
-      let token = Token { value = tokenValue, range = Range { start, end } }
+      let token = Token {value = tokenValue, range = Range {start, end}}
       return $ Just $ Success $ singleton token
     _ -> return Nothing
-  where nextIsNotIdentifierChar maybeNext = case maybeNext of
-          Nothing -> True
-          Just next -> not $ isIdentifierChar next
+  where
+    nextIsNotIdentifierChar maybeNext = case maybeNext of
+      Nothing -> True
+      Just next -> not $ isIdentifierChar next
 
 lexNumericLiteral :: Lexer
 lexNumericLiteral = do
@@ -128,54 +123,53 @@ lexNumericLiteral = do
   if
     | intText == Text.empty -> return Nothing
     | otherwise -> do
-        consumePeriodResult <- consumeIf (=='.')
+        consumePeriodResult <- consumeIf (== '.')
         case consumePeriodResult of
           Consumed (Just _) -> do
             decimalText <- consumeWhile isDigit
             let decimalText' = if Text.length decimalText == 0 then "0" else decimalText
             end <- getPosition
             let doubleValue = read $ Text.unpack (intText <> "." <> decimalText')
-            let token = Token { value = DoubleLiteralToken doubleValue, range = Range { start, end } }
+            let token = Token {value = DoubleLiteralToken doubleValue, range = Range {start, end}}
             return $ Just $ Success $ singleton token
-          _ -> do 
+          _ -> do
             end <- getPosition
             let intValue = read $ Text.unpack intText
-            let token = Token { value = IntLiteralToken intValue, range = Range { start, end } }
+            let token = Token {value = IntLiteralToken intValue, range = Range {start, end}}
             return $ Just $ Success $ singleton token
 
 lexStringLiteral :: Lexer
 lexStringLiteral = do
   start <- getPosition
-  consumeQuoteResult <- consumeIf (=='"')
+  consumeQuoteResult <- consumeIf (== '"')
   case consumeQuoteResult of
     Consumed (Just _) -> do
-      consumeBodyResult <- consumeUntil (=='"')
+      consumeBodyResult <- consumeUntil (== '"')
       case consumeBodyResult of
         HitEOF -> return $ Just $ Error $ UnterminatedStringError start
         Consumed stringText -> do
           end <- getPosition
-          let token = Token { value = StringLiteralToken stringText, range = Range { start, end } }
+          let token = Token {value = StringLiteralToken stringText, range = Range {start, end}}
           return $ Just $ Success $ singleton token
     _ -> return Nothing
 
 lexCharLiteral :: Lexer
 lexCharLiteral = do
   start <- getPosition
-  consumeQuoteResult <- consumeIf (=='\'')
+  consumeQuoteResult <- consumeIf (== '\'')
   case consumeQuoteResult of
     Consumed (Just _) -> do
-      consumeBodyResult <- consumeUntil (=='\'')
+      consumeBodyResult <- consumeUntil (== '\'')
       case consumeBodyResult of
         HitEOF -> return $ Just $ Error $ UnterminatedCharError start
         Consumed stringText -> do
           end <- getPosition
           if
             | Text.length stringText == 1 -> do
-                let token = Token { value = CharLiteralToken $ Text.head stringText, range = Range { start, end } }
+                let token = Token {value = CharLiteralToken $ Text.head stringText, range = Range {start, end}}
                 return $ Just $ Success $ singleton token
             | otherwise -> do
                 return $ Just $ Error $ InvalidCharLiteralError start
-
     _ -> return Nothing
 
 lexKeywordOrIdentifier :: Lexer
@@ -186,25 +180,26 @@ lexKeywordOrIdentifier = do
     Consumed True -> do
       identifierText <- consumeWhile isIdentifierChar
       end <- getPosition
-      let tokenValue = (case identifierText of
-            "type" -> TypeToken
-            "let" -> LetToken
-            "if" -> IfToken
-            "else" -> ElseToken
-            "fn" -> FnToken
-            "match" -> MatchToken
-            "of" -> OfToken
-            "print" -> PrintToken
-            "Int" -> IntToken
-            "Double" -> DoubleToken
-            "Char" -> CharToken
-            "String" -> StringToken
-            "Bool" -> BoolToken
-            "true" -> BoolLiteralToken True
-            "false" -> BoolLiteralToken False
-            _ -> IdentifierToken identifierText
+      let tokenValue =
+            ( case identifierText of
+                "type" -> TypeToken
+                "let" -> LetToken
+                "if" -> IfToken
+                "else" -> ElseToken
+                "fn" -> FnToken
+                "match" -> MatchToken
+                "of" -> OfToken
+                "print" -> PrintToken
+                "Int" -> IntToken
+                "Double" -> DoubleToken
+                "Char" -> CharToken
+                "String" -> StringToken
+                "Bool" -> BoolToken
+                "true" -> BoolLiteralToken True
+                "false" -> BoolLiteralToken False
+                _ -> IdentifierToken identifierText
             )
-      let token = Token { value = tokenValue, range = Range { start, end } }
+      let token = Token {value = tokenValue, range = Range {start, end}}
       return $ Just $ Success $ singleton token
     _ -> return Nothing
 

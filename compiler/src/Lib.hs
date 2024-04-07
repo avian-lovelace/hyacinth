@@ -8,19 +8,12 @@ where
 import BytecodeGeneration.Bytecode
 import BytecodeGeneration.BytecodeGenerator
 import Core.Errors
-import Core.Utils
-import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
-import qualified Data.ByteString.Lazy as LB
-import Data.Foldable (toList)
 import qualified Data.Text as Text
-import qualified Data.Text.IO as Text.IO
 import Lexing.Lexer
-import Lexing.Tokens
 import Parsing.Parser
 import Parsing.Parsing
 import System.Directory
-import System.Environment (getArgs)
 -- import Turtle
 
 import System.Exit
@@ -78,14 +71,14 @@ runVM bytecodeFilePath = readProcessWithExitCode "../virtual-machine/target/debu
 --           putStrLn $ show remainingTokens
 --           putStrLn $ printExpression expression
 
-lexFile :: FilePath -> IO ()
-lexFile filePath = do
-  file <- Text.IO.readFile filePath
-  let result = lexText file
-  case result of
-    Error err -> putStrLn $ pretty err
-    Success tokens -> do
-      printTokens $ toList tokens
+-- lexFile :: FilePath -> IO ()
+-- lexFile filePath = do
+--   file <- Text.IO.readFile filePath
+--   let result = lexText file
+--   case result of
+--     Error err -> putStrLn $ pretty err
+--     Success tokens -> do
+--       printTokens $ toList tokens
 
-printTokens :: [Token] -> IO ()
-printTokens tokens = sequence_ $ map (putStrLn . pretty) tokens
+-- printTokens :: [Token] -> IO ()
+-- printTokens tokens = sequence_ $ map (putStrLn . pretty) tokens
