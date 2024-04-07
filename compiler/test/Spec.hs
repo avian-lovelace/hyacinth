@@ -1,11 +1,8 @@
-import Test.Hspec
-
-import ParserSpec
+import ExpressionSpec
 import LexerSpec
-import SectionerSpec
+import Test.Hspec
 
 main :: IO ()
 main = hspec $ do
   testLexer
-  testSectioner
-  -- testParser
+  testExpressions

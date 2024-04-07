@@ -1,44 +1,68 @@
 module Lib
-  ( run
+  ( run,
+    VMResult,
+    runCode,
   )
 where
 
-import Core.Utils
+import BytecodeGeneration.Bytecode
+import BytecodeGeneration.BytecodeGenerator
 import Core.Errors
-import Lexing.Tokens
+import Core.Utils
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.Lazy as LB
+import Data.Foldable (toList)
+import qualified Data.Text as Text
+import qualified Data.Text.IO as Text.IO
 import Lexing.Lexer
+import Lexing.Tokens
 import Parsing.Parser
 import Parsing.Parsing
-import BytecodeGeneration.BytecodeGenerator
-import BytecodeGeneration.Bytecode
+import System.Directory
+import System.Environment (getArgs)
+-- import Turtle
 
-import Data.Foldable(toList)
-import System.Environment(getArgs)
-
-import qualified Data.Text.IO as Text.IO
-import qualified Data.ByteString.Builder as BB
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as LB
-
-
+import System.Exit
+import System.Process
 
 run :: IO ()
 run = do
-  let code = "print -5 * 3 + 2; print 3 * (5 - 2);"
-  let Success tokens = lexText code
-  print $ show tokens
-  let Success ast = snd $ runParser fileParser tokens
-  print $ show ast
-  let bytecode = writeFileScope ast
-  print $ show bytecode
-  BB.writeFile ("../code.byte") (encodeChunk bytecode)
-  
+  (exitCode, stdOut, stdErr) <- readProcessWithExitCode "../virtual-machine/target/debug/virtual-machine" [] ""
+  print $ case exitCode of
+    ExitSuccess -> stdOut
+    ExitFailure _ -> stdErr
 
-  -- args <- getArgs
-  -- case length args of
-  --   0 -> putStrLn "A file name is required"
-  --   1 -> lexFile $ head args
-  --   _ -> putStrLn "Too many args"
+runCode :: Text.Text -> IO (WithError VMResult)
+runCode code = case compileCode code of
+  Success bytecode -> do
+    let bytecodeFilePath = "../byte.code"
+    writeBytecodeToFile bytecodeFilePath bytecode
+    vmResult <- runVM bytecodeFilePath
+    removeFile bytecodeFilePath
+    return $ Success vmResult
+  Error e -> return $ Error e
+
+compileCode :: Text.Text -> WithError Chunk
+compileCode code = do
+  tokens <- lexText code
+  ast <- snd $ runParser fileParser tokens
+  let bytecode = writeFileScope ast
+  return bytecode
+
+writeBytecodeToFile :: FilePath -> Chunk -> IO ()
+writeBytecodeToFile filePath bytecode = BB.writeFile filePath (encodeChunk bytecode)
+
+type VMResult = (ExitCode, String, String)
+
+runVM :: FilePath -> IO VMResult
+runVM bytecodeFilePath = readProcessWithExitCode "../virtual-machine/target/debug/virtual-machine" [bytecodeFilePath] ""
+
+-- args <- getArgs
+-- case length args of
+--   0 -> putStrLn "A file name is required"
+--   1 -> lexFile $ head args
+--   _ -> putStrLn "Too many args"
 
 -- compile :: FilePath -> IO ()
 -- compile filePath = do
