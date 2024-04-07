@@ -1,43 +1,27 @@
+use std::env;
 use std::fs;
+use std::process;
 
 fn main() {
-    let read_result = fs::read("../code.byte");
-    match read_result {
-        Ok(bytes) => {
-            // for byte in bytes {
-            //     println!("{}, ", byte);
-            // }
-            let chunk = readChunk(bytes);
-            interpret(chunk);
-        }
-        Err(_) => println!("Failed to read file"),
-    }
-
-    // let chunk = Chunk {
-    //     code: vec![2, 0, 2, 1, 6, 2, 2, 5, 1, 0],
-    //     constants: vec![3, 5, 7],
-    // };
+    let args: Vec<String> = env::args().collect();
+    let bytecode_file_path = args.get(1).expect("No file path provided");
+    let file_bytes = fs::read(bytecode_file_path)
+        .expect(format!("Failed to read file {}", bytecode_file_path).as_str());
+    let chunk = read_chunk(file_bytes);
+    interpret(chunk).unwrap_or_else(|err| {
+        eprintln!("{}", err);
+        process::exit(1);
+    });
 }
 
-fn readChunk(bytes: Vec<u8>) -> Chunk {
+fn read_chunk(bytes: Vec<u8>) -> Chunk {
     let mut f = FileState { bytes, index: 0 };
     let constants_length = f.read_int() as usize;
-    println!("constants_length {}", constants_length);
     let mut constants: Vec<Value> = Vec::new();
     for _ in (0..constants_length) {
         constants.push(f.read_int());
     }
-    print!("constants:");
-    for constant in &constants {
-        print!("{},", constant);
-    }
-    println!("");
     let code = f.read_rest();
-    print!("code:");
-    for byte in &code {
-        print!("{},", byte);
-    }
-    println!("");
     return Chunk { constants, code };
 }
 
@@ -67,7 +51,7 @@ impl FileState {
     }
 }
 
-fn interpret(chunk: Chunk) -> InterpretResult {
+fn interpret(chunk: Chunk) -> Result<(), String> {
     let mut vm = VM {
         chunk,
         ip: 0,
@@ -76,44 +60,43 @@ fn interpret(chunk: Chunk) -> InterpretResult {
     return run(&mut vm);
 }
 
-fn run(vm: &mut VM) -> InterpretResult {
+fn run(vm: &mut VM) -> Result<(), String> {
     loop {
         let instruction = vm.read_instruction();
         match instruction {
-            Some(Instruction::Return) => break InterpretResult::Ok,
-            Some(Instruction::Print) => match vm.pop() {
-                Some(value) => println!("{value}"),
-                None => break InterpretResult::RuntimeError,
-            },
-            Some(Instruction::Constant(const_index)) => match vm.read_constant(const_index) {
-                Some(value) => vm.push(value),
-                None => break InterpretResult::RuntimeError,
-            },
-            Some(Instruction::Negate) => match vm.pop() {
-                Some(value) => vm.push(-value),
-                None => break InterpretResult::RuntimeError,
-            },
-            Some(Instruction::Add) => match (vm.pop(), vm.pop()) {
-                (Some(value_2), Some(value_1)) => vm.push(value_1 + value_2),
-                _ => break InterpretResult::RuntimeError,
-            },
-            Some(Instruction::Subtract) => match (vm.pop(), vm.pop()) {
-                (Some(value_2), Some(value_1)) => vm.push(value_1 - value_2),
-                _ => break InterpretResult::RuntimeError,
-            },
-            Some(Instruction::Multiply) => match (vm.pop(), vm.pop()) {
-                (Some(value_2), Some(value_1)) => vm.push(value_1 * value_2),
-                _ => break InterpretResult::RuntimeError,
-            },
-            Some(Instruction::Divide) => match (vm.pop(), vm.pop()) {
-                (Some(value_2), Some(value_1)) => vm.push(value_1 / value_2),
-                _ => break InterpretResult::RuntimeError,
-            },
-            Some(Instruction::Modulo) => match (vm.pop(), vm.pop()) {
-                (Some(value_2), Some(value_1)) => vm.push(value_1 % value_2),
-                _ => break InterpretResult::RuntimeError,
-            },
-            None => break InterpretResult::RuntimeError,
+            Some(Instruction::Return) => break Ok(()),
+            Some(Instruction::Print) => println!("{}", vm.pop()?),
+            Some(Instruction::Constant(const_index)) => vm.push(vm.read_constant(const_index)?),
+            Some(Instruction::Negate) => {
+                let value = vm.pop()?;
+                vm.push(-value);
+            }
+            Some(Instruction::Add) => {
+                let value_2 = vm.pop()?;
+                let value_1 = vm.pop()?;
+                vm.push(value_1 + value_2);
+            }
+            Some(Instruction::Subtract) => {
+                let value_2 = vm.pop()?;
+                let value_1 = vm.pop()?;
+                vm.push(value_1 - value_2);
+            }
+            Some(Instruction::Multiply) => {
+                let value_2 = vm.pop()?;
+                let value_1 = vm.pop()?;
+                vm.push(value_1 * value_2);
+            }
+            Some(Instruction::Divide) => {
+                let value_2 = vm.pop()?;
+                let value_1 = vm.pop()?;
+                vm.push(value_1 / value_2);
+            }
+            Some(Instruction::Modulo) => {
+                let value_2 = vm.pop()?;
+                let value_1 = vm.pop()?;
+                vm.push(value_1 % value_2);
+            }
+            None => break Err("Reached end of instructions".to_owned()),
         };
     }
 }
@@ -158,16 +141,22 @@ impl VM {
         }
     }
 
-    fn read_constant(&self, index: ConstIndex) -> Option<Value> {
-        self.chunk.constants.get(index as usize).copied()
+    fn read_constant(&self, index: ConstIndex) -> Result<Value, String> {
+        self.chunk
+            .constants
+            .get(index as usize)
+            .copied()
+            .ok_or(format!("Failed to read constant at index {}", index).to_owned())
     }
 
     fn push(&mut self, value: Value) {
         self.stack.push(value)
     }
 
-    fn pop(&mut self) -> Option<Value> {
-        self.stack.pop()
+    fn pop(&mut self) -> Result<Value, String> {
+        self.stack
+            .pop()
+            .ok_or("Attempted to pop while the stack was empty".to_owned())
     }
 }
 
@@ -181,10 +170,4 @@ enum Instruction {
     Multiply,
     Divide,
     Modulo,
-}
-
-enum InterpretResult {
-    Ok,
-    CompileError,
-    RuntimeError,
 }
