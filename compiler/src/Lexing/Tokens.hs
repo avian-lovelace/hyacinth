@@ -39,10 +39,13 @@ module Lexing.Tokens
         MinusToken,
         StarToken,
         SlashToken,
+        PercentToken,
         BangToken,
         AndToken,
         OrToken,
         PlusPlusToken,
+        EqualEqualToken,
+        NotEqualToken,
         GreaterToken,
         LessToken,
         GreaterEqualToken,
@@ -102,10 +105,13 @@ data TokenValue
   | MinusToken
   | StarToken
   | SlashToken
+  | PercentToken
   | BangToken
   | AndToken
   | OrToken
   | PlusPlusToken
+  | EqualEqualToken
+  | NotEqualToken
   | GreaterToken
   | LessToken
   | GreaterEqualToken
@@ -147,10 +153,13 @@ instance Pretty TokenValue where
   pretty MinusToken = "-"
   pretty StarToken = "*"
   pretty SlashToken = "/"
+  pretty PercentToken = "%"
   pretty BangToken = "!"
   pretty AndToken = "&&"
   pretty OrToken = "||"
   pretty PlusPlusToken = "++"
+  pretty EqualEqualToken = "=="
+  pretty NotEqualToken = "!="
   pretty GreaterToken = ">"
   pretty LessToken = "<"
   pretty GreaterEqualToken = ">="

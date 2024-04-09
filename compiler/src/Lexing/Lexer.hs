@@ -55,6 +55,8 @@ lexers =
     lexMultiCharSymbol "&&" AndToken,
     lexMultiCharSymbol "||" OrToken,
     lexMultiCharSymbol "++" PlusPlusToken,
+    lexMultiCharSymbol "==" EqualEqualToken,
+    lexMultiCharSymbol "!=" NotEqualToken,
     lexMultiCharSymbol ">=" GreaterEqualToken,
     lexMultiCharSymbol "<=" LessEqualToken,
     -- Symbols
@@ -73,6 +75,7 @@ lexers =
     lexSymbol '-' MinusToken,
     lexSymbol '*' StarToken,
     lexSymbol '/' SlashToken,
+    lexSymbol '%' PercentToken,
     lexSymbol '!' BangToken,
     lexSymbol '>' GreaterToken,
     lexSymbol '<' LessToken,

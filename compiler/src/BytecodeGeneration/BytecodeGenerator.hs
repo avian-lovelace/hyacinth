@@ -29,7 +29,18 @@ writeStatement (PrintStatement _ expression) =
     >>> writeInstruction PrintInstruction
 
 writeExpression :: Expression -> Chunk -> Chunk
-writeExpression (ParenthesesExpression _ innerExpression) = writeExpression innerExpression
+writeExpression (IntLiteralExpression _ value) = \chunk ->
+  chunk
+    & ( writeConstant (IntValue (fromIntegral value))
+          >>> writeInstruction (ConstantInstruction (fromIntegral $ length $ constants chunk))
+      )
+writeExpression (DoubleLiteralExpression _ value) = \chunk ->
+  chunk
+    & ( writeConstant (DoubleValue value)
+          >>> writeInstruction (ConstantInstruction (fromIntegral $ length $ constants chunk))
+      )
+writeExpression (BoolLiteralExpression _ True) = writeInstruction TrueInstruction
+writeExpression (BoolLiteralExpression _ False) = writeInstruction FalseInstruction
 writeExpression (NegateExpression _ innerExpression) =
   writeExpression innerExpression
     >>> writeInstruction NegateInstruction
@@ -49,8 +60,42 @@ writeExpression (DivideExpression _ leftExpression rightExpression) =
   writeExpression leftExpression
     >>> writeExpression rightExpression
     >>> writeInstruction DivideInstruction
-writeExpression (IntLiteralExpression _ value) = \chunk ->
-  chunk
-    & ( writeConstant (Value (fromIntegral value))
-          >>> writeInstruction (ConstantInstruction (fromIntegral $ length $ constants chunk))
-      )
+writeExpression (ModuloExpression _ leftExpression rightExpression) =
+  writeExpression leftExpression
+    >>> writeExpression rightExpression
+    >>> writeInstruction ModuloInstruction
+writeExpression (NotExpression _ innerExpression) =
+  writeExpression innerExpression
+    >>> writeInstruction NotInstruction
+writeExpression (AndExpression _ leftExpression rightExpression) =
+  writeExpression leftExpression
+    >>> writeExpression rightExpression
+    >>> writeInstruction AndInstruction
+writeExpression (OrExpression _ leftExpression rightExpression) =
+  writeExpression leftExpression
+    >>> writeExpression rightExpression
+    >>> writeInstruction OrInstruction
+writeExpression (EqualExpression _ leftExpression rightExpression) =
+  writeExpression leftExpression
+    >>> writeExpression rightExpression
+    >>> writeInstruction EqualInstruction
+writeExpression (NotEqualExpression _ leftExpression rightExpression) =
+  writeExpression leftExpression
+    >>> writeExpression rightExpression
+    >>> writeInstruction NotEqualInstruction
+writeExpression (GreaterExpression _ leftExpression rightExpression) =
+  writeExpression leftExpression
+    >>> writeExpression rightExpression
+    >>> writeInstruction GreaterInstruction
+writeExpression (LessExpression _ leftExpression rightExpression) =
+  writeExpression leftExpression
+    >>> writeExpression rightExpression
+    >>> writeInstruction LessInstruction
+writeExpression (GreaterEqualExpression _ leftExpression rightExpression) =
+  writeExpression leftExpression
+    >>> writeExpression rightExpression
+    >>> writeInstruction GreaterEqualInstruction
+writeExpression (LessEqualExpression _ leftExpression rightExpression) =
+  writeExpression leftExpression
+    >>> writeExpression rightExpression
+    >>> writeInstruction LessEqualInstruction

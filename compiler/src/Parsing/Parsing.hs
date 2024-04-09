@@ -6,6 +6,7 @@ module Parsing.Parsing
     pTry,
     pOneOrMore,
     pZeroOrMore,
+    pZeroOrOne,
     --   pTryAll,
     --   pTryOr
   )
@@ -100,3 +101,9 @@ pOneOrMore parser = do
   firstResult <- parser
   restResults <- pZeroOrMore parser
   return (firstResult : restResults)
+
+pZeroOrOne :: Parser a -> Parser (Maybe a)
+pZeroOrOne parser = Parser $ \tokens ->
+  case runParser parser tokens of
+    (restTokens, Success a) -> (restTokens, Success $ Just a)
+    (_, Error _) -> (tokens, Success Nothing)

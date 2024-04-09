@@ -9,9 +9,20 @@ module BytecodeGeneration.Bytecode
         SubtractInstruction,
         MultiplyInstruction,
         DivideInstruction,
-        ModuloInstruction
+        ModuloInstruction,
+        NotInstruction,
+        AndInstruction,
+        OrInstruction,
+        EqualInstruction,
+        NotEqualInstruction,
+        GreaterInstruction,
+        LessInstruction,
+        GreaterEqualInstruction,
+        LessEqualInstruction,
+        TrueInstruction,
+        FalseInstruction
       ),
-    Value (Value),
+    Value (IntValue, DoubleValue),
     encodeChunk,
   )
 where
@@ -30,7 +41,7 @@ data Chunk = Chunk
 encodeChunk :: Chunk -> BB.Builder
 encodeChunk (Chunk code constants) =
   BB.int32BE (fromIntegral $ length constants)
-    <> fold (BB.int32BE <$> (\(Value value) -> value) <$> constants)
+    <> fold (encodeValue <$> constants)
     <> fold (encodeInstruction <$> code)
 
 data Instruction
@@ -43,6 +54,17 @@ data Instruction
   | MultiplyInstruction
   | DivideInstruction
   | ModuloInstruction
+  | NotInstruction
+  | AndInstruction
+  | OrInstruction
+  | EqualInstruction
+  | NotEqualInstruction
+  | GreaterInstruction
+  | LessInstruction
+  | GreaterEqualInstruction
+  | LessEqualInstruction
+  | TrueInstruction
+  | FalseInstruction
   deriving (Show)
 
 type ConstIndex = Int8
@@ -57,9 +79,21 @@ encodeInstruction SubtractInstruction = BB.int8 6
 encodeInstruction MultiplyInstruction = BB.int8 7
 encodeInstruction DivideInstruction = BB.int8 8
 encodeInstruction ModuloInstruction = BB.int8 9
+encodeInstruction NotInstruction = BB.int8 10
+encodeInstruction AndInstruction = BB.int8 11
+encodeInstruction OrInstruction = BB.int8 12
+encodeInstruction EqualInstruction = BB.int8 13
+encodeInstruction NotEqualInstruction = BB.int8 14
+encodeInstruction GreaterInstruction = BB.int8 15
+encodeInstruction LessInstruction = BB.int8 16
+encodeInstruction GreaterEqualInstruction = BB.int8 17
+encodeInstruction LessEqualInstruction = BB.int8 18
+encodeInstruction TrueInstruction = BB.int8 19
+encodeInstruction FalseInstruction = BB.int8 20
 
-data Value = Value Int32
+data Value = IntValue Int32 | DoubleValue Double
   deriving (Show)
 
 encodeValue :: Value -> BB.Builder
-encodeValue (Value value) = BB.int32BE value
+encodeValue (IntValue value) = BB.int8 1 <> BB.int32BE value
+encodeValue (DoubleValue value) = BB.int8 2 <> BB.doubleBE value
