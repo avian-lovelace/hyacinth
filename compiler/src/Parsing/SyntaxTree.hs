@@ -38,13 +38,17 @@ module Parsing.SyntaxTree
   )
 where
 
+import Core.FilePositions
 import Core.Utils
+import Data.Sequence (Seq)
 
-data FileScope = FileScope [Statement]
+data FileScope = FileScope (Seq Statement)
   deriving (Show)
 
 data Statement
   = PrintStatement Range Expression
+  | VariableDeclarationStatement Range VariableName Expression
+  | VariableMutationStatement Range VariableName Expression
   deriving (Show)
 
 --     AlgebraicDataTypeStatement TypeVariableName [TypeVariableName] [(ProductTypeName, [ProperType])]
@@ -53,6 +57,8 @@ data Statement
 
 instance WithRange Statement where
   getRange (PrintStatement range _) = range
+  getRange (VariableDeclarationStatement range _ _) = range
+  getRange (VariableMutationStatement range _ _) = range
 
 -- data ProperType =
 --     IntType
@@ -68,7 +74,11 @@ instance WithRange Statement where
 --     ProperType ProperType
 --   | GenericType TypeVariableName Type
 
--- data VariableName = VariableName Identifier
+data VariableName = VariableName Range Identifier
+  deriving (Show)
+
+instance WithRange VariableName where
+  getRange (VariableName range _) = range
 
 -- data TypeVariableName = TypeVariableName Identifier
 
@@ -82,6 +92,7 @@ data Expression
   | -- | CharLiteralExpression Char
     -- | StringLiteralExpression String
     BoolLiteralExpression Range Bool
+  | VariableExpression Range VariableName
   | NegateExpression Range Expression
   | AddExpression Range Expression Expression
   | SubtractExpression Range Expression Expression
@@ -99,14 +110,7 @@ data Expression
   | GreaterEqualExpression Range Expression Expression
   | LessEqualExpression Range Expression Expression
   deriving
-    ( -- \| ScopeExpression Scope
-      -- \| VariableExpression VariableName
-
-      -- | IfExpression [(Expression, Expression)] Expression
-      -- | FunctionExpression [VariableName] Expression
-      -- | ApplicationExpression Expression Expression
-      -- | MatchExpression Expression [(ProductTypeName, [VariableName], Expression)]
-      Show
+    ( Show
     )
 
 instance WithRange Expression where
@@ -114,6 +118,7 @@ instance WithRange Expression where
     IntLiteralExpression range _ -> range
     DoubleLiteralExpression range _ -> range
     BoolLiteralExpression range _ -> range
+    VariableExpression range _ -> range
     NegateExpression range _ -> range
     AddExpression range _ _ -> range
     SubtractExpression range _ _ -> range

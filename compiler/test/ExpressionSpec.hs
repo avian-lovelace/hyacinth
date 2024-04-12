@@ -11,7 +11,7 @@ import Lib
 import System.Exit
 import Test.Hspec
 
-runsSuccessfullyWithOutput :: IO (WithError VMResult) -> String -> Expectation
+runsSuccessfullyWithOutput :: IO (WithErrors VMResult) -> String -> Expectation
 runsSuccessfullyWithOutput vmRun expected = do
   runResult <- vmRun
   case runResult of

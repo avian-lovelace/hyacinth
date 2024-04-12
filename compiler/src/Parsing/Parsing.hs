@@ -1,100 +1,108 @@
 module Parsing.Parsing
-  ( Parser (runParser),
+  ( Parser (Parser, runParser),
     (<&&>),
     pNext,
-    pEnd,
     pTry,
     pOneOrMore,
     pZeroOrMore,
     pZeroOrOne,
+    catchUnboundError,
     --   pTryAll,
-    --   pTryOr
+    --   pTryOr,
+    runParserToEnd,
+    returnWithErrors,
+    ParseState (ParseSuccess, BoundErrors, UnboundError),
+    ParseFunction,
   )
 where
 
 import Control.Applicative
 import Core.Errors
 import Data.Sequence (Seq (Empty, (:<|)))
-import Lexing.Tokens
+import Sectioning.Sectioning (Section)
 
-newtype Parser a = Parser {runParser :: (Seq Token -> (Seq Token, WithError a))}
+{- ParseFunction is used in situations where we have a bounded section of code, and we want to parse the whole chunk
+into a certain output. The main advantage of using ParseFunction over Parser is that it enables throwing useful errors that
+are bound to a certain section of code. However, it is harder to parse complex syntax.
+-}
+type ParseFunction a = Seq Section -> WithErrors a
+
+-- ParseState
+data ParseState a
+  = ParseSuccess a
+  | BoundErrors (Seq Error)
+  | UnboundError
+
+instance Functor ParseState where
+  fmap f (ParseSuccess a) = ParseSuccess $ f a
+  fmap _ (BoundErrors es) = BoundErrors es
+  fmap _ UnboundError = UnboundError
+
+toParseState :: WithErrors a -> ParseState a
+toParseState (Success a) = ParseSuccess a
+toParseState (Error es) = BoundErrors es
+
+{- The Parser type is used in situation where we want to part something starting at a certain point in code, but not
+necessarily knowing where it ends. The main advantage of using Parser over Parsefunction is that Parsers can be combined
+flexibly, so they can more easily parse complex syntax. However, it is hard to output useful errors.
+-}
+newtype Parser a = Parser {runParser :: Seq Section -> (Seq Section, ParseState a)}
 
 instance Functor Parser where
-  -- test
-  fmap f parser = Parser $ \tokens ->
-    case runParser parser tokens of
-      (restTokens, Success a) -> (restTokens, Success $ f a)
-      (restTokens, Error e) -> (restTokens, Error e)
+  fmap f parser = Parser $ \sections ->
+    let (restSections, parseState) = runParser parser sections
+     in (restSections, f <$> parseState)
 
 instance Applicative Parser where
-  pure a = Parser $ \tokens -> (tokens, Success a)
-  (<*>) parserF parserA = Parser $ \tokens ->
-    case runParser parserF tokens of
-      (restTokens, Success f) -> runParser (fmap f parserA) restTokens
-      (restTokens, Error e) -> (restTokens, Error e)
+  pure a = Parser $ \sections -> (sections, ParseSuccess a)
+  (<*>) parserF parserA = Parser $ \sections ->
+    case runParser parserF sections of
+      (restSections, ParseSuccess f) -> runParser (f <$> parserA) restSections
+      (restSections, BoundErrors es) -> (restSections, BoundErrors es)
+      (restSections, UnboundError) -> (restSections, UnboundError)
 
 instance Monad Parser where
-  parserA >>= makeParserB = Parser $ \tokens ->
-    case runParser parserA tokens of
-      (restTokens, Success a) -> runParser (makeParserB a) restTokens
-      (restTokens, Error e) -> (restTokens, Error e)
+  parserA >>= makeParserB = Parser $ \sections ->
+    case runParser parserA sections of
+      (restSections, ParseSuccess a) -> runParser (makeParserB a) restSections
+      (restSections, BoundErrors es) -> (restSections, BoundErrors es)
+      (restSections, UnboundError) -> (restSections, UnboundError)
 
 instance Alternative Parser where
-  empty = Parser $ \tokens -> (tokens, Error DummyError)
-  parser1 <|> parser2 = Parser $ \tokens ->
-    case runParser parser1 tokens of
-      (restTokens, Success a) -> (restTokens, Success a)
-      (_, Error _) -> runParser parser2 tokens
+  empty = Parser $ \sections -> (sections, UnboundError)
+  parser1 <|> parser2 = Parser $ \sections ->
+    case runParser parser1 sections of
+      (restSections, ParseSuccess a) -> (restSections, ParseSuccess a)
+      (_, BoundErrors _) -> runParser parser2 sections
+      (_, UnboundError) -> runParser parser2 sections
 
-(<&&>) :: Parser a -> (a -> WithError b) -> Parser b
-parser <&&> f = Parser $ \tokens ->
-  case runParser parser tokens of
-    (restTokens, Success a) -> (restTokens, f a)
-    (restTokens, Error e) -> (restTokens, Error e)
+(<&&>) :: Parser a -> (a -> Maybe b) -> Parser b
+parser <&&> f = Parser $ \sections ->
+  case runParser parser sections of
+    (restSections, ParseSuccess a) -> case f a of
+      Just b -> (restSections, ParseSuccess b)
+      Nothing -> (restSections, UnboundError)
+    (restSections, BoundErrors es) -> (restSections, BoundErrors es)
+    (restSections, UnboundError) -> (restSections, UnboundError)
 
---  |test
-pNext :: Parser Token
-pNext = Parser $ \tokens ->
-  case tokens of
-    nextToken :<| restTokens -> (restTokens, Success nextToken)
-    Empty -> (Empty, Error DummyError)
+pNext :: Parser Section
+pNext = Parser $ \sections ->
+  case sections of
+    nextSection :<| restSections -> (restSections, ParseSuccess nextSection)
+    Empty -> (Empty, UnboundError)
 
-pEnd :: Parser ()
-pEnd = Parser $ \tokens ->
-  case tokens of
-    Empty -> (Empty, Success ())
-    _ -> (tokens, Error DummyError)
-
--- pNextSatisfies :: (Token -> Bool) -> Parser Token
--- pNextSatisfies condition = Parser $ \tokens ->
---   case tokens of
---     nextToken :<| restTokens -> if condition nextToken
---       then (restTokens, Success nextToken)
---       else (tokens, Error DummyError)
---     Empty -> (Empty, Error DummyError)
-
--- pNextMatches :: Token -> Parser Token
--- pNextMatches token = pNextSatisfies (==token)
-
--- test
 pTry :: Parser a -> Parser a
-pTry parser = Parser $ \tokens ->
-  case runParser parser tokens of
-    (restTokens, Success a) -> (restTokens, Success a)
-    (_, Error e) -> (tokens, Error e)
-
--- pTryAll :: [Parser a] -> Parser a
--- pTryAll [] = Parser $ \tokens -> (tokens, Error DummyError)
--- pTryAll (parser : restParsers) = Parser $ \tokens ->
---   case runParser parser tokens of
---     (restTokens, Success a) -> (restTokens, Success a)
---     (_, Error e) -> runParser (pTryAll restParsers) tokens
+pTry parser = Parser $ \sections ->
+  case runParser parser sections of
+    (restSections, ParseSuccess a) -> (restSections, ParseSuccess a)
+    (_, UnboundError) -> (sections, UnboundError)
+    (_, BoundErrors es) -> (sections, BoundErrors es)
 
 pZeroOrMore :: Parser a -> Parser [a]
-pZeroOrMore parser = Parser $ \tokens ->
-  case runParser parser tokens of
-    (restTokens, Success a) -> runParser (fmap (a :) (pZeroOrMore parser)) restTokens
-    (_, Error _) -> (tokens, Success [])
+pZeroOrMore parser = Parser $ \sections ->
+  case runParser parser sections of
+    (restSections, ParseSuccess a) -> runParser ((a :) <$> pZeroOrMore parser) restSections
+    _ -> (sections, ParseSuccess [])
 
 pOneOrMore :: Parser a -> Parser [a]
 pOneOrMore parser = do
@@ -103,7 +111,22 @@ pOneOrMore parser = do
   return (firstResult : restResults)
 
 pZeroOrOne :: Parser a -> Parser (Maybe a)
-pZeroOrOne parser = Parser $ \tokens ->
-  case runParser parser tokens of
-    (restTokens, Success a) -> (restTokens, Success $ Just a)
-    (_, Error _) -> (tokens, Success Nothing)
+pZeroOrOne parser = Parser $ \sections ->
+  case runParser parser sections of
+    (restSections, ParseSuccess a) -> (restSections, ParseSuccess $ Just a)
+    _ -> (sections, ParseSuccess Nothing)
+
+catchUnboundError :: Error -> ParseState a -> WithErrors a
+catchUnboundError replacementError parseState = case parseState of
+  ParseSuccess a -> Success a
+  BoundErrors es -> Error es
+  UnboundError -> singleError replacementError
+
+runParserToEnd :: Parser a -> Seq Section -> ParseState a
+runParserToEnd parser sections = case runParser parser sections of
+  (Empty, ParseSuccess a) -> ParseSuccess a
+  (_, ParseSuccess _) -> UnboundError
+  (_, err) -> err
+
+returnWithErrors :: WithErrors a -> Parser a
+returnWithErrors withErrors = Parser $ \sections -> (sections, toParseState withErrors)

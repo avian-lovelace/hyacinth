@@ -8,25 +8,26 @@ where
 import BytecodeGeneration.Bytecode
 import BytecodeGeneration.BytecodeGenerator
 import Core.Errors
+import Core.Utils
 import qualified Data.ByteString.Builder as BB
 import qualified Data.Text as Text
 import Lexing.Lexer
 import Parsing.Parser
-import Parsing.Parsing
+import Sectioning.Sectioner
 import System.Directory
--- import Turtle
-
 import System.Exit
 import System.Process
 
 run :: IO ()
-run = do
-  (exitCode, stdOut, stdErr) <- readProcessWithExitCode "../virtual-machine/target/debug/virtual-machine" [] ""
-  print $ case exitCode of
-    ExitSuccess -> stdOut
-    ExitFailure _ -> stdErr
+run = case compileCode "print 1 + + 2;" of
+  Error es -> mapM_ (putStrLn . pretty) es
+  Success byteCode -> do
+    result <- runByteCode byteCode
+    case result of
+      (ExitSuccess, stdOut, _) -> putStrLn stdOut
+      (ExitFailure _, _, stdErr) -> putStrLn stdErr
 
-runCode :: Text.Text -> IO (WithError VMResult)
+runCode :: Text.Text -> IO (WithErrors VMResult)
 runCode code = case compileCode code of
   Success bytecode -> do
     let bytecodeFilePath = "../byte.code"
@@ -36,10 +37,19 @@ runCode code = case compileCode code of
     return $ Success vmResult
   Error e -> return $ Error e
 
-compileCode :: Text.Text -> WithError Chunk
+runByteCode :: Chunk -> IO VMResult
+runByteCode code = do
+  let bytecodeFilePath = "../byte.code"
+  writeBytecodeToFile bytecodeFilePath code
+  vmResult <- runVM bytecodeFilePath
+  removeFile bytecodeFilePath
+  return vmResult
+
+compileCode :: Text.Text -> WithErrors Chunk
 compileCode code = do
   tokens <- lexText code
-  ast <- snd $ runParser fileParser tokens
+  sections <- sectionFile tokens
+  ast <- parseFile sections
   let bytecode = writeFileScope ast
   return bytecode
 

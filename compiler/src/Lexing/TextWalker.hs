@@ -23,7 +23,7 @@ module Lexing.TextWalker
 where
 
 import Control.Monad.State (State, get, put)
-import Core.Utils
+import Core.FilePositions
 import qualified Data.Text as Text
 
 data FileState = FileState

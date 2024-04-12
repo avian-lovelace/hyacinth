@@ -1,6 +1,6 @@
 module Parsing.Parser
-  ( fileParser,
-    statementParser,
+  ( parseFile,
+    -- statementParser,
     expressionParser,
     additionLevelExpressionParser,
     multiplicationLevelExpressionParser,
@@ -12,37 +12,43 @@ where
 
 import Control.Applicative
 import Core.Errors
+import Core.FilePositions
 import Core.Utils
 import Data.Foldable
+import Data.Sequence (Seq (Empty, (:<|)), breakl, singleton, (<|))
 import Lexing.Tokens
 import Parsing.Parsing
 import Parsing.SyntaxTree
+import Sectioning.Sectioning (Section (ParenSection, TokenSection))
 
-fileParser :: Parser FileScope
-fileParser = do
-  statements <- pZeroOrMore statementParser
-  pEnd
-  return $ FileScope statements
+parseFile :: ParseFunction FileScope
+parseFile sections = FileScope <$> foldrWithErrors (<|) Empty (parseStatements sections)
+
+parseStatements :: Seq Section -> Seq (WithErrors Statement)
+parseStatements Empty = Empty
+parseStatements sections = case breakl matchSemicolon sections of
+  (statementSections, Empty) -> singleton $ Error [ExpectedToEndWithSemicolonError $ getUnionRange (seqHead statementSections, seqTail statementSections)]
+  (statementSections, _semicolon :<| restTokens) -> parseStatement statementSections <| parseStatements restTokens
+
+matchSemicolon :: Section -> Bool
+matchSemicolon (TokenSection (SemicolonToken _)) = True
+matchSemicolon _ = False
 
 -- Statements
 
-statementParser :: Parser Statement
-statementParser = printStatementParser
+parseStatement :: ParseFunction Statement
+parseStatement sections = case sections of
+  TokenSection (PrintToken range) :<| tailSections -> parsePrintStatement range tailSections
+  _ -> singleError $ ShouldNotGetHereError "To be implemented"
 
-printStatementParser :: Parser Statement
-printStatementParser = do
-  printRange <- pNext <&&> matchPrint
-  expression <- expressionParser
-  semicolonRange <- pNext <&&> matchSemicolon
-  return $ PrintStatement (printRange <> semicolonRange) expression
-
-matchPrint :: Token -> WithError Range
-matchPrint (Token PrintToken range) = Success range
-matchPrint _ = Error DummyError
-
-matchSemicolon :: Token -> WithError Range
-matchSemicolon (Token SemicolonToken range) = Success range
-matchSemicolon _ = Error DummyError
+parsePrintStatement :: Range -> ParseFunction Statement
+parsePrintStatement printTokenRange expressionSections = case expressionSections of
+  Empty -> singleError $ PrintStatementEmptyExpressionError printTokenRange
+  _ -> PrintStatement statementRange <$> expressionOrErrors
+    where
+      statementRange = getUnionRange (printTokenRange, seqTail expressionSections)
+      expressionRange = getUnionRange (seqHead expressionSections, seqTail expressionSections)
+      expressionOrErrors = catchUnboundError (PrintStatementInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
 
 -- Expressions
 
@@ -60,12 +66,12 @@ logicalLevelExpressionParser = do
     return (operator, rightExpression)
   return $ foldl' makeExpression leftExpression rightExpressions
   where
-    makeExpression left (operator, right) = operator (getUnionRange [left, right]) left right
+    makeExpression left (operator, right) = operator (getUnionRange (left, right)) left right
 
-toLogicalExpression :: Token -> WithError (Range -> Expression -> Expression -> Expression)
-toLogicalExpression (Token AndToken _) = Success AndExpression
-toLogicalExpression (Token OrToken _) = Success OrExpression
-toLogicalExpression _ = Error DummyError
+toLogicalExpression :: Section -> Maybe (Range -> Expression -> Expression -> Expression)
+toLogicalExpression (TokenSection (AndToken _)) = Just AndExpression
+toLogicalExpression (TokenSection (OrToken _)) = Just OrExpression
+toLogicalExpression _ = Nothing
 
 -- Equality level
 
@@ -78,12 +84,12 @@ equalityLevelExpressionParser = do
     return (operator, rightExpression)
   return $ case rightSide of
     Nothing -> leftExpression
-    Just (operator, rightExpression) -> operator (getUnionRange [leftExpression, rightExpression]) leftExpression rightExpression
+    Just (operator, rightExpression) -> operator (getUnionRange (leftExpression, rightExpression)) leftExpression rightExpression
 
-toEqualityExpression :: Token -> WithError (Range -> Expression -> Expression -> Expression)
-toEqualityExpression (Token EqualEqualToken _) = Success EqualExpression
-toEqualityExpression (Token NotEqualToken _) = Success NotEqualExpression
-toEqualityExpression _ = Error DummyError
+toEqualityExpression :: Section -> Maybe (Range -> Expression -> Expression -> Expression)
+toEqualityExpression (TokenSection (EqualEqualToken _)) = Just EqualExpression
+toEqualityExpression (TokenSection (NotEqualToken _)) = Just NotEqualExpression
+toEqualityExpression _ = Nothing
 
 -- Comparison level
 
@@ -96,14 +102,14 @@ comparisonLevelExpressionParser = do
     return (operator, rightExpression)
   return $ case rightSide of
     Nothing -> leftExpression
-    Just (operator, rightExpression) -> operator (getUnionRange [leftExpression, rightExpression]) leftExpression rightExpression
+    Just (operator, rightExpression) -> operator (getUnionRange (leftExpression, rightExpression)) leftExpression rightExpression
 
-toComparisonExpression :: Token -> WithError (Range -> Expression -> Expression -> Expression)
-toComparisonExpression (Token GreaterToken _) = Success GreaterExpression
-toComparisonExpression (Token LessToken _) = Success LessExpression
-toComparisonExpression (Token GreaterEqualToken _) = Success GreaterEqualExpression
-toComparisonExpression (Token LessEqualToken _) = Success LessEqualExpression
-toComparisonExpression _ = Error DummyError
+toComparisonExpression :: Section -> Maybe (Range -> Expression -> Expression -> Expression)
+toComparisonExpression (TokenSection (GreaterToken _)) = Just GreaterExpression
+toComparisonExpression (TokenSection (LessToken _)) = Just LessExpression
+toComparisonExpression (TokenSection (GreaterEqualToken _)) = Just GreaterEqualExpression
+toComparisonExpression (TokenSection (LessEqualToken _)) = Just LessEqualExpression
+toComparisonExpression _ = Nothing
 
 -- Addition/subtraction level
 
@@ -116,12 +122,12 @@ additionLevelExpressionParser = do
     return (operator, rightExpression)
   return $ foldl' makeExpression leftExpression rightExpressions
   where
-    makeExpression left (operator, right) = operator (getUnionRange [left, right]) left right
+    makeExpression left (operator, right) = operator (getUnionRange (left, right)) left right
 
-toAddSubtractExpression :: Token -> WithError (Range -> Expression -> Expression -> Expression)
-toAddSubtractExpression (Token PlusToken _) = Success AddExpression
-toAddSubtractExpression (Token MinusToken _) = Success SubtractExpression
-toAddSubtractExpression _ = Error DummyError
+toAddSubtractExpression :: Section -> Maybe (Range -> Expression -> Expression -> Expression)
+toAddSubtractExpression (TokenSection (PlusToken _)) = Just AddExpression
+toAddSubtractExpression (TokenSection (MinusToken _)) = Just SubtractExpression
+toAddSubtractExpression _ = Nothing
 
 -- Multiplication/division/modulo level
 
@@ -134,13 +140,13 @@ multiplicationLevelExpressionParser = do
     return (operator, rightExpression)
   return $ foldl' makeExpression leftExpression rightExpressions
   where
-    makeExpression left (operator, right) = operator (getUnionRange [left, right]) left right
+    makeExpression left (operator, right) = operator (getUnionRange (left, right)) left right
 
-toMultiplyDivideExpression :: Token -> WithError (Range -> Expression -> Expression -> Expression)
-toMultiplyDivideExpression (Token StarToken _) = Success MultiplyExpression
-toMultiplyDivideExpression (Token SlashToken _) = Success DivideExpression
-toMultiplyDivideExpression (Token PercentToken _) = Success ModuloExpression
-toMultiplyDivideExpression _ = Error DummyError
+toMultiplyDivideExpression :: Section -> Maybe (Range -> Expression -> Expression -> Expression)
+toMultiplyDivideExpression (TokenSection (StarToken _)) = Just MultiplyExpression
+toMultiplyDivideExpression (TokenSection (SlashToken _)) = Just DivideExpression
+toMultiplyDivideExpression (TokenSection (PercentToken _)) = Just ModuloExpression
+toMultiplyDivideExpression _ = Nothing
 
 -- Unary level
 
@@ -153,10 +159,10 @@ unaryExpressionParser = do
   where
     makeExpression (operator, range) innerExpression = operator (range <> getRange innerExpression) innerExpression
 
-toUnaryExpressionAndRange :: Token -> WithError (Range -> Expression -> Expression, Range)
-toUnaryExpressionAndRange (Token MinusToken range) = Success (NegateExpression, range)
-toUnaryExpressionAndRange (Token BangToken range) = Success (NotExpression, range)
-toUnaryExpressionAndRange _ = Error DummyError
+toUnaryExpressionAndRange :: Section -> Maybe (Range -> Expression -> Expression, Range)
+toUnaryExpressionAndRange (TokenSection (MinusToken range)) = Just (NegateExpression, range)
+toUnaryExpressionAndRange (TokenSection (BangToken range)) = Just (NotExpression, range)
+toUnaryExpressionAndRange _ = Nothing
 
 -- Primary level
 
@@ -166,25 +172,18 @@ primaryExpressionParser = literalExpressionParser <|> parenthesesExpressionParse
 literalExpressionParser :: Parser Expression
 literalExpressionParser = pNext <&&> toLiteralExpression
 
-toLiteralExpression :: Token -> WithError Expression
-toLiteralExpression (Token (IntLiteralToken value) range) = Success $ IntLiteralExpression range value
-toLiteralExpression (Token (DoubleLiteralToken value) range) = Success $ DoubleLiteralExpression range value
-toLiteralExpression (Token (BoolLiteralToken value) range) = Success $ BoolLiteralExpression range value
-toLiteralExpression _ = Error DummyError
+toLiteralExpression :: Section -> Maybe Expression
+toLiteralExpression (TokenSection (IntLiteralToken range value)) = Just $ IntLiteralExpression range value
+toLiteralExpression (TokenSection (DoubleLiteralToken range value)) = Just $ DoubleLiteralExpression range value
+toLiteralExpression (TokenSection (BoolLiteralToken range value)) = Just $ BoolLiteralExpression range value
+toLiteralExpression _ = Nothing
 
 parenthesesExpressionParser :: Parser Expression
 parenthesesExpressionParser = do
-  pNext <&&> matchLeftParenthesis
-  innerExpression <- expressionParser
-  pNext <&&> matchRightParenthesis
+  (range, innerSections) <- pNext <&&> matchParenSection
+  innerExpression <- returnWithErrors $ catchUnboundError (ExpectedExpressionInParensError range) $ runParserToEnd expressionParser innerSections
   return innerExpression
 
-matchLeftParenthesis :: Token -> WithError ()
-matchLeftParenthesis (Token LeftParenToken _) = Success ()
-matchLeftParenthesis _ = Error DummyError
-
-matchRightParenthesis :: Token -> WithError ()
-matchRightParenthesis (Token RightParenToken _) = Success ()
-matchRightParenthesis _ = Error DummyError
-
--- IntLiteralExpressionParser = pNext <&&> toIntLiteralExpression
+matchParenSection :: Section -> Maybe (Range, Seq Section)
+matchParenSection (ParenSection range innerSections) = Just (range, innerSections)
+matchParenSection _ = Nothing

@@ -1,93 +1,102 @@
 module Core.Errors
   ( Error
-      ( DummyError,
+      ( ShouldNotGetHereError,
         LexError,
-        UnclosedParenError,
         UnterminatedStringError,
         UnterminatedCharError,
         InvalidCharLiteralError,
-        ExpectedTokenError,
-        MismatchedGroupingError,
-        EmptyStatementSectionError,
-        NoSemicolonError,
-        EmptyStatementError,
-        StatementInvalidFirstTokenError,
-        LetMissingEqualsError,
-        LetEmptyTypeError,
-        AssignableParseError
+        UnmatchedStartGroupingError,
+        UnmatchEndGroupingError,
+        MismatchedGroupingEndsError,
+        ExpectedExpressionInParensError,
+        ExpectedToEndWithSemicolonError,
+        PrintStatementEmptyExpressionError,
+        PrintStatementInvalidExpressionError
       ),
-    WithError (Error, Success),
-    maybeToWithError,
+    WithErrors (Error, Success),
+    singleError,
+    foldrWithErrors,
   )
 where
 
+import Core.FilePositions
 import Core.Utils
-import Data.List (intercalate)
+import Data.Sequence (Seq, singleton, (><))
 import Lexing.Tokens
 
 data Error
-  = DummyError
-  | LexError Position
-  | UnclosedParenError Position
+  = -- Generic
+    ShouldNotGetHereError String
+  | -- Lexing
+    LexError Position
   | UnterminatedStringError Position
   | UnterminatedCharError Position
   | InvalidCharLiteralError Position
-  | ExpectedTokenError [TokenValue] (Maybe TokenValue) Position
-  | MismatchedGroupingError (Maybe Token) (Maybe Token)
-  | EmptyStatementSectionError Range
-  | NoSemicolonError Range
-  | EmptyStatementError Range
-  | StatementInvalidFirstTokenError Range
-  | LetMissingEqualsError Range
-  | LetEmptyTypeError Range
-  | AssignableParseError Range
+  | -- Sectioning
+    UnmatchedStartGroupingError Token
+  | UnmatchEndGroupingError Token
+  | MismatchedGroupingEndsError Token Token
+  | -- Parsing
+    ExpectedExpressionInParensError Range
+  | ExpectedToEndWithSemicolonError Range
+  | PrintStatementEmptyExpressionError Range
+  | PrintStatementInvalidExpressionError Range
   deriving (Show, Eq)
 
 instance Pretty Error where
-  pretty err = case err of
-    LexError position -> "Encountered unexpected character at " ++ pretty position
-    UnclosedParenError position -> "Missing ) at " ++ pretty position
-    UnterminatedStringError position -> "Encountered unteriminated string at " ++ pretty position
-    UnterminatedCharError position -> "Encountered unteriminated char at " ++ pretty position
-    InvalidCharLiteralError position -> "Char literals must contain exactly one character " ++ pretty position
-    ExpectedTokenError expecteds maybeActual position ->
-      ( "Expected "
-          ++ (printList $ pretty <$> expecteds)
-          ++ " but saw "
-          ++ (printMaybe $ pretty <$> maybeActual)
-          ++ " at "
-          ++ (pretty position)
-      )
-    where
-      printMaybe :: Maybe String -> String
-      printMaybe Nothing = "nothing"
-      printMaybe (Just s) = s
+  pretty (ShouldNotGetHereError message) = "Should not get here: " ++ message
+  pretty (LexError position) = "Encountered unexpected character at " ++ pretty position
+  pretty (UnterminatedStringError position) = "Encountered unteriminated string at " ++ pretty position
+  pretty (UnterminatedCharError position) = "Encountered unteriminated char at " ++ pretty position
+  pretty (InvalidCharLiteralError position) = "Char literals must contain exactly one character " ++ pretty position
+  pretty (UnmatchedStartGroupingError token) = "Encountered unmatched token " ++ pretty token ++ " at " ++ pretty (getRange token)
+  pretty (UnmatchEndGroupingError token) = "Encountered unmatched token " ++ pretty token ++ " at " ++ pretty (getRange token)
+  pretty (MismatchedGroupingEndsError startToken endToken) =
+    "Encountered mismatched grouping ends "
+      ++ pretty startToken
+      ++ " and "
+      ++ pretty endToken
+      ++ " at "
+      ++ pretty (getUnionRange (startToken, endToken))
+  pretty (ExpectedExpressionInParensError range) = "Failed to parse contents of parentheses as an expression at" ++ pretty range
+  pretty (ExpectedToEndWithSemicolonError range) = "Statement must end with a semicolon " ++ pretty range
+  pretty (PrintStatementEmptyExpressionError range) = "Print statement must have an expression at " ++ pretty range
+  pretty (PrintStatementInvalidExpressionError range) = "Failed to parse argument of print statement as an expression at " ++ pretty range
 
-printList :: [String] -> String
-printList items =
-  if
-    | length items == 0 -> "nothing"
-    | length items == 1 -> items !! 0
-    | length items == 2 -> items !! 0 ++ "or" ++ items !! 1
-    | otherwise -> intercalate ", " (init items) ++ ", or" ++ last items
-
-data WithError a
-  = Error Error
+data WithErrors a
+  = Error (Seq Error)
   | Success a
-  deriving (Eq, Show, Functor)
+  deriving (Eq, Show)
 
-instance Applicative WithError where
+singleError :: Error -> WithErrors a
+singleError = Error . singleton
+
+instance Functor WithErrors where
+  fmap f (Success a) = Success $ f a
+  fmap _ (Error es) = Error es
+
+instance Applicative WithErrors where
   pure = Success
   (<*>) (Error e) _ = Error e
   (<*>) _ (Error e) = Error e
   (<*>) (Success f) (Success x) = Success (f x)
 
-instance Monad WithError where
+instance Monad WithErrors where
   (>>=) m f = case m of
     Error e -> Error e
     Success r -> f r
 
-maybeToWithError :: Error -> Maybe a -> WithError a
-maybeToWithError err maybeValue = case maybeValue of
-  Nothing -> Error err
-  Just value -> Success value
+{- An alternate version of the Applicative operator <*> that if both argument error, passes through both sets of errors.
+Unfortunately, this can't be the actual Applicative implementation, as there is no compatible Monad instance.
+-}
+(<***>) :: WithErrors (a -> b) -> WithErrors a -> WithErrors b
+Success f <***> Success a = Success $ f a
+Error es <***> Success _ = Error es
+Success _ <***> Error es = Error es
+Error es1 <***> Error es2 = Error $ es1 >< es2
+
+liftA2' :: (a -> b -> c) -> (WithErrors a -> WithErrors b -> WithErrors c)
+liftA2' f a b = (f <$> a) <***> b
+
+foldrWithErrors :: (Foldable t) => (a -> b -> b) -> b -> t (WithErrors a) -> WithErrors b
+foldrWithErrors combine seed = foldr (liftA2' combine) (Success seed)

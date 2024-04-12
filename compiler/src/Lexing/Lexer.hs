@@ -5,7 +5,7 @@ where
 
 import Control.Monad.State (State, get, put, runState)
 import Core.Errors
-import Core.Utils
+import Core.FilePositions
 import Data.Char (isAlpha, isDigit, isSpace)
 import Data.Foldable (asum)
 import Data.Sequence (Seq (Empty), singleton, (><))
@@ -13,12 +13,12 @@ import qualified Data.Text as Text
 import Lexing.TextWalker
 import Lexing.Tokens
 
-type Lexer = State FileState (Maybe (WithError (Seq Token)))
+type Lexer = State FileState (Maybe (WithErrors (Seq Token)))
 
-lexText :: Text.Text -> WithError (Seq Token)
+lexText :: Text.Text -> WithErrors (Seq Token)
 lexText text = fst $ runState (lexHelper Empty) (initFileState text)
 
-lexHelper :: Seq Token -> State FileState (WithError (Seq Token))
+lexHelper :: Seq Token -> State FileState (WithErrors (Seq Token))
 lexHelper tokens = do
   fileState <- get
   if
@@ -29,7 +29,7 @@ lexHelper tokens = do
           Error _ -> return lexResult
           Success lexedTokens -> lexHelper (tokens >< lexedTokens)
 
-combinedLexer :: State FileState (WithError (Seq Token))
+combinedLexer :: State FileState (WithErrors (Seq Token))
 combinedLexer = do
   state <- get
   position <- getPosition
@@ -40,7 +40,7 @@ combinedLexer = do
     Just (lexerResult, updatedState) -> do
       put updatedState
       return lexerResult
-    Nothing -> return $ Error $ LexError position
+    Nothing -> return $ singleError $ LexError position
   where
     unwrap (result, state) = case result of
       Just innerResult -> Just (innerResult, state)
@@ -93,25 +93,25 @@ lexWhiteSpace = do
     | whiteSpace == Text.empty -> return Nothing
     | otherwise -> return $ Just $ Success $ Empty
 
-lexSymbol :: Char -> TokenValue -> Lexer
-lexSymbol char tokenValue = do
+lexSymbol :: Char -> (Range -> Token) -> Lexer
+lexSymbol char makeToken = do
   start <- getPosition
   consumeResult <- consumeIf (== char)
   case consumeResult of
     Consumed (Just _) -> do
       end <- getPosition
-      let token = Token {value = tokenValue, range = Range {start, end}}
+      let token = makeToken $ Range {start, end}
       return $ Just $ Success $ singleton token
     _ -> return Nothing
 
-lexMultiCharSymbol :: String -> TokenValue -> Lexer
-lexMultiCharSymbol keyword tokenValue = do
+lexMultiCharSymbol :: String -> (Range -> Token) -> Lexer
+lexMultiCharSymbol keyword makeToken = do
   start <- getPosition
   consumeResult <- consumeString keyword nextIsNotIdentifierChar
   case consumeResult of
     Just _ -> do
       end <- getPosition
-      let token = Token {value = tokenValue, range = Range {start, end}}
+      let token = makeToken $ Range {start, end}
       return $ Just $ Success $ singleton token
     _ -> return Nothing
   where
@@ -133,12 +133,12 @@ lexNumericLiteral = do
             let decimalText' = if Text.length decimalText == 0 then "0" else decimalText
             end <- getPosition
             let doubleValue = read $ Text.unpack (intText <> "." <> decimalText')
-            let token = Token {value = DoubleLiteralToken doubleValue, range = Range {start, end}}
+            let token = DoubleLiteralToken (Range {start, end}) doubleValue
             return $ Just $ Success $ singleton token
           _ -> do
             end <- getPosition
             let intValue = read $ Text.unpack intText
-            let token = Token {value = IntLiteralToken intValue, range = Range {start, end}}
+            let token = IntLiteralToken (Range {start, end}) intValue
             return $ Just $ Success $ singleton token
 
 lexStringLiteral :: Lexer
@@ -149,10 +149,10 @@ lexStringLiteral = do
     Consumed (Just _) -> do
       consumeBodyResult <- consumeUntil (== '"')
       case consumeBodyResult of
-        HitEOF -> return $ Just $ Error $ UnterminatedStringError start
+        HitEOF -> return $ Just $ singleError $ UnterminatedStringError start
         Consumed stringText -> do
           end <- getPosition
-          let token = Token {value = StringLiteralToken stringText, range = Range {start, end}}
+          let token = StringLiteralToken (Range {start, end}) stringText
           return $ Just $ Success $ singleton token
     _ -> return Nothing
 
@@ -164,15 +164,15 @@ lexCharLiteral = do
     Consumed (Just _) -> do
       consumeBodyResult <- consumeUntil (== '\'')
       case consumeBodyResult of
-        HitEOF -> return $ Just $ Error $ UnterminatedCharError start
+        HitEOF -> return $ Just $ singleError $ UnterminatedCharError start
         Consumed stringText -> do
           end <- getPosition
           if
             | Text.length stringText == 1 -> do
-                let token = Token {value = CharLiteralToken $ Text.head stringText, range = Range {start, end}}
+                let token = CharLiteralToken (Range {start, end}) (Text.head stringText)
                 return $ Just $ Success $ singleton token
             | otherwise -> do
-                return $ Just $ Error $ InvalidCharLiteralError start
+                return $ Just $ singleError $ InvalidCharLiteralError start
     _ -> return Nothing
 
 lexKeywordOrIdentifier :: Lexer
@@ -183,10 +183,11 @@ lexKeywordOrIdentifier = do
     Consumed True -> do
       identifierText <- consumeWhile isIdentifierChar
       end <- getPosition
-      let tokenValue =
+      let tokenConstructor =
             ( case identifierText of
                 "type" -> TypeToken
                 "let" -> LetToken
+                "mut" -> MutToken
                 "if" -> IfToken
                 "else" -> ElseToken
                 "fn" -> FnToken
@@ -198,11 +199,11 @@ lexKeywordOrIdentifier = do
                 "Char" -> CharToken
                 "String" -> StringToken
                 "Bool" -> BoolToken
-                "true" -> BoolLiteralToken True
-                "false" -> BoolLiteralToken False
-                _ -> IdentifierToken identifierText
+                "true" -> \range -> BoolLiteralToken range True
+                "false" -> \range -> BoolLiteralToken range False
+                _ -> \range -> IdentifierToken range identifierText
             )
-      let token = Token {value = tokenValue, range = Range {start, end}}
+      let token = tokenConstructor Range {start, end}
       return $ Just $ Success $ singleton token
     _ -> return Nothing
 
