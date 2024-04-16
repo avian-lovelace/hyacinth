@@ -47,7 +47,7 @@ parenthesis. Then it outputs a ParenSection with the contents of the parentheses
 parenSectionParser :: Token -> SectioningParser Section
 parenSectionParser leftParen = do
   (innerSections, rightParen) <- parenSectionHelperParser leftParen
-  return $ ParenSection (getUnionRange (leftParen, rightParen)) innerSections
+  return $ ParenSection (getRange (leftParen, rightParen)) innerSections
 
 parenSectionHelperParser :: Token -> SectioningParser (Seq Section, Token)
 parenSectionHelperParser leftParen = SectioningParser $ \tokens -> case tokens of
@@ -79,7 +79,7 @@ Then it outputs a BraceSection with the contents of the braces.
 braceSectionParser :: Token -> SectioningParser Section
 braceSectionParser leftBrace = do
   (innerSections, rightBrace) <- braceSectionHelperParser leftBrace
-  return $ BraceSection (getUnionRange (leftBrace, rightBrace)) innerSections
+  return $ BraceSection (getRange (leftBrace, rightBrace)) innerSections
 
 braceSectionHelperParser :: Token -> SectioningParser (Seq Section, Token)
 braceSectionHelperParser leftBrace = SectioningParser $ \tokens -> case tokens of

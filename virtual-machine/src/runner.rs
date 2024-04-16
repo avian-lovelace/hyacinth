@@ -1,3 +1,5 @@
+use core::fmt;
+
 use crate::core::{Chunk, Value};
 
 pub fn interpret(chunk: Chunk) {
@@ -10,14 +12,14 @@ pub fn interpret(chunk: Chunk) {
 }
 
 fn run(vm: &mut VM) {
-    loop {
+    while vm.ip < vm.chunk.code.len() {
         match vm.read_instruction() {
-            Some(Instruction::Return) => {
+            Instruction::Return => {
                 break;
             }
-            Some(Instruction::Print) => println!("{}", vm.pop()),
-            Some(Instruction::Constant(const_index)) => vm.push(vm.read_constant(const_index)),
-            Some(Instruction::Negate) => {
+            Instruction::Print => println!("{}", vm.pop()),
+            Instruction::Constant(const_index) => vm.push(vm.read_constant(const_index)),
+            Instruction::Negate => {
                 let value = vm.pop();
                 match value {
                     Value::Int(i) => vm.push(Value::Int(-i)),
@@ -25,7 +27,7 @@ fn run(vm: &mut VM) {
                     _ => panic!("Attemped to negate value {}", value),
                 }
             }
-            Some(Instruction::Add) => {
+            Instruction::Add => {
                 let value_2 = vm.pop();
                 let value_1 = vm.pop();
                 match (value_1, value_2) {
@@ -34,7 +36,7 @@ fn run(vm: &mut VM) {
                     _ => panic!("Attempted to add values {} and {}", value_1, value_2),
                 }
             }
-            Some(Instruction::Subtract) => {
+            Instruction::Subtract => {
                 let value_2 = vm.pop();
                 let value_1 = vm.pop();
                 match (value_1, value_2) {
@@ -43,7 +45,7 @@ fn run(vm: &mut VM) {
                     _ => panic!("Attempted to subtract values {} and {}", value_1, value_2),
                 }
             }
-            Some(Instruction::Multiply) => {
+            Instruction::Multiply => {
                 let value_2 = vm.pop();
                 let value_1 = vm.pop();
                 match (value_1, value_2) {
@@ -52,7 +54,7 @@ fn run(vm: &mut VM) {
                     _ => panic!("Attempted to multiply values {} and {}", value_1, value_2),
                 }
             }
-            Some(Instruction::Divide) => {
+            Instruction::Divide => {
                 let value_2 = vm.pop();
                 let value_1 = vm.pop();
                 match (value_1, value_2) {
@@ -61,7 +63,7 @@ fn run(vm: &mut VM) {
                     _ => panic!("Attempted to divide values {} and {}", value_1, value_2),
                 }
             }
-            Some(Instruction::Modulo) => {
+            Instruction::Modulo => {
                 let value_2 = vm.pop();
                 let value_1 = vm.pop();
                 match (value_1, value_2) {
@@ -69,14 +71,14 @@ fn run(vm: &mut VM) {
                     _ => panic!("Attempted to modulo values {} and {}", value_1, value_2),
                 }
             }
-            Some(Instruction::Not) => {
+            Instruction::Not => {
                 let value = vm.pop();
                 match value {
                     Value::Bool(b) => vm.push(Value::Bool(!b)),
                     _ => panic!("Attemped to not value {}", value),
                 }
             }
-            Some(Instruction::And) => {
+            Instruction::And => {
                 let value_2 = vm.pop();
                 let value_1 = vm.pop();
                 match (value_1, value_2) {
@@ -84,7 +86,7 @@ fn run(vm: &mut VM) {
                     _ => panic!("Attempted to and values {} and {}", value_1, value_2),
                 }
             }
-            Some(Instruction::Or) => {
+            Instruction::Or => {
                 let value_2 = vm.pop();
                 let value_1 = vm.pop();
                 match (value_1, value_2) {
@@ -92,7 +94,7 @@ fn run(vm: &mut VM) {
                     _ => panic!("Attempted to or values {} and {}", value_1, value_2),
                 }
             }
-            Some(Instruction::Equal) => {
+            Instruction::Equal => {
                 let value_2 = vm.pop();
                 let value_1 = vm.pop();
                 match (value_1, value_2) {
@@ -102,7 +104,7 @@ fn run(vm: &mut VM) {
                     _ => panic!("Attempted to equal values {} and {}", value_1, value_2),
                 }
             }
-            Some(Instruction::NotEqual) => {
+            Instruction::NotEqual => {
                 let value_2 = vm.pop();
                 let value_1 = vm.pop();
                 match (value_1, value_2) {
@@ -112,7 +114,7 @@ fn run(vm: &mut VM) {
                     _ => panic!("Attempted to not equal values {} and {}", value_1, value_2),
                 }
             }
-            Some(Instruction::Greater) => {
+            Instruction::Greater => {
                 let value_2 = vm.pop();
                 let value_1 = vm.pop();
                 match (value_1, value_2) {
@@ -121,7 +123,7 @@ fn run(vm: &mut VM) {
                     _ => panic!("Attempted to greater values {} and {}", value_1, value_2),
                 }
             }
-            Some(Instruction::Less) => {
+            Instruction::Less => {
                 let value_2 = vm.pop();
                 let value_1 = vm.pop();
                 match (value_1, value_2) {
@@ -130,7 +132,7 @@ fn run(vm: &mut VM) {
                     _ => panic!("Attempted to less values {} and {}", value_1, value_2),
                 }
             }
-            Some(Instruction::GreaterEqual) => {
+            Instruction::GreaterEqual => {
                 let value_2 = vm.pop();
                 let value_1 = vm.pop();
                 match (value_1, value_2) {
@@ -142,7 +144,7 @@ fn run(vm: &mut VM) {
                     ),
                 }
             }
-            Some(Instruction::LessEqual) => {
+            Instruction::LessEqual => {
                 let value_2 = vm.pop();
                 let value_1 = vm.pop();
                 match (value_1, value_2) {
@@ -151,10 +153,12 @@ fn run(vm: &mut VM) {
                     _ => panic!("Attempted to less equal values {} and {}", value_1, value_2),
                 }
             }
-            Some(Instruction::True) => vm.push(Value::Bool(true)),
-            Some(Instruction::False) => vm.push(Value::Bool(false)),
-            None => {
-                panic!("Reached end of instructions")
+            Instruction::True => vm.push(Value::Bool(true)),
+            Instruction::False => vm.push(Value::Bool(false)),
+            Instruction::ReadVariable(stack_index) => vm.push(vm.peek(stack_index)),
+            Instruction::MutateVariable(stack_index) => {
+                let value = vm.pop();
+                vm.set(stack_index, value)
             }
         };
     }
@@ -173,30 +177,32 @@ impl VM {
         return byte;
     }
 
-    fn read_instruction(&mut self) -> Option<Instruction> {
+    fn read_instruction(&mut self) -> Instruction {
         let op_code = self.read_byte();
         match op_code {
-            1 => Some(Instruction::Return),
-            2 => Some(Instruction::Print),
-            3 => Some(Instruction::Constant(self.read_byte())),
-            4 => Some(Instruction::Negate),
-            5 => Some(Instruction::Add),
-            6 => Some(Instruction::Subtract),
-            7 => Some(Instruction::Multiply),
-            8 => Some(Instruction::Divide),
-            9 => Some(Instruction::Modulo),
-            10 => Some(Instruction::Not),
-            11 => Some(Instruction::And),
-            12 => Some(Instruction::Or),
-            13 => Some(Instruction::Equal),
-            14 => Some(Instruction::NotEqual),
-            15 => Some(Instruction::Greater),
-            16 => Some(Instruction::Less),
-            17 => Some(Instruction::GreaterEqual),
-            18 => Some(Instruction::LessEqual),
-            19 => Some(Instruction::True),
-            20 => Some(Instruction::False),
-            _ => None,
+            1 => Instruction::Return,
+            2 => Instruction::Print,
+            3 => Instruction::Constant(self.read_byte()),
+            4 => Instruction::Negate,
+            5 => Instruction::Add,
+            6 => Instruction::Subtract,
+            7 => Instruction::Multiply,
+            8 => Instruction::Divide,
+            9 => Instruction::Modulo,
+            10 => Instruction::Not,
+            11 => Instruction::And,
+            12 => Instruction::Or,
+            13 => Instruction::Equal,
+            14 => Instruction::NotEqual,
+            15 => Instruction::Greater,
+            16 => Instruction::Less,
+            17 => Instruction::GreaterEqual,
+            18 => Instruction::LessEqual,
+            19 => Instruction::True,
+            20 => Instruction::False,
+            21 => Instruction::ReadVariable(self.read_byte()),
+            22 => Instruction::MutateVariable(self.read_byte()),
+            op => panic!("Got invalid op code {}", op),
         }
     }
 
@@ -216,6 +222,17 @@ impl VM {
         self.stack
             .pop()
             .expect("Attempted to pop while the stack was empty")
+    }
+
+    fn peek(&self, index: StackIndex) -> Value {
+        self.stack
+            .get(index as usize)
+            .copied()
+            .expect(format!("Failed to read stack at index {}", index).as_str())
+    }
+
+    fn set(&mut self, index: StackIndex, value: Value) {
+        self.stack[index as usize] = value
     }
 }
 
@@ -240,9 +257,45 @@ enum Instruction {
     LessEqual,
     True,
     False,
+    ReadVariable(StackIndex),
+    MutateVariable(StackIndex),
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Instruction::Return => write!(f, "{}", "Return"),
+            Instruction::Print => write!(f, "{}", "Print"),
+            Instruction::Constant(const_index) => write!(f, "{} {}", "Constant", const_index),
+            Instruction::Negate => write!(f, "{}", "Negate"),
+            Instruction::Add => write!(f, "{}", "Add"),
+            Instruction::Subtract => write!(f, "{}", "Subtract"),
+            Instruction::Multiply => write!(f, "{}", "Multiply"),
+            Instruction::Divide => write!(f, "{}", "Divide"),
+            Instruction::Modulo => write!(f, "{}", "Modulo"),
+            Instruction::Not => write!(f, "{}", "Not"),
+            Instruction::And => write!(f, "{}", "And"),
+            Instruction::Or => write!(f, "{}", "Or"),
+            Instruction::Equal => write!(f, "{}", "Equal"),
+            Instruction::NotEqual => write!(f, "{}", "NotEqual"),
+            Instruction::Greater => write!(f, "{}", "Greater"),
+            Instruction::Less => write!(f, "{}", "Less"),
+            Instruction::GreaterEqual => write!(f, "{}", "GreaterEqual"),
+            Instruction::LessEqual => write!(f, "{}", "LessEqual"),
+            Instruction::True => write!(f, "{}", "True"),
+            Instruction::False => write!(f, "{}", "False"),
+            Instruction::ReadVariable(stack_index) => {
+                write!(f, "{} {}", "ReadVariable", stack_index)
+            }
+            Instruction::MutateVariable(stack_index) => {
+                write!(f, "{} {}", "MutateVariable", stack_index)
+            }
+        }
+    }
 }
 
 // TODO: ConstIndex being u8 limits the size of the constant pool to 256 values. Ideally, this should be changed to
 // usize after implementing byte-to-int decoding.
 type ConstIndex = u8;
+type StackIndex = u8;
 type InstructionIndex = usize;

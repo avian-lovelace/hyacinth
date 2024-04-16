@@ -11,7 +11,17 @@ module Core.Errors
         ExpectedExpressionInParensError,
         ExpectedToEndWithSemicolonError,
         PrintStatementEmptyExpressionError,
-        PrintStatementInvalidExpressionError
+        PrintStatementInvalidExpressionError,
+        VariableDeclarationMalformedError,
+        VariableDeclarationEmptyExpressionError,
+        VariableDeclarationInvalidExpressionError,
+        VariableMutationMalformedError,
+        VariableMutationEmptyExpressionError,
+        VariableMutationInvalidExpressionError,
+        ConflictingVariableDeclarationsError,
+        VariableNotDefinedBeforeMutationError,
+        VariableNotDefinedBeforeUsageError,
+        VariableReferencedInDeclarationError
       ),
     WithErrors (Error, Success),
     singleError,
@@ -22,6 +32,8 @@ where
 import Core.FilePositions
 import Core.Utils
 import Data.Sequence (Seq, singleton, (><))
+import Data.Text (Text)
+import qualified Data.Text as Text
 import Lexing.Tokens
 
 data Error
@@ -41,6 +53,17 @@ data Error
   | ExpectedToEndWithSemicolonError Range
   | PrintStatementEmptyExpressionError Range
   | PrintStatementInvalidExpressionError Range
+  | VariableDeclarationMalformedError Range
+  | VariableDeclarationEmptyExpressionError Range
+  | VariableDeclarationInvalidExpressionError Range
+  | VariableMutationMalformedError Range
+  | VariableMutationEmptyExpressionError Range
+  | VariableMutationInvalidExpressionError Range
+  | -- Variable binding
+    ConflictingVariableDeclarationsError Text Range Range
+  | VariableNotDefinedBeforeMutationError Text Range
+  | VariableNotDefinedBeforeUsageError Text Range
+  | VariableReferencedInDeclarationError Text Range Range
   deriving (Show, Eq)
 
 instance Pretty Error where
@@ -57,11 +80,25 @@ instance Pretty Error where
       ++ " and "
       ++ pretty endToken
       ++ " at "
-      ++ pretty (getUnionRange (startToken, endToken))
+      ++ pretty (getRange (startToken, endToken))
   pretty (ExpectedExpressionInParensError range) = "Failed to parse contents of parentheses as an expression at" ++ pretty range
   pretty (ExpectedToEndWithSemicolonError range) = "Statement must end with a semicolon " ++ pretty range
   pretty (PrintStatementEmptyExpressionError range) = "Print statement must have an expression at " ++ pretty range
   pretty (PrintStatementInvalidExpressionError range) = "Failed to parse argument of print statement as an expression at " ++ pretty range
+  pretty (VariableDeclarationMalformedError range) = "Failed to parse variable declaration statement at " ++ pretty range
+  pretty (VariableDeclarationEmptyExpressionError range) = "Variable declaration must have an expression at " ++ pretty range
+  pretty (VariableDeclarationInvalidExpressionError range) = "Failed to parse variable declaration value as an expression at " ++ pretty range
+  pretty (VariableMutationMalformedError range) = "Failed to parse variable mutation statement at " ++ pretty range
+  pretty (VariableMutationEmptyExpressionError range) = "Variable mutation must have an expression at " ++ pretty range
+  pretty (VariableMutationInvalidExpressionError range) = "Failed to parse variable mutation value as an expression at " ++ pretty range
+  pretty (ConflictingVariableDeclarationsError variableName declarationRange1 declarationRange2) =
+    "Variable " ++ Text.unpack variableName ++ " has conflicting declarations at " ++ pretty declarationRange1 ++ " and " ++ pretty declarationRange2
+  pretty (VariableNotDefinedBeforeMutationError variableName range) =
+    "Variable " ++ Text.unpack variableName ++ " is not defined before it is mutated at " ++ pretty range
+  pretty (VariableNotDefinedBeforeUsageError variableName range) =
+    "Variable " ++ Text.unpack variableName ++ " is not defined before it is used at " ++ pretty range
+  pretty (VariableReferencedInDeclarationError variableName declarationRange usageRange) =
+    "Variable " ++ Text.unpack variableName ++ " is referenced at " ++ pretty usageRange ++ " inside its declaration at " ++ pretty declarationRange
 
 data WithErrors a
   = Error (Seq Error)

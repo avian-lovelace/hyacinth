@@ -3,11 +3,11 @@ module Core.FilePositions
     initPosition,
     Range (Range, start, end),
     WithRange (getRange),
-    getUnionRange,
   )
 where
 
 import Core.Utils
+import Data.Sequence (Seq)
 
 -- Position
 data Position = Position
@@ -43,5 +43,9 @@ instance WithRange Range where
 class WithRange t where
   getRange :: t -> Range
 
-getUnionRange :: (WithRange r, WithRange s) => (r, s) -> Range
-getUnionRange (r, s) = getRange r <> getRange s
+instance (WithRange wr1, WithRange wr2) => WithRange (wr1, wr2) where
+  getRange (r, s) = getRange r <> getRange s
+
+instance (WithRange wr) => WithRange (Seq wr) where
+  -- This function requires that the sequence is non-empty and sorted by position
+  getRange wrs = getRange (seqHead wrs, seqTail wrs)

@@ -5,22 +5,12 @@ module ExpressionSpec
   )
 where
 
-import Core.Errors
 import Data.Text (pack)
-import Lib
-import System.Exit
+import EndToEnd
 import Test.Hspec
 
-runsSuccessfullyWithOutput :: IO (WithErrors VMResult) -> String -> Expectation
-runsSuccessfullyWithOutput vmRun expected = do
-  runResult <- vmRun
-  case runResult of
-    Error e -> expectationFailure $ "Compilation failed with error: " ++ show e
-    Success (ExitFailure _, _, stdErr) -> expectationFailure $ "Rumtime failed with error: " ++ stdErr
-    Success (ExitSuccess, stdOut, _) -> stdOut `shouldBe` expected
-
 evaluatesTo :: String -> String -> Expectation
-evaluatesTo expression value = runCode code `runsSuccessfullyWithOutput` output
+evaluatesTo expression value = code `runsSuccessfullyWithOutput` output
   where
     code = pack $ "print " ++ expression ++ ";"
     output = value ++ "\n"

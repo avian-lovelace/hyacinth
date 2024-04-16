@@ -1,119 +1,87 @@
+{-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
+
 module Parsing.SyntaxTree
-  ( FileScope (FileScope),
-    Statement (PrintStatement),
-    -- Statement(AlgebraicDataTypeStatement, TypeAssignmentStatement, ValueAssignmentStatement),
-    -- ProperType(IntType, DoubleType, CharType, StringType, BoolType, FunctionType, VariableType, TypeApplication),
-    -- Type(ProperType, GenericType),
-    -- VariableName(VariableName),
-    -- TypeVariableName(TypeVariableName),
-    -- Scope(Scope),
-    Expression
-      ( IntLiteralExpression,
-        DoubleLiteralExpression,
-        -- CharLiteralExpression,
-        -- StringLiteralExpression,
-        BoolLiteralExpression,
-        NegateExpression,
-        AddExpression,
-        SubtractExpression,
-        MultiplyExpression,
-        DivideExpression,
-        ModuloExpression,
-        NotExpression,
-        AndExpression,
-        OrExpression,
-        -- ConcatExpression,
-        EqualExpression,
-        NotEqualExpression,
-        GreaterExpression,
-        LessExpression,
-        GreaterEqualExpression,
-        LessEqualExpression
-        -- IfExpression,
-        -- FunctionExpression,
-        -- ApplicationExpression,
-        -- MatchExpression,
-        -- ScopeExpression
-      ),
+  ( ParsingPhase,
+    PFileScope,
+    PStatement,
+    PVariableName,
+    PExpression,
+    UnboundIdentifier,
   )
 where
 
 import Core.FilePositions
-import Core.Utils
-import Data.Sequence (Seq)
+import Core.SyntaxTree
+import Data.Text (Text)
 
-data FileScope = FileScope (Seq Statement)
-  deriving (Show)
+data ParsingPhase
 
-data Statement
-  = PrintStatement Range Expression
-  | VariableDeclarationStatement Range VariableName Expression
-  | VariableMutationStatement Range VariableName Expression
-  deriving (Show)
+-- File Scope
+type PFileScope = FileScope ParsingPhase
 
---     AlgebraicDataTypeStatement TypeVariableName [TypeVariableName] [(ProductTypeName, [ProperType])]
---   | TypeAssignmentStatement TypeVariableName Type
---   | ValueAssignmentStatement VariableName (Maybe ProperType) Expression
+type instance FileScopeData ParsingPhase = ()
 
-instance WithRange Statement where
-  getRange (PrintStatement range _) = range
-  getRange (VariableDeclarationStatement range _ _) = range
-  getRange (VariableMutationStatement range _ _) = range
+-- Statement
+type PStatement = Statement ParsingPhase
 
--- data ProperType =
---     IntType
---   | DoubleType
---   | CharType
---   | StringType
---   | BoolType
---   | FunctionType Type Type
---   | VariableType TypeVariableName
---   | TypeApplication Type Type
+type instance PrintStatementData ParsingPhase = Range
 
--- data Type =
---     ProperType ProperType
---   | GenericType TypeVariableName Type
+type instance VariableDeclarationStatementData ParsingPhase = Range
 
-data VariableName = VariableName Range Identifier
-  deriving (Show)
+type instance VariableMutationStatementData ParsingPhase = Range
 
-instance WithRange VariableName where
-  getRange (VariableName range _) = range
+-- Variable Name
+type PVariableName = VariableName ParsingPhase
 
--- data TypeVariableName = TypeVariableName Identifier
+type instance VariableNameData ParsingPhase = Range
 
--- data ProductTypeName = ProductTypeName Identifier
+type UnboundIdentifier = Text
 
--- data Scope = Scope [Statement] Expression
+type instance Identifier ParsingPhase = UnboundIdentifier
 
-data Expression
-  = IntLiteralExpression Range Int
-  | DoubleLiteralExpression Range Double
-  | -- | CharLiteralExpression Char
-    -- | StringLiteralExpression String
-    BoolLiteralExpression Range Bool
-  | VariableExpression Range VariableName
-  | NegateExpression Range Expression
-  | AddExpression Range Expression Expression
-  | SubtractExpression Range Expression Expression
-  | MultiplyExpression Range Expression Expression
-  | DivideExpression Range Expression Expression
-  | ModuloExpression Range Expression Expression
-  | NotExpression Range Expression
-  | AndExpression Range Expression Expression
-  | OrExpression Range Expression Expression
-  | -- | ConcatExpression
-    EqualExpression Range Expression Expression
-  | NotEqualExpression Range Expression Expression
-  | GreaterExpression Range Expression Expression
-  | LessExpression Range Expression Expression
-  | GreaterEqualExpression Range Expression Expression
-  | LessEqualExpression Range Expression Expression
-  deriving
-    ( Show
-    )
+-- Expression
+type PExpression = Expression ParsingPhase
 
-instance WithRange Expression where
+type instance IntLiteralExpressionData ParsingPhase = Range
+
+type instance DoubleLiteralExpressionData ParsingPhase = Range
+
+type instance BoolLiteralExpressionData ParsingPhase = Range
+
+type instance VariableExpressionData ParsingPhase = Range
+
+type instance NegateExpressionData ParsingPhase = Range
+
+type instance AddExpressionData ParsingPhase = Range
+
+type instance SubtractExpressionData ParsingPhase = Range
+
+type instance MultiplyExpressionData ParsingPhase = Range
+
+type instance DivideExpressionData ParsingPhase = Range
+
+type instance ModuloExpressionData ParsingPhase = Range
+
+type instance NotExpressionData ParsingPhase = Range
+
+type instance AndExpressionData ParsingPhase = Range
+
+type instance OrExpressionData ParsingPhase = Range
+
+type instance EqualExpressionData ParsingPhase = Range
+
+type instance NotEqualExpressionData ParsingPhase = Range
+
+type instance GreaterExpressionData ParsingPhase = Range
+
+type instance LessExpressionData ParsingPhase = Range
+
+type instance GreaterEqualExpressionData ParsingPhase = Range
+
+type instance LessEqualExpressionData ParsingPhase = Range
+
+instance WithRange PExpression where
   getRange expression = case expression of
     IntLiteralExpression range _ -> range
     DoubleLiteralExpression range _ -> range

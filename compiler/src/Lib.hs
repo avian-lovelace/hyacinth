@@ -7,6 +7,7 @@ where
 
 import BytecodeGeneration.Bytecode
 import BytecodeGeneration.BytecodeGenerator
+import BytecodeGeneration.Encoding
 import Core.Errors
 import Core.Utils
 import qualified Data.ByteString.Builder as BB
@@ -17,9 +18,10 @@ import Sectioning.Sectioner
 import System.Directory
 import System.Exit
 import System.Process
+import VariableBinding.VariableBinder
 
 run :: IO ()
-run = case compileCode "print 1 + + 2;" of
+run = case compileCode "let foo = (1 + 2); let bar = 4 * 5; mut foo = 13; print foo - bar + 1;" of
   Error es -> mapM_ (putStrLn . pretty) es
   Success byteCode -> do
     result <- runByteCode byteCode
@@ -49,12 +51,13 @@ compileCode :: Text.Text -> WithErrors Chunk
 compileCode code = do
   tokens <- lexText code
   sections <- sectionFile tokens
-  ast <- parseFile sections
-  let bytecode = writeFileScope ast
+  pAst <- parseFile sections
+  vbAst <- runVariableBinding pAst
+  let bytecode = writeFileScope vbAst
   return bytecode
 
 writeBytecodeToFile :: FilePath -> Chunk -> IO ()
-writeBytecodeToFile filePath bytecode = BB.writeFile filePath (encodeChunk bytecode)
+writeBytecodeToFile filePath bytecode = BB.writeFile filePath (encode bytecode)
 
 type VMResult = (ExitCode, String, String)
 

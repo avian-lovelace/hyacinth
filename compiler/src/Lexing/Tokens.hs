@@ -52,7 +52,7 @@ where
 
 import Core.FilePositions
 import Core.Utils
-import qualified Data.Text as Text
+import Data.Text (Text)
 
 data Token
   = -- Keywords
@@ -79,7 +79,7 @@ data Token
   | LeftBraceToken Range
   | RightBraceToken Range
   | -- Identifiers
-    IdentifierToken Range Identifier
+    IdentifierToken Range Text
   | -- Primitive types
     IntToken Range
   | DoubleToken Range
@@ -90,7 +90,7 @@ data Token
     IntLiteralToken Range Int
   | DoubleLiteralToken Range Double
   | CharLiteralToken Range Char
-  | StringLiteralToken Range Text.Text
+  | StringLiteralToken Range Text
   | BoolLiteralToken Range Bool
   | -- Operators
     PlusToken Range
