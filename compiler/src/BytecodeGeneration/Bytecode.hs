@@ -24,16 +24,17 @@ module BytecodeGeneration.Bytecode
         ReadVariableInstruction,
         MutateVariableInstruction
       ),
-    Value (IntValue, DoubleValue),
+    Constant (IntConstant, DoubleConstant, CharConstant, StringConstant),
   )
 where
 
 import Data.Int
 import Data.Sequence (Seq)
+import Data.Text (Text)
 
 data Chunk = Chunk
   { code :: Seq Instruction,
-    constants :: Seq Value
+    constants :: Seq Constant
   }
   deriving (Show)
 
@@ -66,5 +67,9 @@ type ConstIndex = Int8
 
 type StackIndex = Int8
 
-data Value = IntValue Int32 | DoubleValue Double
+data Constant
+  = IntConstant Int32
+  | DoubleConstant Double
+  | CharConstant Char
+  | StringConstant Text
   deriving (Show)

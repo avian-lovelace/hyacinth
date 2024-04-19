@@ -44,7 +44,7 @@ writeInstruction :: Instruction -> BytecodeGenerator ()
 writeInstruction instruction = BytecodeGenerator $ \(BytecodeGeneratorState {scopes, chunk = Chunk {code, constants}}) ->
   (BytecodeGeneratorState {scopes, chunk = Chunk {code = code |> instruction, constants}}, ())
 
-writeConstant :: Value -> BytecodeGenerator Int8
+writeConstant :: Constant -> BytecodeGenerator Int8
 writeConstant value = BytecodeGenerator $ \(BytecodeGeneratorState {scopes, chunk = Chunk {code, constants}}) ->
   (BytecodeGeneratorState {scopes, chunk = Chunk {code, constants = constants |> value}}, fromIntegral $ length constants)
 

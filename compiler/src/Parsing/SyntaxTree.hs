@@ -47,6 +47,10 @@ type instance IntLiteralExpressionData ParsingPhase = Range
 
 type instance DoubleLiteralExpressionData ParsingPhase = Range
 
+type instance CharLiteralExpressionData ParsingPhase = Range
+
+type instance StringLiteralExpressionData ParsingPhase = Range
+
 type instance BoolLiteralExpressionData ParsingPhase = Range
 
 type instance VariableExpressionData ParsingPhase = Range
@@ -85,6 +89,8 @@ instance WithRange PExpression where
   getRange expression = case expression of
     IntLiteralExpression range _ -> range
     DoubleLiteralExpression range _ -> range
+    CharLiteralExpression range _ -> range
+    StringLiteralExpression range _ -> range
     BoolLiteralExpression range _ -> range
     VariableExpression range _ -> range
     NegateExpression range _ -> range

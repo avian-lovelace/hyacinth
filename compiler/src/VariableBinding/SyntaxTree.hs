@@ -45,6 +45,10 @@ type instance IntLiteralExpressionData VariableBindingPhase = Range
 
 type instance DoubleLiteralExpressionData VariableBindingPhase = Range
 
+type instance CharLiteralExpressionData VariableBindingPhase = Range
+
+type instance StringLiteralExpressionData VariableBindingPhase = Range
+
 type instance BoolLiteralExpressionData VariableBindingPhase = Range
 
 type instance VariableExpressionData VariableBindingPhase = Range
@@ -83,6 +87,8 @@ instance WithRange VBExpression where
   getRange expression = case expression of
     IntLiteralExpression range _ -> range
     DoubleLiteralExpression range _ -> range
+    CharLiteralExpression range _ -> range
+    StringLiteralExpression range _ -> range
     BoolLiteralExpression range _ -> range
     VariableExpression range _ -> range
     NegateExpression range _ -> range

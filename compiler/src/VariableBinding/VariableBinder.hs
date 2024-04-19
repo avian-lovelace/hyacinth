@@ -39,6 +39,8 @@ expressionBinder (VariableExpression expressionRange (VariableName variableNameR
   return $ VariableExpression expressionRange (VariableName variableNameRange boundIdentifier)
 expressionBinder (IntLiteralExpression d value) = return $ IntLiteralExpression d value
 expressionBinder (DoubleLiteralExpression d value) = return $ DoubleLiteralExpression d value
+expressionBinder (CharLiteralExpression d value) = return $ CharLiteralExpression d value
+expressionBinder (StringLiteralExpression d value) = return $ StringLiteralExpression d value
 expressionBinder (BoolLiteralExpression d value) = return $ BoolLiteralExpression d value
 expressionBinder (NegateExpression d inner) = do
   boundInner <- expressionBinder inner

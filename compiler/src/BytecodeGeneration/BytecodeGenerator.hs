@@ -30,10 +30,16 @@ writeStatement (VariableMutationStatement _ (VariableName _ variableName) variab
 
 writeExpression :: VBExpression -> BytecodeGenerator ()
 writeExpression (IntLiteralExpression _ value) = do
-  index <- writeConstant (IntValue (fromIntegral value))
+  index <- writeConstant (IntConstant (fromIntegral value))
   writeInstruction (ConstantInstruction index)
 writeExpression (DoubleLiteralExpression _ value) = do
-  index <- writeConstant (DoubleValue value)
+  index <- writeConstant (DoubleConstant value)
+  writeInstruction (ConstantInstruction index)
+writeExpression (CharLiteralExpression _ value) = do
+  index <- writeConstant (CharConstant value)
+  writeInstruction (ConstantInstruction index)
+writeExpression (StringLiteralExpression _ value) = do
+  index <- writeConstant (StringConstant value)
   writeInstruction (ConstantInstruction index)
 writeExpression (BoolLiteralExpression _ True) = writeInstruction TrueInstruction
 writeExpression (BoolLiteralExpression _ False) = writeInstruction FalseInstruction

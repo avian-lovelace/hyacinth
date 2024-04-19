@@ -13,6 +13,8 @@ module Core.SyntaxTree
     Expression
       ( IntLiteralExpression,
         DoubleLiteralExpression,
+        CharLiteralExpression,
+        StringLiteralExpression,
         BoolLiteralExpression,
         NegateExpression,
         AddExpression,
@@ -33,6 +35,8 @@ module Core.SyntaxTree
       ),
     IntLiteralExpressionData,
     DoubleLiteralExpressionData,
+    CharLiteralExpressionData,
+    StringLiteralExpressionData,
     BoolLiteralExpressionData,
     NegateExpressionData,
     AddExpressionData,
@@ -54,6 +58,7 @@ module Core.SyntaxTree
 where
 
 import Data.Sequence (Seq)
+import Data.Text (Text)
 
 data FileScope phase = FileScope (FileScopeData phase) (Seq (Statement phase))
 
@@ -103,9 +108,9 @@ type family Identifier phase
 data Expression phase
   = IntLiteralExpression (IntLiteralExpressionData phase) Int
   | DoubleLiteralExpression (DoubleLiteralExpressionData phase) Double
-  | -- | CharLiteralExpression Char
-    -- | StringLiteralExpression String
-    BoolLiteralExpression (BoolLiteralExpressionData phase) Bool
+  | CharLiteralExpression (CharLiteralExpressionData phase) Char
+  | StringLiteralExpression (StringLiteralExpressionData phase) Text
+  | BoolLiteralExpression (BoolLiteralExpressionData phase) Bool
   | VariableExpression (VariableExpressionData phase) (VariableName phase)
   | NegateExpression (NegateExpressionData phase) (Expression phase)
   | AddExpression (AddExpressionData phase) (Expression phase) (Expression phase)
@@ -116,8 +121,7 @@ data Expression phase
   | NotExpression (NotExpressionData phase) (Expression phase)
   | AndExpression (AndExpressionData phase) (Expression phase) (Expression phase)
   | OrExpression (OrExpressionData phase) (Expression phase) (Expression phase)
-  | -- | ConcatExpression
-    EqualExpression (EqualExpressionData phase) (Expression phase) (Expression phase)
+  | EqualExpression (EqualExpressionData phase) (Expression phase) (Expression phase)
   | NotEqualExpression (NotEqualExpressionData phase) (Expression phase) (Expression phase)
   | GreaterExpression (GreaterExpressionData phase) (Expression phase) (Expression phase)
   | LessExpression (LessExpressionData phase) (Expression phase) (Expression phase)
@@ -127,6 +131,10 @@ data Expression phase
 type family IntLiteralExpressionData phase
 
 type family DoubleLiteralExpressionData phase
+
+type family CharLiteralExpressionData phase
+
+type family StringLiteralExpressionData phase
 
 type family BoolLiteralExpressionData phase
 

@@ -5,7 +5,10 @@ module BytecodeGeneration.Encoding
 where
 
 import BytecodeGeneration.Bytecode
+import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.Char8 as C
+import qualified Data.Text.Encoding as TE
 
 class Encodable e where
   encode :: e -> BB.Builder
@@ -41,7 +44,13 @@ instance Encodable Instruction where
   encode (ReadVariableInstruction stackIndex) = BB.int8 21 <> BB.int8 stackIndex
   encode (MutateVariableInstruction stackIndex) = BB.int8 22 <> BB.int8 stackIndex
 
-instance Encodable Value where
-  encode :: Value -> BB.Builder
-  encode (IntValue value) = BB.int8 1 <> BB.int32BE value
-  encode (DoubleValue value) = BB.int8 2 <> BB.doubleBE value
+instance Encodable Constant where
+  encode :: Constant -> BB.Builder
+  encode (IntConstant value) = BB.int8 1 <> BB.int32BE value
+  encode (DoubleConstant value) = BB.int8 2 <> BB.doubleBE value
+  encode (CharConstant value) = BB.int8 3 <> BB.int8 (fromIntegral $ B.length encoded) <> BB.byteString encoded
+    where
+      encoded = C.singleton value
+  encode (StringConstant value) = BB.int8 4 <> BB.int32BE (fromIntegral $ B.length encoded) <> BB.byteString encoded
+    where
+      encoded = TE.encodeUtf8 value
