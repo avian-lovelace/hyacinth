@@ -1,14 +1,17 @@
 use core::fmt;
+use std::collections::HashSet;
 
-use crate::core::{Chunk, Value};
+use crate::core::{Chunk, Heap, Object, ObjectKey, Value};
 
-pub fn interpret(chunk: Chunk) {
+pub fn interpret(chunk: Chunk, heap: Heap) {
     let mut vm = VM {
         chunk,
         ip: 0,
         stack: Vec::new(),
+        heap,
     };
-    return run(&mut vm);
+    run(&mut vm);
+    vm.garbage_collect();
 }
 
 fn run(vm: &mut VM) {
@@ -17,7 +20,22 @@ fn run(vm: &mut VM) {
             Instruction::Return => {
                 break;
             }
-            Instruction::Print => println!("{}", vm.pop()),
+            Instruction::Print => {
+                let value = vm.pop();
+                match value {
+                    Value::Int(i) => println!("{}", i),
+                    Value::Double(d) => println!("{}", d),
+                    Value::Bool(b) => println!("{}", b),
+                    Value::Char(c) => println!("{}", c),
+                    Value::Object(object_index) => {
+                        let object = vm.heap.get(object_index);
+                        match object {
+                            Object::StringObj(s) => println!("{}", s),
+                            _ => println!("Object {}", object_index),
+                        }
+                    }
+                }
+            }
             Instruction::Constant(const_index) => vm.push(vm.read_constant(const_index)),
             Instruction::Negate => {
                 let value = vm.pop();
@@ -33,6 +51,35 @@ fn run(vm: &mut VM) {
                 match (value_1, value_2) {
                     (Value::Int(i1), Value::Int(i2)) => vm.push(Value::Int(i1 + i2)),
                     (Value::Double(d1), Value::Double(d2)) => vm.push(Value::Double(d1 + d2)),
+                    (Value::Object(o1), Value::Object(o2)) => {
+                        match (vm.heap.get(o1), vm.heap.get(o2)) {
+                            (Object::StringObj(s1), Object::StringObj(s2)) => {
+                                let concat_string = [s1.as_str(), s2.as_str()].join("");
+                                let concat_string_ref =
+                                    vm.heap.add(Object::StringObj(concat_string));
+                                vm.push(concat_string_ref);
+                            }
+                            _ => panic!("Attemped to add objects {} and {}", o1, o2),
+                        }
+                    }
+                    (Value::Object(o), Value::Char(c)) => match vm.heap.get(o) {
+                        Object::StringObj(s) => {
+                            let mut concat_string = s.to_owned();
+                            concat_string.push(c);
+                            let concat_string_ref = vm.heap.add(Object::StringObj(concat_string));
+                            vm.push(concat_string_ref);
+                        }
+                        _ => panic!("Attemped to add character {} and object {}", c, o),
+                    },
+                    (Value::Char(c), Value::Object(o)) => match vm.heap.get(o) {
+                        Object::StringObj(s) => {
+                            let mut concat_string = s.to_owned();
+                            concat_string.insert(0, c);
+                            let concat_string_ref = vm.heap.add(Object::StringObj(concat_string));
+                            vm.push(concat_string_ref);
+                        }
+                        _ => panic!("Attemped to add character {} and object {}", c, o),
+                    },
                     _ => panic!("Attempted to add values {} and {}", value_1, value_2),
                 }
             }
@@ -168,6 +215,7 @@ struct VM {
     chunk: Chunk,
     ip: InstructionIndex,
     stack: Vec<Value>,
+    heap: Heap,
 }
 
 impl VM {
@@ -233,6 +281,27 @@ impl VM {
 
     fn set(&mut self, index: StackIndex, value: Value) {
         self.stack[index as usize] = value
+    }
+
+    fn garbage_collect(&mut self) {
+        let mut reachable_objects = HashSet::<ObjectKey>::new();
+        for value in &self.stack {
+            match value {
+                Value::Object(key) => {
+                    reachable_objects.insert(*key);
+                }
+                _ => {}
+            }
+        }
+        for value in &self.chunk.constants {
+            match value {
+                Value::Object(key) => {
+                    reachable_objects.insert(*key);
+                }
+                _ => {}
+            }
+        }
+        self.heap.garbage_collect(reachable_objects);
     }
 }
 

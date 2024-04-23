@@ -1,5 +1,5 @@
 import ExpressionSpec
--- import LexerSpec
+import StringSpec
 import Test.Hspec
 import VariableSpec
 
@@ -8,3 +8,4 @@ main = hspec $ do
   -- testLexer
   testExpressions
   testVariables
+  testStrings

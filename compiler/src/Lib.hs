@@ -21,7 +21,7 @@ import System.Process
 import VariableBinding.VariableBinder
 
 run :: IO ()
-run = case compileCode "let foo = (1 + 2); let bar = 4 * 5; mut foo = 13; print foo - bar + 1;" of
+run = case compileCode "let s1 = \"foo\"; let c = ' '; let s2 = \"bar\"; print s1 + c + s2;" of
   Error es -> mapM_ (putStrLn . pretty) es
   Success byteCode -> do
     result <- runByteCode byteCode
