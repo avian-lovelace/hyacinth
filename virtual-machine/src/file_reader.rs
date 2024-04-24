@@ -4,25 +4,12 @@ use std::str;
 pub fn read_chunk(bytes: Vec<u8>, heap: &mut Heap) -> Chunk {
     let mut f = FileState { bytes, index: 0 };
 
-    let constants_length = f.read_int() as usize;
+    let constants_length = f.read_u16() as usize;
     let mut constants: Vec<Value> = Vec::new();
     for _ in 0..constants_length {
         match f.read_byte() {
-            1 => constants.push(Value::Int(f.read_int())),
-            2 => constants.push(Value::Double(f.read_double())),
-            3 => {
-                let num_bytes = f.read_byte();
-                let value_slice = f.read_byte_slice(num_bytes as usize);
-                let value_string = str::from_utf8(value_slice)
-                    .expect("Failed to read char value as string when reading constants");
-                let value_char = value_string
-                    .chars()
-                    .next()
-                    .expect("Char value was empty when reading constants");
-                constants.push(Value::Char(value_char));
-            }
-            4 => {
-                let num_bytes = f.read_int();
+            1 => {
+                let num_bytes = f.read_u16();
                 let value_slice = f.read_byte_slice(num_bytes as usize);
                 let value_string = str::from_utf8(value_slice)
                     .expect("Failed to read string value when reading constants")
@@ -55,22 +42,13 @@ impl FileState {
         return bytes;
     }
 
-    fn read_int(&mut self) -> i32 {
-        let byte_array: [u8; 4] = self.bytes[self.index..self.index + 4]
+    fn read_u16(&mut self) -> u16 {
+        let byte_array: [u8; 2] = self.bytes[self.index..self.index + 2]
             .try_into()
-            .expect("Failed to read bytes when parsing double constant");
-        let int = i32::from_be_bytes(byte_array);
-        self.index = self.index + 4;
+            .expect("Failed to read u16 when parsing file");
+        let int = u16::from_be_bytes(byte_array);
+        self.index = self.index + 2;
         return int;
-    }
-
-    fn read_double(&mut self) -> f64 {
-        let byte_array: [u8; 8] = self.bytes[self.index..self.index + 8]
-            .try_into()
-            .expect("Failed to read bytes when parsing double constant");
-        let double = f64::from_be_bytes(byte_array);
-        self.index = self.index + 8;
-        return double;
     }
 
     fn read_rest(&mut self) -> Vec<u8> {

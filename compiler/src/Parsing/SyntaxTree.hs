@@ -31,6 +31,8 @@ type instance VariableDeclarationStatementData ParsingPhase = Range
 
 type instance VariableMutationStatementData ParsingPhase = Range
 
+type instance ExpressionStatementData ParsingPhase = Range
+
 -- Variable Name
 type PVariableName = VariableName ParsingPhase
 
@@ -52,6 +54,8 @@ type instance CharLiteralExpressionData ParsingPhase = Range
 type instance StringLiteralExpressionData ParsingPhase = Range
 
 type instance BoolLiteralExpressionData ParsingPhase = Range
+
+type instance NilExpressionData ParsingPhase = Range
 
 type instance VariableExpressionData ParsingPhase = Range
 
@@ -85,6 +89,10 @@ type instance GreaterEqualExpressionData ParsingPhase = Range
 
 type instance LessEqualExpressionData ParsingPhase = Range
 
+type instance IfThenElseExpressionData ParsingPhase = Range
+
+type instance ScopeExpressionData ParsingPhase = Range
+
 instance WithRange PExpression where
   getRange expression = case expression of
     IntLiteralExpression range _ -> range
@@ -92,6 +100,7 @@ instance WithRange PExpression where
     CharLiteralExpression range _ -> range
     StringLiteralExpression range _ -> range
     BoolLiteralExpression range _ -> range
+    NilExpression range -> range
     VariableExpression range _ -> range
     NegateExpression range _ -> range
     AddExpression range _ _ -> range
@@ -108,3 +117,5 @@ instance WithRange PExpression where
     LessExpression range _ _ -> range
     GreaterEqualExpression range _ _ -> range
     LessEqualExpression range _ _ -> range
+    IfThenElseExpression range _ _ _ -> range
+    ScopeExpression range _ -> range

@@ -3,10 +3,11 @@
 module Core.SyntaxTree
   ( FileScope (FileScope),
     FileScopeData,
-    Statement (PrintStatement, VariableDeclarationStatement, VariableMutationStatement),
+    Statement (PrintStatement, VariableDeclarationStatement, VariableMutationStatement, ExpressionStatement),
     PrintStatementData,
     VariableDeclarationStatementData,
     VariableMutationStatementData,
+    ExpressionStatementData,
     VariableName (VariableName),
     VariableNameData,
     Identifier,
@@ -16,6 +17,7 @@ module Core.SyntaxTree
         CharLiteralExpression,
         StringLiteralExpression,
         BoolLiteralExpression,
+        NilExpression,
         NegateExpression,
         AddExpression,
         SubtractExpression,
@@ -31,13 +33,16 @@ module Core.SyntaxTree
         LessExpression,
         GreaterEqualExpression,
         LessEqualExpression,
-        VariableExpression
+        VariableExpression,
+        IfThenElseExpression,
+        ScopeExpression
       ),
     IntLiteralExpressionData,
     DoubleLiteralExpressionData,
     CharLiteralExpressionData,
     StringLiteralExpressionData,
     BoolLiteralExpressionData,
+    NilExpressionData,
     NegateExpressionData,
     AddExpressionData,
     SubtractExpressionData,
@@ -54,6 +59,8 @@ module Core.SyntaxTree
     GreaterEqualExpressionData,
     LessEqualExpressionData,
     VariableExpressionData,
+    IfThenElseExpressionData,
+    ScopeExpressionData,
   )
 where
 
@@ -68,12 +75,15 @@ data Statement phase
   = PrintStatement (PrintStatementData phase) (Expression phase)
   | VariableDeclarationStatement (VariableDeclarationStatementData phase) (VariableName phase) (Expression phase)
   | VariableMutationStatement (VariableMutationStatementData phase) (VariableName phase) (Expression phase)
+  | ExpressionStatement (ExpressionStatementData phase) (Expression phase)
 
 type family PrintStatementData phase
 
 type family VariableDeclarationStatementData phase
 
 type family VariableMutationStatementData phase
+
+type family ExpressionStatementData phase
 
 --     AlgebraicDataTypeStatement TypeVariableName [TypeVariableName] [(ProductTypeName, [ProperType])]
 --   | TypeAssignmentStatement TypeVariableName Type
@@ -111,6 +121,7 @@ data Expression phase
   | CharLiteralExpression (CharLiteralExpressionData phase) Char
   | StringLiteralExpression (StringLiteralExpressionData phase) Text
   | BoolLiteralExpression (BoolLiteralExpressionData phase) Bool
+  | NilExpression (NilExpressionData phase)
   | VariableExpression (VariableExpressionData phase) (VariableName phase)
   | NegateExpression (NegateExpressionData phase) (Expression phase)
   | AddExpression (AddExpressionData phase) (Expression phase) (Expression phase)
@@ -127,6 +138,8 @@ data Expression phase
   | LessExpression (LessExpressionData phase) (Expression phase) (Expression phase)
   | GreaterEqualExpression (GreaterEqualExpressionData phase) (Expression phase) (Expression phase)
   | LessEqualExpression (LessEqualExpressionData phase) (Expression phase) (Expression phase)
+  | IfThenElseExpression (IfThenElseExpressionData phase) (Expression phase) (Expression phase) (Maybe (Expression phase))
+  | ScopeExpression (ScopeExpressionData phase) (Seq (Statement phase))
 
 type family IntLiteralExpressionData phase
 
@@ -137,6 +150,8 @@ type family CharLiteralExpressionData phase
 type family StringLiteralExpressionData phase
 
 type family BoolLiteralExpressionData phase
+
+type family NilExpressionData phase
 
 type family VariableExpressionData phase
 
@@ -169,3 +184,7 @@ type family LessExpressionData phase
 type family GreaterEqualExpressionData phase
 
 type family LessEqualExpressionData phase
+
+type family IfThenElseExpressionData phase
+
+type family ScopeExpressionData phase

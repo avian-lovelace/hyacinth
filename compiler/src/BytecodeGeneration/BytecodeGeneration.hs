@@ -1,26 +1,23 @@
 module BytecodeGeneration.BytecodeGeneration
-  ( BytecodeGeneratorState
-      ( BytecodeGeneratorState,
-        scopes,
-        chunk
-      ),
-    Scope (Scope, variables),
-    BytecodeGenerator (BytecodeGenerator, runGenerator),
-    writeInstruction,
-    writeConstant,
+  ( BytecodeGenerator (BytecodeGenerator, runGenerator),
+    BytecodeGeneratorState (BytecodeGeneratorState, constants),
+    addConstant,
     addVariableToScope,
     getVariableIndex,
+    withNewScope,
+    initialState,
   )
 where
 
 import BytecodeGeneration.Bytecode
-import Data.Int (Int8)
-import Data.Sequence (Seq ((:<|), (:|>)), elemIndexL, (|>))
+import qualified Data.ByteString.Builder as BB
+import Data.Sequence (Seq (Empty, (:<|), (:|>)), elemIndexL, (|>))
+import qualified Data.Sequence as Seq
 import VariableBinding.SyntaxTree
 
 data BytecodeGeneratorState = BytecodeGeneratorState
   { scopes :: Seq Scope,
-    chunk :: Chunk
+    constants :: Seq Constant
   }
 
 newtype Scope = Scope {variables :: Seq BoundIdentifier}
@@ -40,22 +37,38 @@ instance Monad BytecodeGenerator where
     let (state2, a) = runGenerator generatorA state1
      in runGenerator (makeGeneratorB a) state2
 
-writeInstruction :: Instruction -> BytecodeGenerator ()
-writeInstruction instruction = BytecodeGenerator $ \(BytecodeGeneratorState {scopes, chunk = Chunk {code, constants}}) ->
-  (BytecodeGeneratorState {scopes, chunk = Chunk {code = code |> instruction, constants}}, ())
+initialState :: BytecodeGeneratorState
+initialState = BytecodeGeneratorState {scopes = Empty, constants = Empty}
 
-writeConstant :: Constant -> BytecodeGenerator Int8
-writeConstant value = BytecodeGenerator $ \(BytecodeGeneratorState {scopes, chunk = Chunk {code, constants}}) ->
-  (BytecodeGeneratorState {scopes, chunk = Chunk {code, constants = constants |> value}}, fromIntegral $ length constants)
+addConstant :: Constant -> BytecodeGenerator Int
+addConstant value = BytecodeGenerator $ \(BytecodeGeneratorState {scopes, constants}) ->
+  (BytecodeGeneratorState {scopes, constants = constants |> value}, fromIntegral $ length constants)
+
+withNewScope :: BytecodeGenerator BB.Builder -> BytecodeGenerator BB.Builder
+withNewScope generator = do
+  pushNewScope
+  result <- generator
+  endedScope <- popScope
+  let popLocalVariables = popMultipleInstruction $ fromIntegral . Seq.length . variables $ endedScope
+  return $ result <> popLocalVariables <> nilInstruction
+
+pushNewScope :: BytecodeGenerator ()
+pushNewScope = BytecodeGenerator $ \BytecodeGeneratorState {scopes, constants} ->
+  (BytecodeGeneratorState {scopes = scopes |> Scope {variables = Empty}, constants}, ())
+
+popScope :: BytecodeGenerator Scope
+popScope = BytecodeGenerator $ \BytecodeGeneratorState {scopes, constants} -> case scopes of
+  initScopes :|> finalScope -> (BytecodeGeneratorState {scopes = initScopes, constants}, finalScope)
+  Empty -> undefined -- Should not get here
 
 addVariableToScope :: BoundIdentifier -> BytecodeGenerator ()
 addVariableToScope newVariable = BytecodeGenerator run
   where
-    run (BytecodeGeneratorState {scopes = initScopes :|> (Scope {variables}), chunk}) =
-      (BytecodeGeneratorState {scopes = initScopes |> Scope {variables = variables |> newVariable}, chunk}, ())
+    run (BytecodeGeneratorState {scopes = initScopes :|> (Scope {variables}), constants}) =
+      (BytecodeGeneratorState {scopes = initScopes |> Scope {variables = variables |> newVariable}, constants}, ())
     run _ = undefined
 
-getVariableIndex :: BoundIdentifier -> BytecodeGenerator Int8
+getVariableIndex :: BoundIdentifier -> BytecodeGenerator Int
 getVariableIndex variable = BytecodeGenerator $ \state -> (state, fromIntegral $ getVariableIndexInScopes $ scopes state)
   where
     getVariableIndexInScopes ((Scope {variables}) :<| tailScopes) = case elemIndexL variable variables of

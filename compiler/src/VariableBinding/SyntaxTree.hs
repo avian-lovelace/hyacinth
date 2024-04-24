@@ -29,6 +29,8 @@ type instance VariableDeclarationStatementData VariableBindingPhase = Range
 
 type instance VariableMutationStatementData VariableBindingPhase = Range
 
+type instance ExpressionStatementData VariableBindingPhase = Range
+
 -- Variable Name
 type VBVariableName = VariableName VariableBindingPhase
 
@@ -50,6 +52,8 @@ type instance CharLiteralExpressionData VariableBindingPhase = Range
 type instance StringLiteralExpressionData VariableBindingPhase = Range
 
 type instance BoolLiteralExpressionData VariableBindingPhase = Range
+
+type instance NilExpressionData VariableBindingPhase = Range
 
 type instance VariableExpressionData VariableBindingPhase = Range
 
@@ -83,6 +87,10 @@ type instance GreaterEqualExpressionData VariableBindingPhase = Range
 
 type instance LessEqualExpressionData VariableBindingPhase = Range
 
+type instance IfThenElseExpressionData VariableBindingPhase = Range
+
+type instance ScopeExpressionData VariableBindingPhase = Range
+
 instance WithRange VBExpression where
   getRange expression = case expression of
     IntLiteralExpression range _ -> range
@@ -90,6 +98,7 @@ instance WithRange VBExpression where
     CharLiteralExpression range _ -> range
     StringLiteralExpression range _ -> range
     BoolLiteralExpression range _ -> range
+    NilExpression range -> range
     VariableExpression range _ -> range
     NegateExpression range _ -> range
     AddExpression range _ _ -> range
@@ -106,3 +115,5 @@ instance WithRange VBExpression where
     LessExpression range _ _ -> range
     GreaterEqualExpression range _ _ -> range
     LessEqualExpression range _ _ -> range
+    IfThenElseExpression range _ _ _ -> range
+    ScopeExpression range _ -> range

@@ -1,7 +1,8 @@
 use core::fmt;
 use std::collections::HashSet;
+use std::str;
 
-use crate::core::{Chunk, Heap, Object, ObjectKey, Value};
+use crate::core::{Chunk, FloatValue, Heap, IntValue, Object, ObjectKey, Value};
 
 pub fn interpret(chunk: Chunk, heap: Heap) {
     let mut vm = VM {
@@ -23,6 +24,7 @@ fn run(vm: &mut VM) {
             Instruction::Print => {
                 let value = vm.pop();
                 match value {
+                    Value::Nil => println!("()"),
                     Value::Int(i) => println!("{}", i),
                     Value::Double(d) => println!("{}", d),
                     Value::Bool(b) => println!("{}", b),
@@ -207,6 +209,26 @@ fn run(vm: &mut VM) {
                 let value = vm.pop();
                 vm.set(stack_index, value)
             }
+            Instruction::Nil => vm.push(Value::Nil),
+            Instruction::Pop => {
+                vm.pop();
+            }
+            Instruction::PopMultiple(num) => vm.pop_multiple(num),
+            Instruction::Jump(offset) => vm.jump(offset),
+            Instruction::JumpIfFalse(offset) => {
+                let value = vm.pop();
+                match value {
+                    Value::Bool(true) => {}
+                    Value::Bool(false) => vm.jump(offset),
+                    _ => panic!(
+                        "Got non-boolean value {} as the condition when evaluating JumpIfFalse",
+                        value
+                    ),
+                }
+            }
+            Instruction::Int(i) => vm.push(Value::Int(i)),
+            Instruction::Float(f) => vm.push(Value::Double(f)),
+            Instruction::Char(c) => vm.push(Value::Char(c)),
         };
     }
 }
@@ -225,12 +247,65 @@ impl VM {
         return byte;
     }
 
+    fn read_u16(&mut self) -> u16 {
+        let byte_array: [u8; 2] = self.chunk.code[self.ip..self.ip + 2]
+            .try_into()
+            .expect("Failed to read u16 when decoding instruction");
+        let int = u16::from_be_bytes(byte_array);
+        self.ip = self.ip + 2;
+        return int;
+    }
+
+    fn read_i16(&mut self) -> i16 {
+        let byte_array: [u8; 2] = self.chunk.code[self.ip..self.ip + 2]
+            .try_into()
+            .expect("Failed to read i16 when decoding instruction");
+        let int = i16::from_be_bytes(byte_array);
+        self.ip = self.ip + 2;
+        return int;
+    }
+
+    fn read_i32(&mut self) -> i32 {
+        let byte_array: [u8; 4] = self.chunk.code[self.ip..self.ip + 4]
+            .try_into()
+            .expect("Failed to read i32 when decoding instruction");
+        let int = i32::from_be_bytes(byte_array);
+        self.ip = self.ip + 4;
+        return int;
+    }
+
+    fn read_f64(&mut self) -> f64 {
+        let byte_array: [u8; 8] = self.chunk.code[self.ip..self.ip + 8]
+            .try_into()
+            .expect("Failed to read float when decoding instruction");
+        let int = f64::from_be_bytes(byte_array);
+        self.ip = self.ip + 8;
+        return int;
+    }
+
+    fn read_char(&mut self) -> char {
+        // Trim padding from the end of the encoded char
+        let mut end_index = self.ip + 3;
+        while end_index > self.ip && self.chunk.code[end_index] == 0 {
+            end_index -= 1;
+        }
+        let value_slice = &self.chunk.code[self.ip..end_index + 1];
+        let value_string = str::from_utf8(value_slice)
+            .expect("Failed to read char value as utf8 text when reading file");
+        let value_char = value_string
+            .chars()
+            .next()
+            .expect("Char value was empty when reading file");
+        self.ip += 4;
+        return value_char;
+    }
+
     fn read_instruction(&mut self) -> Instruction {
         let op_code = self.read_byte();
         match op_code {
             1 => Instruction::Return,
             2 => Instruction::Print,
-            3 => Instruction::Constant(self.read_byte()),
+            3 => Instruction::Constant(self.read_u16()),
             4 => Instruction::Negate,
             5 => Instruction::Add,
             6 => Instruction::Subtract,
@@ -248,8 +323,16 @@ impl VM {
             18 => Instruction::LessEqual,
             19 => Instruction::True,
             20 => Instruction::False,
-            21 => Instruction::ReadVariable(self.read_byte()),
-            22 => Instruction::MutateVariable(self.read_byte()),
+            21 => Instruction::ReadVariable(self.read_u16()),
+            22 => Instruction::MutateVariable(self.read_u16()),
+            23 => Instruction::Nil,
+            24 => Instruction::Pop,
+            25 => Instruction::PopMultiple(self.read_u16()),
+            26 => Instruction::Jump(self.read_i16()),
+            27 => Instruction::JumpIfFalse(self.read_i16()),
+            28 => Instruction::Int(self.read_i32()),
+            29 => Instruction::Float(self.read_f64()),
+            30 => Instruction::Char(self.read_char()),
             op => panic!("Got invalid op code {}", op),
         }
     }
@@ -272,6 +355,10 @@ impl VM {
             .expect("Attempted to pop while the stack was empty")
     }
 
+    fn pop_multiple(&mut self, num: u16) {
+        self.stack.truncate(self.stack.len() - num as usize);
+    }
+
     fn peek(&self, index: StackIndex) -> Value {
         self.stack
             .get(index as usize)
@@ -281,6 +368,14 @@ impl VM {
 
     fn set(&mut self, index: StackIndex, value: Value) {
         self.stack[index as usize] = value
+    }
+
+    fn jump(&mut self, offset: i16) {
+        self.ip = if offset >= 0 {
+            self.ip + (offset as usize)
+        } else {
+            self.ip - (-offset as usize)
+        }
     }
 
     fn garbage_collect(&mut self) {
@@ -328,43 +423,60 @@ enum Instruction {
     False,
     ReadVariable(StackIndex),
     MutateVariable(StackIndex),
+    Nil,
+    Pop,
+    PopMultiple(StackIndex),
+    Jump(InstructionOffset),
+    JumpIfFalse(InstructionOffset),
+    Int(IntValue),
+    Float(FloatValue),
+    Char(char),
 }
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Instruction::Return => write!(f, "{}", "Return"),
-            Instruction::Print => write!(f, "{}", "Print"),
-            Instruction::Constant(const_index) => write!(f, "{} {}", "Constant", const_index),
-            Instruction::Negate => write!(f, "{}", "Negate"),
-            Instruction::Add => write!(f, "{}", "Add"),
-            Instruction::Subtract => write!(f, "{}", "Subtract"),
-            Instruction::Multiply => write!(f, "{}", "Multiply"),
-            Instruction::Divide => write!(f, "{}", "Divide"),
-            Instruction::Modulo => write!(f, "{}", "Modulo"),
-            Instruction::Not => write!(f, "{}", "Not"),
-            Instruction::And => write!(f, "{}", "And"),
-            Instruction::Or => write!(f, "{}", "Or"),
-            Instruction::Equal => write!(f, "{}", "Equal"),
-            Instruction::NotEqual => write!(f, "{}", "NotEqual"),
-            Instruction::Greater => write!(f, "{}", "Greater"),
-            Instruction::Less => write!(f, "{}", "Less"),
-            Instruction::GreaterEqual => write!(f, "{}", "GreaterEqual"),
-            Instruction::LessEqual => write!(f, "{}", "LessEqual"),
-            Instruction::True => write!(f, "{}", "True"),
-            Instruction::False => write!(f, "{}", "False"),
+            Instruction::Return => write!(f, "Return"),
+            Instruction::Print => write!(f, "Print"),
+            Instruction::Constant(const_index) => write!(f, "Constant {}", const_index),
+            Instruction::Negate => write!(f, "Negate"),
+            Instruction::Add => write!(f, "Add"),
+            Instruction::Subtract => write!(f, "Subtract"),
+            Instruction::Multiply => write!(f, "Multiply"),
+            Instruction::Divide => write!(f, "Divide"),
+            Instruction::Modulo => write!(f, "Modulo"),
+            Instruction::Not => write!(f, "Not"),
+            Instruction::And => write!(f, "And"),
+            Instruction::Or => write!(f, "Or"),
+            Instruction::Equal => write!(f, "Equal"),
+            Instruction::NotEqual => write!(f, "NotEqual"),
+            Instruction::Greater => write!(f, "Greater"),
+            Instruction::Less => write!(f, "Less"),
+            Instruction::GreaterEqual => write!(f, "GreaterEqual"),
+            Instruction::LessEqual => write!(f, "LessEqual"),
+            Instruction::True => write!(f, "True"),
+            Instruction::False => write!(f, "False"),
             Instruction::ReadVariable(stack_index) => {
-                write!(f, "{} {}", "ReadVariable", stack_index)
+                write!(f, "ReadVariable {}", stack_index)
             }
             Instruction::MutateVariable(stack_index) => {
-                write!(f, "{} {}", "MutateVariable", stack_index)
+                write!(f, "MutateVariable {}", stack_index)
             }
+            Instruction::Nil => write!(f, "()"),
+            Instruction::Pop => write!(f, "Pop"),
+            Instruction::PopMultiple(u) => write!(f, "PopMultiple {}", u),
+            Instruction::Jump(offset) => write!(f, "Jump {}", offset),
+            Instruction::JumpIfFalse(offset) => write!(f, "JumpIfFalse {}", offset),
+            Instruction::Int(i) => write!(f, "Int {}", i),
+            Instruction::Float(d) => write!(f, "Float {}", d),
+            Instruction::Char(c) => write!(f, "Char {}", c),
         }
     }
 }
 
 // TODO: ConstIndex being u8 limits the size of the constant pool to 256 values. Ideally, this should be changed to
 // usize after implementing byte-to-int decoding.
-type ConstIndex = u8;
-type StackIndex = u8;
+type ConstIndex = u16;
+type StackIndex = u16;
+type InstructionOffset = i16;
 type InstructionIndex = usize;

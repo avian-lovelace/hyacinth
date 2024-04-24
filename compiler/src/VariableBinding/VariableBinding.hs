@@ -10,6 +10,7 @@ module VariableBinding.VariableBinding
     setVariableIsBeingDeclared,
     assertVariableIsNotBeingDeclared,
     andFinally,
+    withNewScope,
   )
 where
 
@@ -53,10 +54,29 @@ data VariableInfo = VariableInfo {boundIdentifier :: BoundIdentifier, declaratio
 initialBindingState :: VariableBindingState
 initialBindingState =
   VariableBindingState
-    { scopes = singleton Scope {variables = Map.empty},
+    { scopes = [],
       boundIdentifierCounter = 0,
       variablesInDeclaration = Set.empty
     }
+
+withNewScope :: VariableBinder a -> VariableBinder a
+withNewScope binder = do
+  beginScope
+  result <- binder
+  endScope
+  return result
+
+beginScope :: VariableBinder ()
+beginScope = do
+  VariableBindingState {scopes} <- getState
+  setScopes $ Scope {variables = Map.empty} : scopes
+
+endScope :: VariableBinder ()
+endScope = do
+  VariableBindingState {scopes} <- getState
+  case scopes of
+    _currentScope : restScopes -> setScopes restScopes
+    [] -> throwBindingError $ ShouldNotGetHereError "Called endScope while no scopes were active"
 
 addVariable :: UnboundIdentifier -> Range -> VariableBinder (BoundIdentifier)
 addVariable identifier dRange = do

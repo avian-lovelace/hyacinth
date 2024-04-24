@@ -13,16 +13,19 @@ import Data.Sequence (Seq (Empty, (:<|)), breakl, singleton, (<|))
 import Lexing.Tokens
 import Parsing.Parsing
 import Parsing.SyntaxTree
-import Sectioning.Sectioning (Section (ParenSection, TokenSection))
+import Sectioning.Sectioning
 
 parseFile :: ParseFunction PFileScope
-parseFile sections = FileScope () <$> foldrWithErrors (<|) Empty (parseStatements sections)
+parseFile sections = FileScope () <$> parseStatements sections
 
-parseStatements :: Seq Section -> Seq (WithErrors PStatement)
-parseStatements Empty = Empty
-parseStatements sections = case breakl matchSemicolon sections of
-  (statementSections, Empty) -> singleton $ Error [ExpectedToEndWithSemicolonError $ getRange statementSections]
-  (statementSections, _semicolon :<| restTokens) -> parseStatement statementSections <| parseStatements restTokens
+parseStatements :: ParseFunction (Seq PStatement)
+parseStatements sections = foldrWithErrors (<|) Empty (parseStatementsHelper sections)
+  where
+    parseStatementsHelper :: Seq Section -> Seq (WithErrors PStatement)
+    parseStatementsHelper Empty = Empty
+    parseStatementsHelper helperSections = case breakl matchSemicolon helperSections of
+      (statementSections, Empty) -> singleton $ Error [ExpectedToEndWithSemicolonError $ getRange statementSections]
+      (statementSections, _semicolon :<| restTokens) -> parseStatement statementSections <| parseStatementsHelper restTokens
 
 matchSemicolon :: Section -> Bool
 matchSemicolon (TokenSection (SemicolonToken _)) = True
@@ -36,7 +39,7 @@ parseStatement (currentSection :<| tailSections) = case currentSection of
   TokenSection (PrintToken _) -> parsePrintStatement currentSection tailSections
   TokenSection (LetToken _) -> parseVariableDeclarationStatement currentSection tailSections
   TokenSection (MutToken _) -> parseVariableMutationStatement currentSection tailSections
-  _ -> singleError $ ShouldNotGetHereError "To be implemented"
+  _ -> parseExpressionStatement (currentSection <| tailSections)
 
 parsePrintStatement :: Section -> ParseFunction PStatement
 parsePrintStatement printTokenSection expressionSections = case expressionSections of
@@ -78,6 +81,12 @@ parseVariableMutationStatement
       expression = catchUnboundError (VariableMutationInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
       expressionRange = getRange expressionSections
 parseVariableMutationStatement mutTokenSection restSections = singleError $ VariableDeclarationMalformedError (getRange (mutTokenSection :<| restSections))
+
+parseExpressionStatement :: ParseFunction PStatement
+parseExpressionStatement expressionSections = ExpressionStatement expressionRange <$> expression
+  where
+    expression = catchUnboundError (ExpressionStatementInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
+    expressionRange = getRange expressionSections
 
 -- Expressions
 
@@ -196,7 +205,11 @@ toUnaryExpressionAndRange _ = Nothing
 -- Primary level
 
 primaryExpressionParser :: Parser PExpression
-primaryExpressionParser = literalOrVariableExpressionParser <|> parenthesesExpressionParser
+primaryExpressionParser =
+  literalOrVariableExpressionParser
+    <|> parenthesesExpressionParser
+    <|> scopeExpressionParser
+    <|> ifExpressionParser
 
 literalOrVariableExpressionParser :: Parser PExpression
 literalOrVariableExpressionParser = pNext <&&> toLiteralExpression
@@ -213,9 +226,51 @@ toLiteralExpression _ = Nothing
 parenthesesExpressionParser :: Parser PExpression
 parenthesesExpressionParser = do
   (range, innerSections) <- pNext <&&> matchParenSection
-  innerExpression <- returnWithErrors $ catchUnboundError (ExpectedExpressionInParensError range) $ runParserToEnd expressionParser innerSections
-  return innerExpression
+  case innerSections of
+    Empty -> return $ NilExpression range
+    _ -> do
+      innerExpression <- returnWithErrors $ catchUnboundError (ExpectedExpressionInParensError range) $ runParserToEnd expressionParser innerSections
+      return innerExpression
 
 matchParenSection :: Section -> Maybe (Range, Seq Section)
 matchParenSection (ParenSection range innerSections) = Just (range, innerSections)
 matchParenSection _ = Nothing
+
+scopeExpressionParser :: Parser PExpression
+scopeExpressionParser = do
+  (range, innerSections) <- pNext <&&> matchBraceSection
+  statements <- returnWithErrors $ parseStatements innerSections
+  return $ ScopeExpression range statements
+
+matchBraceSection :: Section -> Maybe (Range, Seq Section)
+matchBraceSection (BraceSection range innerSections) = Just (range, innerSections)
+matchBraceSection _ = Nothing
+
+-- TODO: Consider changing this to ParseFunction style to get better error reporting
+ifExpressionParser :: Parser PExpression
+ifExpressionParser = do
+  ifRange <- pNext <&&> matchIfSection
+  conditionExpression <- expressionParser
+  pNext <&&> matchThenSection
+  trueExpression <- expressionParser
+  maybeElse <- pZeroOrOne $ pNext <&&> matchElseSection
+  case maybeElse of
+    Nothing -> do
+      let expressionRange = getRange (ifRange, trueExpression)
+      return $ IfThenElseExpression expressionRange conditionExpression trueExpression Nothing
+    Just _ -> do
+      falseExpression <- expressionParser
+      let expressionRange = getRange (ifRange, falseExpression)
+      return $ IfThenElseExpression expressionRange conditionExpression trueExpression (Just falseExpression)
+
+matchIfSection :: Section -> Maybe Range
+matchIfSection (TokenSection (IfToken range)) = Just range
+matchIfSection _ = Nothing
+
+matchThenSection :: Section -> Maybe ()
+matchThenSection (TokenSection (ThenToken _)) = Just ()
+matchThenSection _ = Nothing
+
+matchElseSection :: Section -> Maybe ()
+matchElseSection (TokenSection (ElseToken _)) = Just ()
+matchElseSection _ = Nothing

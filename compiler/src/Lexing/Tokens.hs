@@ -4,6 +4,7 @@ module Lexing.Tokens
         LetToken,
         MutToken,
         IfToken,
+        ThenToken,
         ElseToken,
         FnToken,
         MatchToken,
@@ -60,6 +61,7 @@ data Token
   | LetToken Range
   | MutToken Range
   | IfToken Range
+  | ThenToken Range
   | ElseToken Range
   | FnToken Range
   | MatchToken Range
@@ -115,6 +117,7 @@ instance Pretty Token where
   pretty (LetToken _) = "let"
   pretty (MutToken _) = "mut"
   pretty (IfToken _) = "if"
+  pretty (ThenToken _) = "then"
   pretty (ElseToken _) = "else"
   pretty (FnToken _) = "fn"
   pretty (MatchToken _) = "match"
@@ -163,6 +166,7 @@ instance WithRange Token where
   getRange (LetToken range) = range
   getRange (MutToken range) = range
   getRange (IfToken range) = range
+  getRange (ThenToken range) = range
   getRange (ElseToken range) = range
   getRange (FnToken range) = range
   getRange (MatchToken range) = range

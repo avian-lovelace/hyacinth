@@ -9,16 +9,21 @@ pub struct Chunk {
 
 #[derive(Clone, Copy)]
 pub enum Value {
-    Int(i32),
-    Double(f64),
+    Nil,
+    Int(IntValue),
+    Double(FloatValue),
     Bool(bool),
     Char(char),
     Object(ObjectKey),
 }
 
+pub type IntValue = i32;
+pub type FloatValue = f64;
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Value::Nil => write!(f, "()"),
             Value::Int(i) => write!(f, "{}", i),
             Value::Double(d) => write!(f, "{}", d),
             Value::Bool(b) => write!(f, "{}", b),

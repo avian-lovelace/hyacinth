@@ -1,7 +1,11 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 {-# HLINT ignore "Use tuple-section" #-}
-module Sectioning.Sectioning where
+module Sectioning.Sectioning
+  ( Section (TokenSection, ParenSection, BraceSection),
+    SectioningParser (SectioningParser, runParser),
+  )
+where
 
 import Core.Errors
 import Core.FilePositions

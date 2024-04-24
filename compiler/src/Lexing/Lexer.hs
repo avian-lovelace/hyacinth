@@ -189,6 +189,7 @@ lexKeywordOrIdentifier = do
                 "let" -> LetToken
                 "mut" -> MutToken
                 "if" -> IfToken
+                "then" -> ThenToken
                 "else" -> ElseToken
                 "fn" -> FnToken
                 "match" -> MatchToken

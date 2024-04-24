@@ -2,12 +2,11 @@ module Lib
   ( run,
     VMResult,
     runCode,
+    compileCode,
   )
 where
 
-import BytecodeGeneration.Bytecode
 import BytecodeGeneration.BytecodeGenerator
-import BytecodeGeneration.Encoding
 import Core.Errors
 import Core.Utils
 import qualified Data.ByteString.Builder as BB
@@ -33,31 +32,28 @@ runCode :: Text.Text -> IO (WithErrors VMResult)
 runCode code = case compileCode code of
   Success bytecode -> do
     let bytecodeFilePath = "../byte.code"
-    writeBytecodeToFile bytecodeFilePath bytecode
+    BB.writeFile bytecodeFilePath bytecode
     vmResult <- runVM bytecodeFilePath
     removeFile bytecodeFilePath
     return $ Success vmResult
   Error e -> return $ Error e
 
-runByteCode :: Chunk -> IO VMResult
+runByteCode :: BB.Builder -> IO VMResult
 runByteCode code = do
   let bytecodeFilePath = "../byte.code"
-  writeBytecodeToFile bytecodeFilePath code
+  BB.writeFile bytecodeFilePath code
   vmResult <- runVM bytecodeFilePath
   removeFile bytecodeFilePath
   return vmResult
 
-compileCode :: Text.Text -> WithErrors Chunk
+compileCode :: Text.Text -> WithErrors BB.Builder
 compileCode code = do
   tokens <- lexText code
   sections <- sectionFile tokens
   pAst <- parseFile sections
   vbAst <- runVariableBinding pAst
-  let bytecode = writeFileScope vbAst
+  let bytecode = encodeFile vbAst
   return bytecode
-
-writeBytecodeToFile :: FilePath -> Chunk -> IO ()
-writeBytecodeToFile filePath bytecode = BB.writeFile filePath (encode bytecode)
 
 type VMResult = (ExitCode, String, String)
 

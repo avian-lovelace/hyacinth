@@ -2,6 +2,7 @@ module Core.FilePositions
   ( Position (Position, line, col),
     initPosition,
     Range (Range, start, end),
+    dummyRange,
     WithRange (getRange),
   )
 where
@@ -38,6 +39,9 @@ instance Pretty Range where
 
 instance WithRange Range where
   getRange = id
+
+dummyRange :: Range
+dummyRange = Range (Position 0 0) (Position 0 0)
 
 -- WithRange
 class WithRange t where

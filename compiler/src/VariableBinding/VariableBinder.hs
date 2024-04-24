@@ -10,7 +10,9 @@ runVariableBinding :: PFileScope -> WithErrors VBFileScope
 runVariableBinding fileScope = snd $ runBinder (fileBinder fileScope) initialBindingState
 
 fileBinder :: PFileScope -> VariableBinder VBFileScope
-fileBinder (FileScope _ statments) = FileScope () <$> traverse' statementBinder statments
+fileBinder (FileScope _ statements) = withNewScope $ do
+  boundStatements <- traverse' statementBinder statements
+  return $ FileScope () boundStatements
 
 statementBinder :: PStatement -> VariableBinder VBStatement
 statementBinder (VariableDeclarationStatement declarationRange (VariableName variableNameRange identifier) expression) =
@@ -30,6 +32,9 @@ statementBinder (VariableMutationStatement statementRange (VariableName variable
 statementBinder (PrintStatement range expression) = do
   boundExpression <- expressionBinder expression
   return $ PrintStatement range boundExpression
+statementBinder (ExpressionStatement range expression) = do
+  boundExpression <- expressionBinder expression
+  return $ ExpressionStatement range boundExpression
 
 expressionBinder :: PExpression -> VariableBinder VBExpression
 expressionBinder (VariableExpression expressionRange (VariableName variableNameRange identifier)) = do
@@ -42,6 +47,7 @@ expressionBinder (DoubleLiteralExpression d value) = return $ DoubleLiteralExpre
 expressionBinder (CharLiteralExpression d value) = return $ CharLiteralExpression d value
 expressionBinder (StringLiteralExpression d value) = return $ StringLiteralExpression d value
 expressionBinder (BoolLiteralExpression d value) = return $ BoolLiteralExpression d value
+expressionBinder (NilExpression d) = return $ NilExpression d
 expressionBinder (NegateExpression d inner) = do
   boundInner <- expressionBinder inner
   return $ NegateExpression d boundInner
@@ -100,3 +106,15 @@ expressionBinder (LessEqualExpression d left right) = do
   boundLeft <- expressionBinder left
   boundRight <- expressionBinder right
   return $ LessEqualExpression d boundLeft boundRight
+expressionBinder (IfThenElseExpression d condition trueExpression maybeFalseExpression) = do
+  boundCondition <- expressionBinder condition
+  boundTrueExpression <- expressionBinder trueExpression
+  boundFalseExpression <- case maybeFalseExpression of
+    Just falseExpression -> do
+      boundFalseExpression <- expressionBinder falseExpression
+      return $ Just boundFalseExpression
+    Nothing -> return Nothing
+  return $ IfThenElseExpression d boundCondition boundTrueExpression boundFalseExpression
+expressionBinder (ScopeExpression d statements) = withNewScope $ do
+  boundStatements <- traverse' statementBinder statements
+  return $ ScopeExpression d boundStatements

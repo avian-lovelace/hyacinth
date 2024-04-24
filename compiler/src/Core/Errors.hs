@@ -18,6 +18,7 @@ module Core.Errors
         VariableMutationMalformedError,
         VariableMutationEmptyExpressionError,
         VariableMutationInvalidExpressionError,
+        ExpressionStatementInvalidExpressionError,
         ConflictingVariableDeclarationsError,
         VariableNotDefinedBeforeMutationError,
         VariableNotDefinedBeforeUsageError,
@@ -59,6 +60,7 @@ data Error
   | VariableMutationMalformedError Range
   | VariableMutationEmptyExpressionError Range
   | VariableMutationInvalidExpressionError Range
+  | ExpressionStatementInvalidExpressionError Range
   | -- Variable binding
     ConflictingVariableDeclarationsError Text Range Range
   | VariableNotDefinedBeforeMutationError Text Range
@@ -91,6 +93,7 @@ instance Pretty Error where
   pretty (VariableMutationMalformedError range) = "Failed to parse variable mutation statement at " ++ pretty range
   pretty (VariableMutationEmptyExpressionError range) = "Variable mutation must have an expression at " ++ pretty range
   pretty (VariableMutationInvalidExpressionError range) = "Failed to parse variable mutation value as an expression at " ++ pretty range
+  pretty (ExpressionStatementInvalidExpressionError range) = "Failed to parse statement as an expression at " ++ pretty range
   pretty (ConflictingVariableDeclarationsError variableName declarationRange1 declarationRange2) =
     "Variable " ++ Text.unpack variableName ++ " has conflicting declarations at " ++ pretty declarationRange1 ++ " and " ++ pretty declarationRange2
   pretty (VariableNotDefinedBeforeMutationError variableName range) =
