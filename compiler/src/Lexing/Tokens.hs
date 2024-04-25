@@ -10,6 +10,8 @@ module Lexing.Tokens
         MatchToken,
         OfToken,
         PrintToken,
+        WhileToken,
+        LoopToken,
         SemicolonToken,
         ColonToken,
         EqualsToken,
@@ -67,6 +69,8 @@ data Token
   | MatchToken Range
   | OfToken Range
   | PrintToken Range
+  | WhileToken Range
+  | LoopToken Range
   | -- Separators
     SemicolonToken Range
   | ColonToken Range
@@ -123,6 +127,8 @@ instance Pretty Token where
   pretty (MatchToken _) = "match"
   pretty (OfToken _) = "of"
   pretty (PrintToken _) = "print"
+  pretty (WhileToken _) = "while"
+  pretty (LoopToken _) = "loop"
   pretty (SemicolonToken _) = ";"
   pretty (ColonToken _) = ":"
   pretty (EqualsToken _) = "="
@@ -172,6 +178,8 @@ instance WithRange Token where
   getRange (MatchToken range) = range
   getRange (OfToken range) = range
   getRange (PrintToken range) = range
+  getRange (WhileToken range) = range
+  getRange (LoopToken range) = range
   getRange (SemicolonToken range) = range
   getRange (ColonToken range) = range
   getRange (EqualsToken range) = range

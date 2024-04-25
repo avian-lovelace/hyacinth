@@ -195,6 +195,8 @@ lexKeywordOrIdentifier = do
                 "match" -> MatchToken
                 "of" -> OfToken
                 "print" -> PrintToken
+                "while" -> WhileToken
+                "loop" -> LoopToken
                 "Int" -> IntToken
                 "Double" -> DoubleToken
                 "Char" -> CharToken

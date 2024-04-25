@@ -33,6 +33,8 @@ type instance VariableMutationStatementData ParsingPhase = Range
 
 type instance ExpressionStatementData ParsingPhase = Range
 
+type instance WhileLoopStatementData ParsingPhase = Range
+
 -- Variable Name
 type PVariableName = VariableName ParsingPhase
 

@@ -3,11 +3,18 @@
 module Core.SyntaxTree
   ( FileScope (FileScope),
     FileScopeData,
-    Statement (PrintStatement, VariableDeclarationStatement, VariableMutationStatement, ExpressionStatement),
+    Statement
+      ( PrintStatement,
+        VariableDeclarationStatement,
+        VariableMutationStatement,
+        ExpressionStatement,
+        WhileLoopStatement
+      ),
     PrintStatementData,
     VariableDeclarationStatementData,
     VariableMutationStatementData,
     ExpressionStatementData,
+    WhileLoopStatementData,
     VariableName (VariableName),
     VariableNameData,
     Identifier,
@@ -76,6 +83,7 @@ data Statement phase
   | VariableDeclarationStatement (VariableDeclarationStatementData phase) (VariableName phase) (Expression phase)
   | VariableMutationStatement (VariableMutationStatementData phase) (VariableName phase) (Expression phase)
   | ExpressionStatement (ExpressionStatementData phase) (Expression phase)
+  | WhileLoopStatement (WhileLoopStatementData phase) (Expression phase) (Statement phase)
 
 type family PrintStatementData phase
 
@@ -84,6 +92,8 @@ type family VariableDeclarationStatementData phase
 type family VariableMutationStatementData phase
 
 type family ExpressionStatementData phase
+
+type family WhileLoopStatementData phase
 
 --     AlgebraicDataTypeStatement TypeVariableName [TypeVariableName] [(ProductTypeName, [ProperType])]
 --   | TypeAssignmentStatement TypeVariableName Type

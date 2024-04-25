@@ -39,6 +39,7 @@ parseStatement (currentSection :<| tailSections) = case currentSection of
   TokenSection (PrintToken _) -> parsePrintStatement currentSection tailSections
   TokenSection (LetToken _) -> parseVariableDeclarationStatement currentSection tailSections
   TokenSection (MutToken _) -> parseVariableMutationStatement currentSection tailSections
+  TokenSection (WhileToken _) -> parseWhileLoopStatement currentSection tailSections
   _ -> parseExpressionStatement (currentSection <| tailSections)
 
 parsePrintStatement :: Section -> ParseFunction PStatement
@@ -87,6 +88,24 @@ parseExpressionStatement expressionSections = ExpressionStatement expressionRang
   where
     expression = catchUnboundError (ExpressionStatementInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
     expressionRange = getRange expressionSections
+
+parseWhileLoopStatement :: Section -> ParseFunction PStatement
+parseWhileLoopStatement whileTokenSection restSections = case breakl matchLoopTokenSection restSections of
+  (Empty, Empty) -> singleError $ WhileStatementNoLoopError $ getRange whileTokenSection
+  (_, Empty) -> singleError $ WhileStatementNoLoopError whileStatementRange
+  (Empty, _) -> singleError $ WhileStatementEmptyConditionError whileStatementRange
+  (_, _loopTokenSection :<| Empty) -> singleError $ WhileStatementEmptyStatementError whileStatementRange
+  (conditionSections, _loopTokenSection :<| statementSections) -> do
+    condition <-
+      catchUnboundError (WhileStatementMailformedConditionExpressionError $ getRange conditionSections) $
+        runParserToEnd expressionParser conditionSections
+    statement <- parseStatement statementSections
+    return $ WhileLoopStatement whileStatementRange condition statement
+  where
+    matchLoopTokenSection (TokenSection (LoopToken _)) = True
+    matchLoopTokenSection _ = False
+    -- Must check that restSections is non-empty before using
+    whileStatementRange = getRange (whileTokenSection, seqTail restSections)
 
 -- Expressions
 

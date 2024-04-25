@@ -35,6 +35,10 @@ statementBinder (PrintStatement range expression) = do
 statementBinder (ExpressionStatement range expression) = do
   boundExpression <- expressionBinder expression
   return $ ExpressionStatement range boundExpression
+statementBinder (WhileLoopStatement range condition statement) = do
+  boundCondition <- expressionBinder condition
+  boundStatement <- statementBinder statement
+  return $ WhileLoopStatement range boundCondition boundStatement
 
 expressionBinder :: PExpression -> VariableBinder VBExpression
 expressionBinder (VariableExpression expressionRange (VariableName variableNameRange identifier)) = do

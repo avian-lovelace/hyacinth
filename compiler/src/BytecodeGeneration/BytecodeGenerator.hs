@@ -39,6 +39,16 @@ encodeStatement (VariableMutationStatement _ (VariableName _ variableName) varia
 encodeStatement (ExpressionStatement _ expression) = do
   encodedExpression <- encodeExpression expression
   return $ encodedExpression <> popInstruction
+encodeStatement (WhileLoopStatement _ condition statement) = do
+  encodedCondition <- encodeExpression condition
+  let conditionBytestring = BB.toLazyByteString encodedCondition
+  encodedStatement <- encodeStatement statement
+  let statementBytestring = BB.toLazyByteString encodedStatement
+  return $
+    BB.lazyByteString conditionBytestring
+      <> jumpIfFalseInstruction (fromIntegral (LB.length statementBytestring + jumpInstructionNumBytes))
+      <> BB.lazyByteString statementBytestring
+      <> jumpInstruction (fromIntegral (-(LB.length statementBytestring + jumpIfFalseInstructionNumBytes + LB.length conditionBytestring + jumpIfFalseInstructionNumBytes)))
 
 encodeExpression :: VBExpression -> BytecodeGenerator BB.Builder
 encodeExpression (IntLiteralExpression _ value) = return $ intInstruction $ fromIntegral value

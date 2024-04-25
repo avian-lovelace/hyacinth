@@ -19,6 +19,10 @@ module Core.Errors
         VariableMutationEmptyExpressionError,
         VariableMutationInvalidExpressionError,
         ExpressionStatementInvalidExpressionError,
+        WhileStatementNoLoopError,
+        WhileStatementEmptyConditionError,
+        WhileStatementEmptyStatementError,
+        WhileStatementMailformedConditionExpressionError,
         ConflictingVariableDeclarationsError,
         VariableNotDefinedBeforeMutationError,
         VariableNotDefinedBeforeUsageError,
@@ -61,6 +65,10 @@ data Error
   | VariableMutationEmptyExpressionError Range
   | VariableMutationInvalidExpressionError Range
   | ExpressionStatementInvalidExpressionError Range
+  | WhileStatementNoLoopError Range
+  | WhileStatementEmptyConditionError Range
+  | WhileStatementEmptyStatementError Range
+  | WhileStatementMailformedConditionExpressionError Range
   | -- Variable binding
     ConflictingVariableDeclarationsError Text Range Range
   | VariableNotDefinedBeforeMutationError Text Range
@@ -102,6 +110,10 @@ instance Pretty Error where
     "Variable " ++ Text.unpack variableName ++ " is not defined before it is used at " ++ pretty range
   pretty (VariableReferencedInDeclarationError variableName declarationRange usageRange) =
     "Variable " ++ Text.unpack variableName ++ " is referenced at " ++ pretty usageRange ++ " inside its declaration at " ++ pretty declarationRange
+  pretty (WhileStatementNoLoopError range) = "While loop statement has no loop keyword at" ++ pretty range
+  pretty (WhileStatementEmptyConditionError range) = "While loop statement has an empty condition at " ++ pretty range
+  pretty (WhileStatementEmptyStatementError range) = "While loop statement has an empty statement at " ++ pretty range
+  pretty (WhileStatementMailformedConditionExpressionError range) = "Failed to parse condition of while loop statement as an expression at " ++ pretty range
 
 data WithErrors a
   = Error (Seq Error)

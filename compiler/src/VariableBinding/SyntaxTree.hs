@@ -31,6 +31,8 @@ type instance VariableMutationStatementData VariableBindingPhase = Range
 
 type instance ExpressionStatementData VariableBindingPhase = Range
 
+type instance WhileLoopStatementData VariableBindingPhase = Range
+
 -- Variable Name
 type VBVariableName = VariableName VariableBindingPhase
 

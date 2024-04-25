@@ -25,7 +25,9 @@ module BytecodeGeneration.Bytecode
     popInstruction,
     popMultipleInstruction,
     jumpInstruction,
+    jumpInstructionNumBytes,
     jumpIfFalseInstruction,
+    jumpIfFalseInstructionNumBytes,
     intInstruction,
     doubleInstruction,
     Constant (StringConstant),
@@ -127,8 +129,14 @@ popMultipleInstruction numValuesToPop = BB.int8 25 <> BB.word16BE numValuesToPop
 jumpInstruction :: InstructionOffset -> BB.Builder
 jumpInstruction bytesToJump = BB.int8 26 <> BB.int16BE bytesToJump
 
+jumpInstructionNumBytes :: Int64
+jumpInstructionNumBytes = 3
+
 jumpIfFalseInstruction :: InstructionOffset -> BB.Builder
 jumpIfFalseInstruction bytesToJump = BB.int8 27 <> BB.int16BE bytesToJump
+
+jumpIfFalseInstructionNumBytes :: Int64
+jumpIfFalseInstructionNumBytes = 3
 
 intInstruction :: Int32 -> BB.Builder
 intInstruction value = BB.int8 28 <> BB.int32BE value
