@@ -26,7 +26,8 @@ module Core.Errors
         ConflictingVariableDeclarationsError,
         VariableNotDefinedBeforeMutationError,
         VariableNotDefinedBeforeUsageError,
-        VariableReferencedInDeclarationError
+        VariableReferencedInDeclarationError,
+        RuntimeError
       ),
     WithErrors (Error, Success),
     singleError,
@@ -74,6 +75,8 @@ data Error
   | VariableNotDefinedBeforeMutationError Text Range
   | VariableNotDefinedBeforeUsageError Text Range
   | VariableReferencedInDeclarationError Text Range Range
+  | -- Runtime
+    RuntimeError Int String
   deriving (Show, Eq)
 
 instance Pretty Error where
@@ -114,6 +117,7 @@ instance Pretty Error where
   pretty (WhileStatementEmptyConditionError range) = "While loop statement has an empty condition at " ++ pretty range
   pretty (WhileStatementEmptyStatementError range) = "While loop statement has an empty statement at " ++ pretty range
   pretty (WhileStatementMailformedConditionExpressionError range) = "Failed to parse condition of while loop statement as an expression at " ++ pretty range
+  pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
 
 data WithErrors a
   = Error (Seq Error)

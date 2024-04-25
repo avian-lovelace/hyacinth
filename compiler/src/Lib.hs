@@ -1,15 +1,16 @@
 module Lib
   ( run,
-    VMResult,
     runCode,
     compileCode,
   )
 where
 
 import BytecodeGeneration.BytecodeGenerator
+import Core.ErrorIO
 import Core.Errors
 import Core.Utils
 import qualified Data.ByteString.Builder as BB
+import Data.Text (Text)
 import qualified Data.Text as Text
 import Lexing.Lexer
 import Parsing.Parser
@@ -19,75 +20,54 @@ import System.Exit
 import System.Process
 import VariableBinding.VariableBinder
 
+debug :: Bool
+debug = False
+
+standardBytecodeFilePath :: FilePath
+standardBytecodeFilePath = "../byte.code"
+
+standardCode :: Text
+standardCode = "let i = 3; while i > 0 loop { print i; mut i = i - 1; }; print \"blastoff!\";"
+
 run :: IO ()
-run = case compileCode "let s1 = \"foo\"; let c = ' '; let s2 = \"bar\"; print s1 + c + s2;" of
-  Error es -> mapM_ (putStrLn . pretty) es
-  Success byteCode -> do
-    result <- runByteCode byteCode
-    case result of
-      (ExitSuccess, stdOut, _) -> putStrLn stdOut
-      (ExitFailure _, _, stdErr) -> putStrLn stdErr
+run = runAndOutputErrors $ do
+  output <- runCode debugLog standardBytecodeFilePath standardCode
+  liftIO $ putStrLn output
 
-runCode :: Text.Text -> IO (WithErrors VMResult)
-runCode code = case compileCode code of
-  Success bytecode -> do
-    let bytecodeFilePath = "../byte.code"
-    BB.writeFile bytecodeFilePath bytecode
-    vmResult <- runVM bytecodeFilePath
-    removeFile bytecodeFilePath
-    return $ Success vmResult
-  Error e -> return $ Error e
+debugLog :: String -> ErrorIO ()
+debugLog s = if debug then liftIO . putStrLn $ s else return ()
 
-runByteCode :: BB.Builder -> IO VMResult
-runByteCode code = do
-  let bytecodeFilePath = "../byte.code"
-  BB.writeFile bytecodeFilePath code
-  vmResult <- runVM bytecodeFilePath
-  removeFile bytecodeFilePath
-  return vmResult
+runCode :: (String -> ErrorIO ()) -> FilePath -> Text.Text -> ErrorIO String
+runCode logger bytecodeFilePath code = do
+  bytecode <- compileCode logger code
+  runVM logger bytecodeFilePath bytecode
 
-compileCode :: Text.Text -> WithErrors BB.Builder
-compileCode code = do
-  tokens <- lexText code
-  sections <- sectionFile tokens
-  pAst <- parseFile sections
-  vbAst <- runVariableBinding pAst
+compileCode :: (String -> ErrorIO ()) -> Text.Text -> ErrorIO BB.Builder
+compileCode logger code = do
+  tokens <- liftWithErrors $ lexText code
+  logger "Completed lexing"
+  logger $ pretty tokens
+  sections <- liftWithErrors $ sectionFile tokens
+  logger "Completed sectioning"
+  pAst <- liftWithErrors $ parseFile sections
+  logger "Completed parsing"
+  logger $ pretty pAst
+  vbAst <- liftWithErrors $ runVariableBinding pAst
+  logger "Completed variable binding"
+  logger $ pretty vbAst
   let bytecode = encodeFile vbAst
+  logger "Completed bytecode generation"
+  logger $ show $ BB.toLazyByteString bytecode
   return bytecode
 
-type VMResult = (ExitCode, String, String)
-
-runVM :: FilePath -> IO VMResult
-runVM bytecodeFilePath = readProcessWithExitCode "../virtual-machine/target/debug/virtual-machine" [bytecodeFilePath] ""
-
--- args <- getArgs
--- case length args of
---   0 -> putStrLn "A file name is required"
---   1 -> lexFile $ head args
---   _ -> putStrLn "Too many args"
-
--- compile :: FilePath -> IO ()
--- compile filePath = do
---   file <- Text.IO.readFile filePath
---   let result = lexText file
---   case result of
---     Error err -> putStrLn $ printError err
---     Success tokens -> do
---       printTokens $ toList tokens
---       case expressionParser $ makeStream tokens of
---         Error err -> putStrLn $ printError err
---         Success (SeqStream remainingTokens _, expression) -> do
---           putStrLn $ show remainingTokens
---           putStrLn $ printExpression expression
-
--- lexFile :: FilePath -> IO ()
--- lexFile filePath = do
---   file <- Text.IO.readFile filePath
---   let result = lexText file
---   case result of
---     Error err -> putStrLn $ pretty err
---     Success tokens -> do
---       printTokens $ toList tokens
-
--- printTokens :: [Token] -> IO ()
--- printTokens tokens = sequence_ $ map (putStrLn . pretty) tokens
+runVM :: (String -> ErrorIO ()) -> FilePath -> BB.Builder -> ErrorIO String
+runVM logger bytecodeFilePath bytecode = do
+  liftIO $ BB.writeFile bytecodeFilePath bytecode
+  logger $ "Output bytecode to " ++ bytecodeFilePath
+  vmResult <- liftIO $ readProcessWithExitCode "../virtual-machine/target/debug/virtual-machine" [bytecodeFilePath] ""
+  logger "Ran VM"
+  liftIO $ removeFile bytecodeFilePath
+  logger "Deleted bytecode file"
+  liftWithErrors $ case vmResult of
+    (ExitSuccess, stdOut, _) -> Success stdOut
+    (ExitFailure errorCode, _, stdErr) -> singleError $ RuntimeError errorCode stdErr
