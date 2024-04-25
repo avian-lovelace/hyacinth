@@ -86,6 +86,7 @@ encodeExpression (ModuloExpression _ leftExpression rightExpression) = do
 encodeExpression (NotExpression _ innerExpression) = do
   encodedInnerExpression <- encodeExpression innerExpression
   return $ encodedInnerExpression <> notInstruction
+-- TODO: Add short-circuiting for and/or
 encodeExpression (AndExpression _ leftExpression rightExpression) = do
   encodedLeftExpression <- encodeExpression leftExpression
   encodedRightExpression <- encodeExpression rightExpression
