@@ -1,11 +1,12 @@
-use crate::core::{Chunk, Heap, Value};
+use crate::core::{Heap, Value, VM};
 use std::str;
 
-pub fn read_chunk(bytes: Vec<u8>, heap: &mut Heap) -> Chunk {
+pub fn read_file(bytes: Vec<u8>) -> VM {
     let mut f = FileState { bytes, index: 0 };
 
     let constants_length = f.read_u16() as usize;
     let mut constants: Vec<Value> = Vec::new();
+    let mut heap = Heap::new();
     for _ in 0..constants_length {
         match f.read_byte() {
             1 => {
@@ -20,8 +21,21 @@ pub fn read_chunk(bytes: Vec<u8>, heap: &mut Heap) -> Chunk {
             _ => panic!("Encountered unexpected code when reading constants"),
         }
     }
-    let code = f.read_rest();
-    return Chunk { constants, code };
+    let mut functions = Vec::new();
+    while f.index < f.bytes.len() {
+        let num_bytes = f.read_u32();
+        functions.push(f.read_byte_slice(num_bytes as usize).to_vec());
+    }
+    return VM {
+        functions,
+        constants,
+        function_index: 0,
+        instruction_index: 0,
+        stack_index: 0,
+        frames: Vec::new(),
+        stack: Vec::new(),
+        heap,
+    };
 }
 
 struct FileState {
@@ -51,7 +65,12 @@ impl FileState {
         return int;
     }
 
-    fn read_rest(&mut self) -> Vec<u8> {
-        return self.bytes[self.index..].to_vec();
+    fn read_u32(&mut self) -> u32 {
+        let byte_array: [u8; 4] = self.bytes[self.index..self.index + 4]
+            .try_into()
+            .expect("Failed to read u32 when parsing file");
+        let int = u32::from_be_bytes(byte_array);
+        self.index = self.index + 4;
+        return int;
     }
 }

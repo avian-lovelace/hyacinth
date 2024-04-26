@@ -2,301 +2,293 @@ use core::fmt;
 use std::collections::HashSet;
 use std::str;
 
-use crate::core::{Chunk, FloatValue, Heap, IntValue, Object, ObjectKey, Value};
-
-pub fn interpret(chunk: Chunk, heap: Heap) {
-    let mut vm = VM {
-        chunk,
-        ip: 0,
-        stack: Vec::new(),
-        heap,
-    };
-    run(&mut vm);
-    vm.garbage_collect();
-}
-
-fn run(vm: &mut VM) {
-    while vm.ip < vm.chunk.code.len() {
-        match vm.read_instruction() {
-            Instruction::Return => {
-                break;
-            }
-            Instruction::Print => {
-                let value = vm.pop();
-                match value {
-                    Value::Nil => println!("()"),
-                    Value::Int(i) => println!("{}", i),
-                    Value::Double(d) => println!("{}", d),
-                    Value::Bool(b) => println!("{}", b),
-                    Value::Char(c) => println!("{}", c),
-                    Value::Object(object_index) => {
-                        let object = vm.heap.get(object_index);
-                        match object {
-                            Object::StringObj(s) => println!("{}", s),
-                            _ => println!("Object {}", object_index),
-                        }
-                    }
-                }
-            }
-            Instruction::Constant(const_index) => vm.push(vm.read_constant(const_index)),
-            Instruction::Negate => {
-                let value = vm.pop();
-                match value {
-                    Value::Int(i) => vm.push(Value::Int(-i)),
-                    Value::Double(d) => vm.push(Value::Double(-d)),
-                    _ => panic!("Attemped to negate value {}", value),
-                }
-            }
-            Instruction::Add => {
-                let value_2 = vm.pop();
-                let value_1 = vm.pop();
-                match (value_1, value_2) {
-                    (Value::Int(i1), Value::Int(i2)) => vm.push(Value::Int(i1 + i2)),
-                    (Value::Double(d1), Value::Double(d2)) => vm.push(Value::Double(d1 + d2)),
-                    (Value::Object(o1), Value::Object(o2)) => {
-                        match (vm.heap.get(o1), vm.heap.get(o2)) {
-                            (Object::StringObj(s1), Object::StringObj(s2)) => {
-                                let concat_string = [s1.as_str(), s2.as_str()].join("");
-                                let concat_string_ref =
-                                    vm.heap.add(Object::StringObj(concat_string));
-                                vm.push(concat_string_ref);
-                            }
-                            _ => panic!("Attemped to add objects {} and {}", o1, o2),
-                        }
-                    }
-                    (Value::Object(o), Value::Char(c)) => match vm.heap.get(o) {
-                        Object::StringObj(s) => {
-                            let mut concat_string = s.to_owned();
-                            concat_string.push(c);
-                            let concat_string_ref = vm.heap.add(Object::StringObj(concat_string));
-                            vm.push(concat_string_ref);
-                        }
-                        _ => panic!("Attemped to add character {} and object {}", c, o),
-                    },
-                    (Value::Char(c), Value::Object(o)) => match vm.heap.get(o) {
-                        Object::StringObj(s) => {
-                            let mut concat_string = s.to_owned();
-                            concat_string.insert(0, c);
-                            let concat_string_ref = vm.heap.add(Object::StringObj(concat_string));
-                            vm.push(concat_string_ref);
-                        }
-                        _ => panic!("Attemped to add character {} and object {}", c, o),
-                    },
-                    _ => panic!("Attempted to add values {} and {}", value_1, value_2),
-                }
-            }
-            Instruction::Subtract => {
-                let value_2 = vm.pop();
-                let value_1 = vm.pop();
-                match (value_1, value_2) {
-                    (Value::Int(i1), Value::Int(i2)) => vm.push(Value::Int(i1 - i2)),
-                    (Value::Double(d1), Value::Double(d2)) => vm.push(Value::Double(d1 - d2)),
-                    _ => panic!("Attempted to subtract values {} and {}", value_1, value_2),
-                }
-            }
-            Instruction::Multiply => {
-                let value_2 = vm.pop();
-                let value_1 = vm.pop();
-                match (value_1, value_2) {
-                    (Value::Int(i1), Value::Int(i2)) => vm.push(Value::Int(i1 * i2)),
-                    (Value::Double(d1), Value::Double(d2)) => vm.push(Value::Double(d1 * d2)),
-                    _ => panic!("Attempted to multiply values {} and {}", value_1, value_2),
-                }
-            }
-            Instruction::Divide => {
-                let value_2 = vm.pop();
-                let value_1 = vm.pop();
-                match (value_1, value_2) {
-                    (Value::Int(i1), Value::Int(i2)) => vm.push(Value::Int(i1 / i2)),
-                    (Value::Double(d1), Value::Double(d2)) => vm.push(Value::Double(d1 / d2)),
-                    _ => panic!("Attempted to divide values {} and {}", value_1, value_2),
-                }
-            }
-            Instruction::Modulo => {
-                let value_2 = vm.pop();
-                let value_1 = vm.pop();
-                match (value_1, value_2) {
-                    (Value::Int(i1), Value::Int(i2)) => vm.push(Value::Int(i1 % i2)),
-                    _ => panic!("Attempted to modulo values {} and {}", value_1, value_2),
-                }
-            }
-            Instruction::Not => {
-                let value = vm.pop();
-                match value {
-                    Value::Bool(b) => vm.push(Value::Bool(!b)),
-                    _ => panic!("Attemped to not value {}", value),
-                }
-            }
-            Instruction::And => {
-                let value_2 = vm.pop();
-                let value_1 = vm.pop();
-                match (value_1, value_2) {
-                    (Value::Bool(b1), Value::Bool(b2)) => vm.push(Value::Bool(b1 && b2)),
-                    _ => panic!("Attempted to and values {} and {}", value_1, value_2),
-                }
-            }
-            Instruction::Or => {
-                let value_2 = vm.pop();
-                let value_1 = vm.pop();
-                match (value_1, value_2) {
-                    (Value::Bool(b1), Value::Bool(b2)) => vm.push(Value::Bool(b1 || b2)),
-                    _ => panic!("Attempted to or values {} and {}", value_1, value_2),
-                }
-            }
-            Instruction::Equal => {
-                let value_2 = vm.pop();
-                let value_1 = vm.pop();
-                match (value_1, value_2) {
-                    (Value::Int(i1), Value::Int(i2)) => vm.push(Value::Bool(i1 == i2)),
-                    (Value::Double(d1), Value::Double(d2)) => vm.push(Value::Bool(d1 == d2)),
-                    (Value::Bool(b1), Value::Bool(b2)) => vm.push(Value::Bool(b1 == b2)),
-                    _ => panic!("Attempted to equal values {} and {}", value_1, value_2),
-                }
-            }
-            Instruction::NotEqual => {
-                let value_2 = vm.pop();
-                let value_1 = vm.pop();
-                match (value_1, value_2) {
-                    (Value::Int(i1), Value::Int(i2)) => vm.push(Value::Bool(i1 != i2)),
-                    (Value::Double(d1), Value::Double(d2)) => vm.push(Value::Bool(d1 != d2)),
-                    (Value::Bool(b1), Value::Bool(b2)) => vm.push(Value::Bool(b1 != b2)),
-                    _ => panic!("Attempted to not equal values {} and {}", value_1, value_2),
-                }
-            }
-            Instruction::Greater => {
-                let value_2 = vm.pop();
-                let value_1 = vm.pop();
-                match (value_1, value_2) {
-                    (Value::Int(i1), Value::Int(i2)) => vm.push(Value::Bool(i1 > i2)),
-                    (Value::Double(d1), Value::Double(d2)) => vm.push(Value::Bool(d1 > d2)),
-                    _ => panic!("Attempted to greater values {} and {}", value_1, value_2),
-                }
-            }
-            Instruction::Less => {
-                let value_2 = vm.pop();
-                let value_1 = vm.pop();
-                match (value_1, value_2) {
-                    (Value::Int(i1), Value::Int(i2)) => vm.push(Value::Bool(i1 < i2)),
-                    (Value::Double(d1), Value::Double(d2)) => vm.push(Value::Bool(d1 < d2)),
-                    _ => panic!("Attempted to less values {} and {}", value_1, value_2),
-                }
-            }
-            Instruction::GreaterEqual => {
-                let value_2 = vm.pop();
-                let value_1 = vm.pop();
-                match (value_1, value_2) {
-                    (Value::Int(i1), Value::Int(i2)) => vm.push(Value::Bool(i1 >= i2)),
-                    (Value::Double(d1), Value::Double(d2)) => vm.push(Value::Bool(d1 >= d2)),
-                    _ => panic!(
-                        "Attempted to greater equal values {} and {}",
-                        value_1, value_2
-                    ),
-                }
-            }
-            Instruction::LessEqual => {
-                let value_2 = vm.pop();
-                let value_1 = vm.pop();
-                match (value_1, value_2) {
-                    (Value::Int(i1), Value::Int(i2)) => vm.push(Value::Bool(i1 <= i2)),
-                    (Value::Double(d1), Value::Double(d2)) => vm.push(Value::Bool(d1 <= d2)),
-                    _ => panic!("Attempted to less equal values {} and {}", value_1, value_2),
-                }
-            }
-            Instruction::True => vm.push(Value::Bool(true)),
-            Instruction::False => vm.push(Value::Bool(false)),
-            Instruction::ReadVariable(stack_index) => vm.push(vm.peek(stack_index)),
-            Instruction::MutateVariable(stack_index) => {
-                let value = vm.pop();
-                vm.set(stack_index, value)
-            }
-            Instruction::Nil => vm.push(Value::Nil),
-            Instruction::Pop => {
-                vm.pop();
-            }
-            Instruction::PopMultiple(num) => vm.pop_multiple(num),
-            Instruction::Jump(offset) => vm.jump(offset),
-            Instruction::JumpIfFalse(offset) => {
-                let value = vm.pop();
-                match value {
-                    Value::Bool(true) => {}
-                    Value::Bool(false) => vm.jump(offset),
-                    _ => panic!(
-                        "Got non-boolean value {} as the condition when evaluating JumpIfFalse",
-                        value
-                    ),
-                }
-            }
-            Instruction::Int(i) => vm.push(Value::Int(i)),
-            Instruction::Float(f) => vm.push(Value::Double(f)),
-            Instruction::Char(c) => vm.push(Value::Char(c)),
-        };
-    }
-}
-
-struct VM {
-    chunk: Chunk,
-    ip: InstructionIndex,
-    stack: Vec<Value>,
-    heap: Heap,
-}
+use crate::core::{
+    ConstIndex, FloatValue, InstructionOffset, IntValue, Object, ObjectKey, StackIndex, Value, VM,
+};
 
 impl VM {
+    pub fn run(&mut self) {
+        loop {
+            match self.read_instruction() {
+                Instruction::Return => {
+                    break;
+                }
+                Instruction::Print => {
+                    let value = self.pop();
+                    match value {
+                        Value::Nil => println!("()"),
+                        Value::Int(i) => println!("{}", i),
+                        Value::Double(d) => println!("{}", d),
+                        Value::Bool(b) => println!("{}", b),
+                        Value::Char(c) => println!("{}", c),
+                        Value::Object(object_index) => {
+                            let object = self.heap.get(object_index);
+                            match object {
+                                Object::StringObj(s) => println!("{}", s),
+                                _ => println!("Object {}", object_index),
+                            }
+                        }
+                    }
+                }
+                Instruction::Constant(const_index) => {
+                    self.push(self.constants[const_index as usize])
+                }
+                Instruction::Negate => {
+                    let value = self.pop();
+                    match value {
+                        Value::Int(i) => self.push(Value::Int(-i)),
+                        Value::Double(d) => self.push(Value::Double(-d)),
+                        _ => panic!("Attemped to negate value {}", value),
+                    }
+                }
+                Instruction::Add => {
+                    let value_2 = self.pop();
+                    let value_1 = self.pop();
+                    match (value_1, value_2) {
+                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 + i2)),
+                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Double(d1 + d2)),
+                        (Value::Object(o1), Value::Object(o2)) => {
+                            match (self.heap.get(o1), self.heap.get(o2)) {
+                                (Object::StringObj(s1), Object::StringObj(s2)) => {
+                                    let concat_string = [s1.as_str(), s2.as_str()].join("");
+                                    let concat_string_ref =
+                                        self.heap.add(Object::StringObj(concat_string));
+                                    self.push(concat_string_ref);
+                                }
+                                _ => panic!("Attemped to add objects {} and {}", o1, o2),
+                            }
+                        }
+                        (Value::Object(o), Value::Char(c)) => match self.heap.get(o) {
+                            Object::StringObj(s) => {
+                                let mut concat_string = s.to_owned();
+                                concat_string.push(c);
+                                let concat_string_ref =
+                                    self.heap.add(Object::StringObj(concat_string));
+                                self.push(concat_string_ref);
+                            }
+                            _ => panic!("Attemped to add character {} and object {}", c, o),
+                        },
+                        (Value::Char(c), Value::Object(o)) => match self.heap.get(o) {
+                            Object::StringObj(s) => {
+                                let mut concat_string = s.to_owned();
+                                concat_string.insert(0, c);
+                                let concat_string_ref =
+                                    self.heap.add(Object::StringObj(concat_string));
+                                self.push(concat_string_ref);
+                            }
+                            _ => panic!("Attemped to add character {} and object {}", c, o),
+                        },
+                        _ => panic!("Attempted to add values {} and {}", value_1, value_2),
+                    }
+                }
+                Instruction::Subtract => {
+                    let value_2 = self.pop();
+                    let value_1 = self.pop();
+                    match (value_1, value_2) {
+                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 - i2)),
+                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Double(d1 - d2)),
+                        _ => panic!("Attempted to subtract values {} and {}", value_1, value_2),
+                    }
+                }
+                Instruction::Multiply => {
+                    let value_2 = self.pop();
+                    let value_1 = self.pop();
+                    match (value_1, value_2) {
+                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 * i2)),
+                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Double(d1 * d2)),
+                        _ => panic!("Attempted to multiply values {} and {}", value_1, value_2),
+                    }
+                }
+                Instruction::Divide => {
+                    let value_2 = self.pop();
+                    let value_1 = self.pop();
+                    match (value_1, value_2) {
+                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 / i2)),
+                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Double(d1 / d2)),
+                        _ => panic!("Attempted to divide values {} and {}", value_1, value_2),
+                    }
+                }
+                Instruction::Modulo => {
+                    let value_2 = self.pop();
+                    let value_1 = self.pop();
+                    match (value_1, value_2) {
+                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 % i2)),
+                        _ => panic!("Attempted to modulo values {} and {}", value_1, value_2),
+                    }
+                }
+                Instruction::Not => {
+                    let value = self.pop();
+                    match value {
+                        Value::Bool(b) => self.push(Value::Bool(!b)),
+                        _ => panic!("Attemped to not value {}", value),
+                    }
+                }
+                Instruction::And => {
+                    let value_2 = self.pop();
+                    let value_1 = self.pop();
+                    match (value_1, value_2) {
+                        (Value::Bool(b1), Value::Bool(b2)) => self.push(Value::Bool(b1 && b2)),
+                        _ => panic!("Attempted to and values {} and {}", value_1, value_2),
+                    }
+                }
+                Instruction::Or => {
+                    let value_2 = self.pop();
+                    let value_1 = self.pop();
+                    match (value_1, value_2) {
+                        (Value::Bool(b1), Value::Bool(b2)) => self.push(Value::Bool(b1 || b2)),
+                        _ => panic!("Attempted to or values {} and {}", value_1, value_2),
+                    }
+                }
+                Instruction::Equal => {
+                    let value_2 = self.pop();
+                    let value_1 = self.pop();
+                    match (value_1, value_2) {
+                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 == i2)),
+                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Bool(d1 == d2)),
+                        (Value::Bool(b1), Value::Bool(b2)) => self.push(Value::Bool(b1 == b2)),
+                        _ => panic!("Attempted to equal values {} and {}", value_1, value_2),
+                    }
+                }
+                Instruction::NotEqual => {
+                    let value_2 = self.pop();
+                    let value_1 = self.pop();
+                    match (value_1, value_2) {
+                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 != i2)),
+                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Bool(d1 != d2)),
+                        (Value::Bool(b1), Value::Bool(b2)) => self.push(Value::Bool(b1 != b2)),
+                        _ => panic!("Attempted to not equal values {} and {}", value_1, value_2),
+                    }
+                }
+                Instruction::Greater => {
+                    let value_2 = self.pop();
+                    let value_1 = self.pop();
+                    match (value_1, value_2) {
+                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 > i2)),
+                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Bool(d1 > d2)),
+                        _ => panic!("Attempted to greater values {} and {}", value_1, value_2),
+                    }
+                }
+                Instruction::Less => {
+                    let value_2 = self.pop();
+                    let value_1 = self.pop();
+                    match (value_1, value_2) {
+                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 < i2)),
+                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Bool(d1 < d2)),
+                        _ => panic!("Attempted to less values {} and {}", value_1, value_2),
+                    }
+                }
+                Instruction::GreaterEqual => {
+                    let value_2 = self.pop();
+                    let value_1 = self.pop();
+                    match (value_1, value_2) {
+                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 >= i2)),
+                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Bool(d1 >= d2)),
+                        _ => panic!(
+                            "Attempted to greater equal values {} and {}",
+                            value_1, value_2
+                        ),
+                    }
+                }
+                Instruction::LessEqual => {
+                    let value_2 = self.pop();
+                    let value_1 = self.pop();
+                    match (value_1, value_2) {
+                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 <= i2)),
+                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Bool(d1 <= d2)),
+                        _ => panic!("Attempted to less equal values {} and {}", value_1, value_2),
+                    }
+                }
+                Instruction::True => self.push(Value::Bool(true)),
+                Instruction::False => self.push(Value::Bool(false)),
+                Instruction::ReadVariable(stack_index) => self.push(self.peek(stack_index)),
+                Instruction::MutateVariable(stack_index) => {
+                    let value = self.pop();
+                    self.set(stack_index, value)
+                }
+                Instruction::Nil => self.push(Value::Nil),
+                Instruction::Pop => {
+                    self.pop();
+                }
+                Instruction::PopMultiple(num) => self.pop_multiple(num),
+                Instruction::Jump(offset) => self.jump(offset),
+                Instruction::JumpIfFalse(offset) => {
+                    let value = self.pop();
+                    match value {
+                        Value::Bool(true) => {}
+                        Value::Bool(false) => self.jump(offset),
+                        _ => panic!(
+                            "Got non-boolean value {} as the condition when evaluating JumpIfFalse",
+                            value
+                        ),
+                    }
+                }
+                Instruction::Int(i) => self.push(Value::Int(i)),
+                Instruction::Float(f) => self.push(Value::Double(f)),
+                Instruction::Char(c) => self.push(Value::Char(c)),
+            };
+        }
+        self.garbage_collect();
+    }
+
     fn read_byte(&mut self) -> u8 {
-        let byte = self.chunk.code[self.ip];
-        self.ip = self.ip + 1;
+        let byte = self.functions[self.function_index][self.instruction_index];
+        self.instruction_index = self.instruction_index + 1;
         return byte;
     }
 
+    fn read_slice(&mut self, num_bytes: usize) -> &[u8] {
+        let slice = &self.functions[self.function_index]
+            [self.instruction_index..self.instruction_index + num_bytes];
+        self.instruction_index += num_bytes;
+        return slice;
+    }
+
     fn read_u16(&mut self) -> u16 {
-        let byte_array: [u8; 2] = self.chunk.code[self.ip..self.ip + 2]
+        let byte_array: [u8; 2] = self
+            .read_slice(2)
             .try_into()
-            .expect("Failed to read u16 when decoding instruction");
-        let int = u16::from_be_bytes(byte_array);
-        self.ip = self.ip + 2;
-        return int;
+            .expect("Failed to read u16 in VM");
+        return u16::from_be_bytes(byte_array);
     }
 
     fn read_i16(&mut self) -> i16 {
-        let byte_array: [u8; 2] = self.chunk.code[self.ip..self.ip + 2]
+        let byte_array: [u8; 2] = self
+            .read_slice(2)
             .try_into()
-            .expect("Failed to read i16 when decoding instruction");
-        let int = i16::from_be_bytes(byte_array);
-        self.ip = self.ip + 2;
-        return int;
+            .expect("Failed to read i16 in VM");
+        return i16::from_be_bytes(byte_array);
     }
 
     fn read_i32(&mut self) -> i32 {
-        let byte_array: [u8; 4] = self.chunk.code[self.ip..self.ip + 4]
+        let byte_array: [u8; 4] = self
+            .read_slice(4)
             .try_into()
-            .expect("Failed to read i32 when decoding instruction");
-        let int = i32::from_be_bytes(byte_array);
-        self.ip = self.ip + 4;
-        return int;
+            .expect("Failed to read i32 in VM");
+        return i32::from_be_bytes(byte_array);
     }
 
     fn read_f64(&mut self) -> f64 {
-        let byte_array: [u8; 8] = self.chunk.code[self.ip..self.ip + 8]
+        let byte_array: [u8; 8] = self
+            .read_slice(8)
             .try_into()
-            .expect("Failed to read float when decoding instruction");
-        let int = f64::from_be_bytes(byte_array);
-        self.ip = self.ip + 8;
-        return int;
+            .expect("Failed to read float in VM");
+        return f64::from_be_bytes(byte_array);
     }
 
     fn read_char(&mut self) -> char {
+        let char_slice = self.read_slice(4);
         // Trim padding from the end of the encoded char
-        let mut end_index = self.ip + 3;
-        while end_index > self.ip && self.chunk.code[end_index] == 0 {
+        let mut end_index = 3;
+        while end_index > 0 && char_slice[end_index] == 0 {
             end_index -= 1;
         }
-        let value_slice = &self.chunk.code[self.ip..end_index + 1];
-        let value_string = str::from_utf8(value_slice)
+        let trimmed_slice = &char_slice[..end_index + 1];
+        let value_string = str::from_utf8(trimmed_slice)
             .expect("Failed to read char value as utf8 text when reading file");
         let value_char = value_string
             .chars()
             .next()
             .expect("Char value was empty when reading file");
-        self.ip += 4;
         return value_char;
     }
 
@@ -337,14 +329,6 @@ impl VM {
         }
     }
 
-    fn read_constant(&self, index: ConstIndex) -> Value {
-        self.chunk
-            .constants
-            .get(index as usize)
-            .copied()
-            .expect(format!("Failed to read constant at index {}", index).as_str())
-    }
-
     fn push(&mut self, value: Value) {
         self.stack.push(value)
     }
@@ -371,10 +355,10 @@ impl VM {
     }
 
     fn jump(&mut self, offset: i16) {
-        self.ip = if offset >= 0 {
-            self.ip + (offset as usize)
+        self.instruction_index = if offset >= 0 {
+            self.instruction_index + (offset as usize)
         } else {
-            self.ip - (-offset as usize)
+            self.instruction_index - (-offset as usize)
         }
     }
 
@@ -388,7 +372,7 @@ impl VM {
                 _ => {}
             }
         }
-        for value in &self.chunk.constants {
+        for value in &self.constants {
             match value {
                 Value::Object(key) => {
                     reachable_objects.insert(*key);
@@ -473,10 +457,3 @@ impl fmt::Display for Instruction {
         }
     }
 }
-
-// TODO: ConstIndex being u8 limits the size of the constant pool to 256 values. Ideally, this should be changed to
-// usize after implementing byte-to-int decoding.
-type ConstIndex = u16;
-type StackIndex = u16;
-type InstructionOffset = i16;
-type InstructionIndex = usize;

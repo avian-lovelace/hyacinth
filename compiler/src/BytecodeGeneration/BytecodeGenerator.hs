@@ -20,9 +20,13 @@ encodeFile fileScope =
         <> code
 
 encodeFileScope :: VBFileScope -> BytecodeGenerator BB.Builder
-encodeFileScope (FileScope _ statements) = withNewScope $ do
-  encodedStatements <- mapM encodeStatement statements
-  return $ fold encodedStatements
+encodeFileScope (FileScope _ statements) = do
+  mainFunction <- withNewScope $ do
+    encodedStatements <- mapM encodeStatement statements
+    return $ fold encodedStatements <> nilInstruction <> returnInstruction
+  let mainFunctionBytestring = BB.toLazyByteString mainFunction
+  let mainFunctionLength = fromIntegral $ LB.length mainFunctionBytestring
+  return $ BB.word32BE mainFunctionLength <> BB.lazyByteString mainFunctionBytestring
 
 encodeStatement :: VBStatement -> BytecodeGenerator BB.Builder
 encodeStatement (PrintStatement _ expression) = do

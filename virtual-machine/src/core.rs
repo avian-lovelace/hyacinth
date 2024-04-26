@@ -2,9 +2,15 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
 
-pub struct Chunk {
-    pub code: Vec<u8>,
+pub struct VM {
+    pub functions: Vec<Vec<u8>>,
     pub constants: Vec<Value>,
+    pub function_index: FunctionIndex,
+    pub instruction_index: InstructionIndex,
+    pub stack_index: StackIndex,
+    pub frames: Vec<Frame>,
+    pub stack: Vec<Value>,
+    pub heap: Heap,
 }
 
 #[derive(Clone, Copy)]
@@ -73,3 +79,15 @@ impl Heap {
         self.objects.retain(|k, _| reachable_keys.contains(k))
     }
 }
+
+pub struct Frame {
+    pub function_index: FunctionIndex,
+    pub instruction_index: InstructionIndex,
+    pub stack_index: StackIndex,
+}
+
+pub type ConstIndex = u16;
+pub type StackIndex = u16;
+pub type InstructionOffset = i16;
+pub type InstructionIndex = usize;
+pub type FunctionIndex = usize;
