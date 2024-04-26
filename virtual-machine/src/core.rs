@@ -41,6 +41,22 @@ impl fmt::Display for Value {
 
 pub enum Object {
     StringObj(String),
+    FunctionObj {
+        function_index: FunctionIndex,
+        closed_variables: Vec<Value>,
+    },
+}
+
+impl fmt::Display for Object {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Object::StringObj(s) => write!(f, "StringObj {}", s),
+            Object::FunctionObj {
+                function_index,
+                closed_variables: _,
+            } => write!(f, "FunctionObj {}", function_index),
+        }
+    }
 }
 
 pub type ObjectKey = u32;
@@ -90,4 +106,4 @@ pub type ConstIndex = u16;
 pub type StackIndex = u16;
 pub type InstructionOffset = i16;
 pub type InstructionIndex = usize;
-pub type FunctionIndex = usize;
+pub type FunctionIndex = u16;

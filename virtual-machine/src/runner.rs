@@ -3,16 +3,25 @@ use std::collections::HashSet;
 use std::str;
 
 use crate::core::{
-    ConstIndex, FloatValue, InstructionOffset, IntValue, Object, ObjectKey, StackIndex, Value, VM,
+    ConstIndex, FloatValue, Frame, FunctionIndex, InstructionOffset, IntValue, Object, ObjectKey,
+    StackIndex, Value, VM,
 };
 
 impl VM {
     pub fn run(&mut self) {
         loop {
             match self.read_instruction() {
-                Instruction::Return => {
-                    break;
-                }
+                Instruction::Return => match self.frames.pop() {
+                    None => break,
+                    Some(frame) => {
+                        let return_value = self.pop();
+                        self.stack.truncate(self.stack_index as usize);
+                        self.function_index = frame.function_index;
+                        self.instruction_index = frame.instruction_index;
+                        self.stack_index = frame.stack_index;
+                        self.push(return_value);
+                    }
+                },
                 Instruction::Print => {
                     let value = self.pop();
                     match value {
@@ -209,7 +218,7 @@ impl VM {
                 Instruction::Pop => {
                     self.pop();
                 }
-                Instruction::PopMultiple(num) => self.pop_multiple(num),
+                Instruction::PopMultiple(num) => self.pop_multiple(num as usize),
                 Instruction::Jump(offset) => self.jump(offset),
                 Instruction::JumpIfFalse(offset) => {
                     let value = self.pop();
@@ -225,19 +234,49 @@ impl VM {
                 Instruction::Int(i) => self.push(Value::Int(i)),
                 Instruction::Float(f) => self.push(Value::Double(f)),
                 Instruction::Char(c) => self.push(Value::Char(c)),
+                Instruction::Function(function_index, num_closed) => {
+                    let closed_variables = self.pop_slice(num_closed as usize);
+                    let function_object = Object::FunctionObj {
+                        function_index,
+                        closed_variables,
+                    };
+                    let function_object_value = self.heap.add(function_object);
+                    self.push(function_object_value)
+                }
+                Instruction::Call(num_arguments) => match self.pop() {
+                    Value::Object(object_index) => match self.heap.get(object_index) {
+                        Object::FunctionObj {
+                            function_index,
+                            closed_variables,
+                        } => {
+                            let current_frame = Frame {
+                                function_index: self.function_index,
+                                instruction_index: self.instruction_index,
+                                stack_index: self.stack_index,
+                            };
+                            self.frames.push(current_frame);
+                            self.function_index = *function_index;
+                            self.instruction_index = 0;
+                            self.stack_index = self.stack.len() as u16 - num_arguments as u16;
+                            self.stack.extend(closed_variables);
+                        }
+                        obj => panic!("Attempted to call non-function object {}", obj),
+                    },
+                    value => panic!("Attempted to call non-function value {}", value),
+                },
             };
         }
         self.garbage_collect();
     }
 
     fn read_byte(&mut self) -> u8 {
-        let byte = self.functions[self.function_index][self.instruction_index];
+        let byte = self.functions[self.function_index as usize][self.instruction_index];
         self.instruction_index = self.instruction_index + 1;
         return byte;
     }
 
     fn read_slice(&mut self, num_bytes: usize) -> &[u8] {
-        let slice = &self.functions[self.function_index]
+        let slice = &self.functions[self.function_index as usize]
             [self.instruction_index..self.instruction_index + num_bytes];
         self.instruction_index += num_bytes;
         return slice;
@@ -325,6 +364,8 @@ impl VM {
             28 => Instruction::Int(self.read_i32()),
             29 => Instruction::Float(self.read_f64()),
             30 => Instruction::Char(self.read_char()),
+            31 => Instruction::Function(self.read_u16(), self.read_byte()),
+            32 => Instruction::Call(self.read_byte()),
             op => panic!("Got invalid op code {}", op),
         }
     }
@@ -339,8 +380,15 @@ impl VM {
             .expect("Attempted to pop while the stack was empty")
     }
 
-    fn pop_multiple(&mut self, num: u16) {
-        self.stack.truncate(self.stack.len() - num as usize);
+    fn pop_multiple(&mut self, num: usize) {
+        self.stack.truncate(self.stack.len() - num);
+    }
+
+    fn pop_slice(&mut self, slice_len: usize) -> Vec<Value> {
+        let stack_size = self.stack.len();
+        let slice = self.stack[stack_size - slice_len..].to_vec();
+        self.stack.truncate(stack_size - slice_len);
+        return slice;
     }
 
     fn peek(&self, index: StackIndex) -> Value {
@@ -415,6 +463,8 @@ enum Instruction {
     Int(IntValue),
     Float(FloatValue),
     Char(char),
+    Function(FunctionIndex, u8),
+    Call(u8),
 }
 
 impl fmt::Display for Instruction {
@@ -454,6 +504,10 @@ impl fmt::Display for Instruction {
             Instruction::Int(i) => write!(f, "Int {}", i),
             Instruction::Float(d) => write!(f, "Float {}", d),
             Instruction::Char(c) => write!(f, "Char {}", c),
+            Instruction::Function(function_index, num_closed) => {
+                write!(f, "Function {} {}", function_index, num_closed)
+            }
+            Instruction::Call(num_arguments) => write!(f, "Call {}", num_arguments),
         }
     }
 }
