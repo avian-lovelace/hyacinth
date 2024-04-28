@@ -95,12 +95,12 @@ module LexerSpec where
 
 --       it "lexes {" $
 --         let input = "{"
---             expected = fromList [Token LeftBraceToken (startRange 1)]
+--             expected = fromList [Token LeftCurlyBraceToken (startRange 1)]
 --          in lexText input `shouldBe` (Success expected)
 
 --       it "lexes }" $
 --         let input = "}"
---             expected = fromList [Token RightBraceToken (startRange 1)]
+--             expected = fromList [Token RightCurlyBraceToken (startRange 1)]
 --          in lexText input `shouldBe` (Success expected)
 
 --     describe "Primitive types" $ do

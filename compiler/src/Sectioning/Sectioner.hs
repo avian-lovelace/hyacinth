@@ -22,19 +22,26 @@ fileSectionParser = SectioningParser $ \tokens -> case tokens of
   Empty -> (Empty, Success Empty)
   currentToken :<| restTokens -> case currentToken of
     (RightParenToken _) -> (restTokens, singleError $ UnmatchEndGroupingError currentToken)
-    (RightBraceToken _) -> (restTokens, singleError $ UnmatchEndGroupingError currentToken)
+    (RightCurlyBraceToken _) -> (restTokens, singleError $ UnmatchEndGroupingError currentToken)
+    (RightSquareBracketToken _) -> (restTokens, singleError $ UnmatchEndGroupingError currentToken)
     (LeftParenToken _) ->
       let parensParser = do
             nestedParenSection <- parenSectionParser currentToken
             endSections <- fileSectionParser
             return $ nestedParenSection <| endSections
        in runParser parensParser restTokens
-    (LeftBraceToken _) ->
-      let bracesParser = do
-            nestedBraceSection <- braceSectionParser currentToken
+    (LeftCurlyBraceToken _) ->
+      let curlyBracesParser = do
+            nestedCurlyBraceSection <- curlyBraceSectionParser currentToken
             endSections <- fileSectionParser
-            return $ nestedBraceSection <| endSections
-       in runParser bracesParser restTokens
+            return $ nestedCurlyBraceSection <| endSections
+       in runParser curlyBracesParser restTokens
+    (LeftSquareBracketToken _) ->
+      let squareBracketsParser = do
+            nestedSquareBracketSection <- squareBracketSectionParser currentToken
+            endSections <- fileSectionParser
+            return $ nestedSquareBracketSection <| endSections
+       in runParser squareBracketsParser restTokens
     _ ->
       let continueParser = do
             endSections <- fileSectionParser
@@ -54,53 +61,106 @@ parenSectionHelperParser leftParen = SectioningParser $ \tokens -> case tokens o
   Empty -> (Empty, singleError $ UnmatchedStartGroupingError leftParen)
   currentToken :<| restTokens -> case currentToken of
     (RightParenToken _) -> (restTokens, Success (Empty, currentToken))
-    (RightBraceToken _) -> (restTokens, singleError $ MismatchedGroupingEndsError leftParen currentToken)
+    (RightCurlyBraceToken _) -> (restTokens, singleError $ MismatchedGroupingEndsError leftParen currentToken)
+    (RightSquareBracketToken _) -> (restTokens, singleError $ MismatchedGroupingEndsError leftParen currentToken)
     (LeftParenToken _) ->
       let nestedParensParser = do
             nestedParenSection <- parenSectionParser currentToken
             (endSections, rightParen) <- parenSectionHelperParser leftParen
             return (nestedParenSection <| endSections, rightParen)
        in runParser nestedParensParser restTokens
-    (LeftBraceToken _) ->
-      let nestedBracesParser = do
-            nestedBraceSection <- braceSectionParser currentToken
+    (LeftCurlyBraceToken _) ->
+      let nestedCurlyBracesParser = do
+            nestedCurlyBraceSection <- curlyBraceSectionParser currentToken
             (endSections, rightParen) <- parenSectionHelperParser leftParen
-            return (nestedBraceSection <| endSections, rightParen)
-       in runParser nestedBracesParser restTokens
+            return (nestedCurlyBraceSection <| endSections, rightParen)
+       in runParser nestedCurlyBracesParser restTokens
+    (LeftSquareBracketToken _) ->
+      let nestedSquareBracketsParser = do
+            nestedSquareBracketSection <- squareBracketSectionParser currentToken
+            (endSections, rightParen) <- parenSectionHelperParser leftParen
+            return (nestedSquareBracketSection <| endSections, rightParen)
+       in runParser nestedSquareBracketsParser restTokens
     _ ->
       let continueParser = do
             (endSections, rightParen) <- parenSectionHelperParser leftParen
             return (TokenSection currentToken <| endSections, rightParen)
        in runParser continueParser restTokens
 
-{- This parser should be invoked after hitting a left brace. It consumes tokens until it hits the matching right brace.
-Then it outputs a BraceSection with the contents of the braces.
+{- This parser should be invoked after hitting a left curly brace. It consumes tokens until it hits the matching right
+curly brace. Then it outputs a CurlyBraceSection with the contents of the curly braces.
 -}
-braceSectionParser :: Token -> SectioningParser Section
-braceSectionParser leftBrace = do
-  (innerSections, rightBrace) <- braceSectionHelperParser leftBrace
-  return $ BraceSection (getRange (leftBrace, rightBrace)) innerSections
+curlyBraceSectionParser :: Token -> SectioningParser Section
+curlyBraceSectionParser leftCurlyBrace = do
+  (innerSections, rightCurlyBrace) <- curlyBraceSectionHelperParser leftCurlyBrace
+  return $ CurlyBraceSection (getRange (leftCurlyBrace, rightCurlyBrace)) innerSections
 
-braceSectionHelperParser :: Token -> SectioningParser (Seq Section, Token)
-braceSectionHelperParser leftBrace = SectioningParser $ \tokens -> case tokens of
-  Empty -> (Empty, singleError $ UnmatchedStartGroupingError leftBrace)
+curlyBraceSectionHelperParser :: Token -> SectioningParser (Seq Section, Token)
+curlyBraceSectionHelperParser leftCurlyBrace = SectioningParser $ \tokens -> case tokens of
+  Empty -> (Empty, singleError $ UnmatchedStartGroupingError leftCurlyBrace)
   currentToken :<| restTokens -> case currentToken of
-    (RightBraceToken _) -> (restTokens, Success (Empty, currentToken))
-    (RightParenToken _) -> (restTokens, singleError $ MismatchedGroupingEndsError leftBrace currentToken)
+    (RightCurlyBraceToken _) -> (restTokens, Success (Empty, currentToken))
+    (RightParenToken _) -> (restTokens, singleError $ MismatchedGroupingEndsError leftCurlyBrace currentToken)
+    (RightSquareBracketToken _) -> (restTokens, singleError $ MismatchedGroupingEndsError leftCurlyBrace currentToken)
     (LeftParenToken _) ->
       let nestedParensParser = do
             nestedParenSection <- parenSectionParser currentToken
-            (endSections, rightBrace) <- braceSectionHelperParser leftBrace
-            return (nestedParenSection <| endSections, rightBrace)
+            (endSections, rightCurlyBrace) <- curlyBraceSectionHelperParser leftCurlyBrace
+            return (nestedParenSection <| endSections, rightCurlyBrace)
        in runParser nestedParensParser restTokens
-    (LeftBraceToken _) ->
-      let nestedBracesParser = do
-            nestedBraceSection <- braceSectionParser currentToken
-            (endSections, rightBrace) <- braceSectionHelperParser leftBrace
-            return (nestedBraceSection <| endSections, rightBrace)
-       in runParser nestedBracesParser restTokens
+    (LeftCurlyBraceToken _) ->
+      let nestedCurlyBracesParser = do
+            nestedCurlyBraceSection <- curlyBraceSectionParser currentToken
+            (endSections, rightCurlyBrace) <- curlyBraceSectionHelperParser leftCurlyBrace
+            return (nestedCurlyBraceSection <| endSections, rightCurlyBrace)
+       in runParser nestedCurlyBracesParser restTokens
+    (LeftSquareBracketToken _) ->
+      let nestedSquareBracketsParser = do
+            nestedSquareBracketSection <- squareBracketSectionParser currentToken
+            (endSections, rightCurlyBrace) <- curlyBraceSectionHelperParser leftCurlyBrace
+            return (nestedSquareBracketSection <| endSections, rightCurlyBrace)
+       in runParser nestedSquareBracketsParser restTokens
     _ ->
       let continueParser = do
-            (endSections, rightBrace) <- braceSectionHelperParser leftBrace
-            return (TokenSection currentToken <| endSections, rightBrace)
+            (endSections, rightCurlyBrace) <- curlyBraceSectionHelperParser leftCurlyBrace
+            return (TokenSection currentToken <| endSections, rightCurlyBrace)
+       in runParser continueParser restTokens
+
+{- This parser should be invoked after hitting a left square bracket. It consumes tokens until it hits the matching
+right square bracket. Then it outputs a SquareBracketSection with the contents of the square brackets.
+-}
+squareBracketSectionParser :: Token -> SectioningParser Section
+squareBracketSectionParser leftSquareBracket = do
+  (innerSections, rightSquareBracket) <- squareBracketSectionHelperParser leftSquareBracket
+  return $ SquareBracketSection (getRange (leftSquareBracket, rightSquareBracket)) innerSections
+
+squareBracketSectionHelperParser :: Token -> SectioningParser (Seq Section, Token)
+squareBracketSectionHelperParser leftSquareBracket = SectioningParser $ \tokens -> case tokens of
+  Empty -> (Empty, singleError $ UnmatchedStartGroupingError leftSquareBracket)
+  currentToken :<| restTokens -> case currentToken of
+    (RightSquareBracketToken _) -> (restTokens, Success (Empty, currentToken))
+    (RightParenToken _) -> (restTokens, singleError $ MismatchedGroupingEndsError leftSquareBracket currentToken)
+    (RightCurlyBraceToken _) -> (restTokens, singleError $ MismatchedGroupingEndsError leftSquareBracket currentToken)
+    (LeftParenToken _) ->
+      let nestedParensParser = do
+            nestedParenSection <- parenSectionParser currentToken
+            (endSections, rightSquareBracket) <- squareBracketSectionHelperParser leftSquareBracket
+            return (nestedParenSection <| endSections, rightSquareBracket)
+       in runParser nestedParensParser restTokens
+    (LeftCurlyBraceToken _) ->
+      let nestedCurlyBracesParser = do
+            nestedCurlyBraceSection <- curlyBraceSectionParser currentToken
+            (endSections, rightSquareBracket) <- squareBracketSectionHelperParser leftSquareBracket
+            return (nestedCurlyBraceSection <| endSections, rightSquareBracket)
+       in runParser nestedCurlyBracesParser restTokens
+    (LeftSquareBracketToken _) ->
+      let nestedSquareBracketsParser = do
+            nestedSquareBracketSection <- squareBracketSectionParser currentToken
+            (endSections, rightSquareBracket) <- squareBracketSectionHelperParser leftSquareBracket
+            return (nestedSquareBracketSection <| endSections, rightSquareBracket)
+       in runParser nestedSquareBracketsParser restTokens
+    _ ->
+      let continueParser = do
+            (endSections, rightSquareBracket) <- squareBracketSectionHelperParser leftSquareBracket
+            return (TokenSection currentToken <| endSections, rightSquareBracket)
        in runParser continueParser restTokens

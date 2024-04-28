@@ -10,7 +10,8 @@ use crate::core::{
 impl VM {
     pub fn run(&mut self) {
         loop {
-            match self.read_instruction() {
+            let instruction = self.read_instruction();
+            match instruction {
                 Instruction::Return => match self.frames.pop() {
                     None => break,
                     Some(frame) => {
@@ -209,7 +210,9 @@ impl VM {
                 }
                 Instruction::True => self.push(Value::Bool(true)),
                 Instruction::False => self.push(Value::Bool(false)),
-                Instruction::ReadVariable(stack_index) => self.push(self.peek(stack_index)),
+                Instruction::ReadVariable(stack_index) => {
+                    self.push(self.peek(self.stack_index + stack_index))
+                }
                 Instruction::MutateVariable(stack_index) => {
                     let value = self.pop();
                     self.set(stack_index, value)

@@ -23,21 +23,28 @@ module Core.Errors
         WhileStatementEmptyConditionError,
         WhileStatementEmptyStatementError,
         WhileStatementMailformedConditionExpressionError,
+        FunctionCallEmptyArgumentError,
+        FunctionCallMalformedArgumentError,
+        FunctionMalformedParameterListError,
+        FunctionMalformedBodyError,
         ConflictingVariableDeclarationsError,
-        VariableNotDefinedBeforeMutationError,
-        VariableNotDefinedBeforeUsageError,
+        VariableUndefinedAtReferenceError,
+        VariableDeclaredAfterReferenceError,
         VariableReferencedInDeclarationError,
+        ConflictingParameterNamesError,
         RuntimeError
       ),
     WithErrors (Error, Success),
     singleError,
     foldrWithErrors,
+    consolidateErrors,
+    consolidateErrors2,
   )
 where
 
 import Core.FilePositions
 import Core.Utils
-import Data.Sequence (Seq, singleton, (><))
+import Data.Sequence (Seq (Empty), singleton, (<|), (><))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Lexing.Tokens
@@ -70,11 +77,16 @@ data Error
   | WhileStatementEmptyConditionError Range
   | WhileStatementEmptyStatementError Range
   | WhileStatementMailformedConditionExpressionError Range
+  | FunctionCallEmptyArgumentError Range
+  | FunctionCallMalformedArgumentError Range
+  | FunctionMalformedParameterListError Range
+  | FunctionMalformedBodyError Range
   | -- Variable binding
     ConflictingVariableDeclarationsError Text Range Range
-  | VariableNotDefinedBeforeMutationError Text Range
-  | VariableNotDefinedBeforeUsageError Text Range
+  | VariableUndefinedAtReferenceError Text Range
+  | VariableDeclaredAfterReferenceError Text Range Range
   | VariableReferencedInDeclarationError Text Range Range
+  | ConflictingParameterNamesError Text Range Range
   | -- Runtime
     RuntimeError Int String
   deriving (Show, Eq)
@@ -105,19 +117,25 @@ instance Pretty Error where
   pretty (VariableMutationEmptyExpressionError range) = "Variable mutation must have an expression at " ++ pretty range
   pretty (VariableMutationInvalidExpressionError range) = "Failed to parse variable mutation value as an expression at " ++ pretty range
   pretty (ExpressionStatementInvalidExpressionError range) = "Failed to parse statement as an expression at " ++ pretty range
-  pretty (ConflictingVariableDeclarationsError variableName declarationRange1 declarationRange2) =
-    "Variable " ++ Text.unpack variableName ++ " has conflicting declarations at " ++ pretty declarationRange1 ++ " and " ++ pretty declarationRange2
-  pretty (VariableNotDefinedBeforeMutationError variableName range) =
-    "Variable " ++ Text.unpack variableName ++ " is not defined before it is mutated at " ++ pretty range
-  pretty (VariableNotDefinedBeforeUsageError variableName range) =
-    "Variable " ++ Text.unpack variableName ++ " is not defined before it is used at " ++ pretty range
-  pretty (VariableReferencedInDeclarationError variableName declarationRange usageRange) =
-    "Variable " ++ Text.unpack variableName ++ " is referenced at " ++ pretty usageRange ++ " inside its declaration at " ++ pretty declarationRange
   pretty (WhileStatementNoLoopError range) = "While loop statement has no loop keyword at" ++ pretty range
   pretty (WhileStatementEmptyConditionError range) = "While loop statement has an empty condition at " ++ pretty range
   pretty (WhileStatementEmptyStatementError range) = "While loop statement has an empty statement at " ++ pretty range
   pretty (WhileStatementMailformedConditionExpressionError range) = "Failed to parse condition of while loop statement as an expression at " ++ pretty range
+  pretty (FunctionCallEmptyArgumentError range) = "Found empty argument in function call at " ++ pretty range
+  pretty (FunctionCallMalformedArgumentError range) = "Failed to parse function argument as an expression at " ++ pretty range
+  pretty (FunctionMalformedParameterListError range) = "Failed to parse parameter list of function at " ++ pretty range
+  pretty (FunctionMalformedBodyError range) = "Failed to parse function body as an expression at " ++ pretty range
+  pretty (ConflictingVariableDeclarationsError variableName declarationRange1 declarationRange2) =
+    "Variable " ++ Text.unpack variableName ++ " has conflicting declarations at " ++ pretty declarationRange1 ++ " and " ++ pretty declarationRange2
+  pretty (VariableUndefinedAtReferenceError variableName range) =
+    "Variable " ++ Text.unpack variableName ++ " is not defined before it is referenced at " ++ pretty range
+  pretty (VariableDeclaredAfterReferenceError variableName referenceRange delcarationRange) =
+    "Variable " ++ Text.unpack variableName ++ " is defined at " ++ pretty delcarationRange ++ " before it is referenced at " ++ pretty referenceRange
+  pretty (VariableReferencedInDeclarationError variableName declarationRange usageRange) =
+    "Variable " ++ Text.unpack variableName ++ " is referenced at " ++ pretty usageRange ++ " inside its declaration at " ++ pretty declarationRange
   pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
+  pretty (ConflictingParameterNamesError variableName parameterRange1 parameterRange2) =
+    Text.unpack variableName ++ " is used as a parameter twice in the same function definition at " ++ pretty parameterRange1 ++ " and " ++ pretty parameterRange2
 
 data WithErrors a
   = Error (Seq Error)
@@ -146,13 +164,21 @@ instance Monad WithErrors where
 Unfortunately, this can't be the actual Applicative implementation, as there is no compatible Monad instance.
 -}
 (<***>) :: WithErrors (a -> b) -> WithErrors a -> WithErrors b
-Success f <***> Success a = Success $ f a
-Error es <***> Success _ = Error es
-Success _ <***> Error es = Error es
-Error es1 <***> Error es2 = Error $ es1 >< es2
+weF <***> weA = do
+  (f, a) <- consolidateErrors2 (weF, weA)
+  return $ f a
 
 liftA2' :: (a -> b -> c) -> (WithErrors a -> WithErrors b -> WithErrors c)
 liftA2' f a b = (f <$> a) <***> b
 
 foldrWithErrors :: (Foldable t) => (a -> b -> b) -> b -> t (WithErrors a) -> WithErrors b
 foldrWithErrors combine seed = foldr (liftA2' combine) (Success seed)
+
+consolidateErrors :: Seq (WithErrors a) -> WithErrors (Seq a)
+consolidateErrors = foldrWithErrors (<|) Empty
+
+consolidateErrors2 :: (WithErrors a, WithErrors b) -> WithErrors (a, b)
+consolidateErrors2 (Success a, Success b) = Success (a, b)
+consolidateErrors2 (Error es, Success _) = Error es
+consolidateErrors2 (Success _, Error es) = Error es
+consolidateErrors2 (Error es1, Error es2) = Error $ es1 >< es2

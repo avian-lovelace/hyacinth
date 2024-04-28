@@ -3,8 +3,13 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Core.SyntaxTree
-  ( FileScope (FileScope),
-    FileScopeData,
+  ( Module (Module),
+    ModuleData,
+    ModuleContent,
+    MainFunctionDefinition (MainFunctionDefinition),
+    MainFunctionDefinitionData,
+    FunctionDefinition (FunctionDefinition),
+    FunctionDefinitionData,
     Statement
       ( PrintStatement,
         VariableDeclarationStatement,
@@ -17,9 +22,9 @@ module Core.SyntaxTree
     VariableMutationStatementData,
     ExpressionStatementData,
     WhileLoopStatementData,
-    VariableName (VariableName),
-    VariableNameData,
-    Identifier,
+    Identifier (Identifier),
+    IdentifierData,
+    IdentifierContent,
     Expression
       ( IntLiteralExpression,
         DoubleLiteralExpression,
@@ -44,7 +49,9 @@ module Core.SyntaxTree
         LessEqualExpression,
         VariableExpression,
         IfThenElseExpression,
-        ScopeExpression
+        ScopeExpression,
+        FunctionExpression,
+        FunctionCallExpression
       ),
     IntLiteralExpressionData,
     DoubleLiteralExpressionData,
@@ -70,6 +77,9 @@ module Core.SyntaxTree
     VariableExpressionData,
     IfThenElseExpressionData,
     ScopeExpressionData,
+    FunctionExpressionData,
+    FunctionExpressionContent,
+    FunctionCallExpressionData,
   )
 where
 
@@ -77,21 +87,43 @@ import Core.Utils
 import Data.Sequence (Seq)
 import Data.Text (Text)
 
-data FileScope phase = FileScope (FileScopeData phase) (Seq (Statement phase))
+data Module phase = Module (ModuleData phase) (ModuleContent phase)
 
-type family FileScopeData phase
+type family ModuleData phase
 
-instance (Show (Identifier a)) => Pretty (FileScope a) where
-  pretty (FileScope _ statements) = "(FileScope " ++ pretty statements ++ ")"
+type family ModuleContent phase
+
+instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a), Pretty (ModuleContent a)) => Pretty (Module a) where
+  pretty (Module _ content) = "(Module " ++ pretty content ++ ")"
+
+data MainFunctionDefinition phase = MainFunctionDefinition (MainFunctionDefinitionData phase) (Seq (Statement phase))
+
+type family MainFunctionDefinitionData phase
+
+instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a), Pretty (ModuleContent a)) => Pretty (MainFunctionDefinition a) where
+  pretty (MainFunctionDefinition _ statements) = "(MainFunctionDefinition " ++ pretty statements ++ ")"
+
+data FunctionDefinition phase
+  = FunctionDefinition
+      (FunctionDefinitionData phase)
+      (Seq (Identifier phase)) -- Parameters
+      (Seq (Identifier phase)) -- Captured identifiers
+      (Expression phase) -- body
+
+instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a), Pretty (ModuleContent a)) => Pretty (FunctionDefinition a) where
+  pretty (FunctionDefinition _ parameters capturedIdentifiers body) =
+    "(FunctionDefinition (" ++ pretty parameters ++ ") (" ++ pretty capturedIdentifiers ++ ")" ++ pretty body ++ ")"
+
+type family FunctionDefinitionData phase
 
 data Statement phase
   = PrintStatement (PrintStatementData phase) (Expression phase)
-  | VariableDeclarationStatement (VariableDeclarationStatementData phase) (VariableName phase) (Expression phase)
-  | VariableMutationStatement (VariableMutationStatementData phase) (VariableName phase) (Expression phase)
+  | VariableDeclarationStatement (VariableDeclarationStatementData phase) (Identifier phase) (Expression phase)
+  | VariableMutationStatement (VariableMutationStatementData phase) (Identifier phase) (Expression phase)
   | ExpressionStatement (ExpressionStatementData phase) (Expression phase)
   | WhileLoopStatement (WhileLoopStatementData phase) (Expression phase) (Statement phase)
 
-instance (Show (Identifier a)) => Pretty (Statement a) where
+instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a)) => Pretty (Statement a) where
   pretty (PrintStatement _ expression) = "(PrintStatement " ++ pretty expression ++ ")"
   pretty (VariableDeclarationStatement _ variableName value) = "(VariableDeclarationStatement " ++ pretty variableName ++ " " ++ pretty value ++ ")"
   pretty (VariableMutationStatement _ variableName value) = "(VariableMutationStatement " ++ pretty variableName ++ " " ++ pretty value ++ ")"
@@ -126,14 +158,14 @@ type family WhileLoopStatementData phase
 --     ProperType ProperType
 --   | GenericType TypeVariableName Type
 
-data VariableName phase = VariableName (VariableNameData phase) (Identifier phase)
+data Identifier phase = Identifier (IdentifierData phase) (IdentifierContent phase)
 
-type family VariableNameData phase
+type family IdentifierData phase
 
-type family Identifier phase
+type family IdentifierContent phase
 
-instance (Show (Identifier a)) => Pretty (VariableName a) where
-  pretty (VariableName _ name) = "(VariableName " ++ show name ++ ")"
+instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a)) => Pretty (Identifier a) where
+  pretty (Identifier _ name) = "(Identifier " ++ show name ++ ")"
 
 -- data TypeVariableName = TypeVariableName Identifier
 
@@ -148,7 +180,7 @@ data Expression phase
   | StringLiteralExpression (StringLiteralExpressionData phase) Text
   | BoolLiteralExpression (BoolLiteralExpressionData phase) Bool
   | NilExpression (NilExpressionData phase)
-  | VariableExpression (VariableExpressionData phase) (VariableName phase)
+  | VariableExpression (VariableExpressionData phase) (Identifier phase)
   | NegateExpression (NegateExpressionData phase) (Expression phase)
   | AddExpression (AddExpressionData phase) (Expression phase) (Expression phase)
   | SubtractExpression (SubtractExpressionData phase) (Expression phase) (Expression phase)
@@ -166,8 +198,10 @@ data Expression phase
   | LessEqualExpression (LessEqualExpressionData phase) (Expression phase) (Expression phase)
   | IfThenElseExpression (IfThenElseExpressionData phase) (Expression phase) (Expression phase) (Maybe (Expression phase))
   | ScopeExpression (ScopeExpressionData phase) (Seq (Statement phase))
+  | FunctionExpression (FunctionExpressionData phase) (FunctionExpressionContent phase)
+  | FunctionCallExpression (FunctionCallExpressionData phase) (Expression phase) (Seq (Expression phase))
 
-instance (Show (Identifier a)) => Pretty (Expression a) where
+instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a)) => Pretty (Expression a) where
   pretty (IntLiteralExpression _ value) = "(IntLiteralExpression " ++ show value ++ ")"
   pretty (DoubleLiteralExpression _ value) = "(DoubleLiteralExpression " ++ show value ++ ")"
   pretty (CharLiteralExpression _ value) = "(CharLiteralExpression " ++ show value ++ ")"
@@ -194,7 +228,9 @@ instance (Show (Identifier a)) => Pretty (Expression a) where
     "(IfThenElseExpression " ++ pretty condition ++ " " ++ pretty trueExpression ++ ")"
   pretty (IfThenElseExpression _ condition trueExpression (Just falseExpression)) =
     "(IfThenElseExpression " ++ pretty condition ++ " " ++ pretty trueExpression ++ " " ++ pretty falseExpression ++ ")"
-  pretty (ScopeExpression _ statements) = "(VariableExpression " ++ pretty statements ++ ")"
+  pretty (ScopeExpression _ statements) = "(ScopeExpression " ++ pretty statements ++ ")"
+  pretty (FunctionExpression _ content) = "(FunctionExpression" ++ pretty content ++ ")"
+  pretty (FunctionCallExpression _ function arguments) = "(FunctionCallExpression " ++ pretty function ++ " (" ++ pretty arguments ++ "))"
 
 type family IntLiteralExpressionData phase
 
@@ -243,3 +279,9 @@ type family LessEqualExpressionData phase
 type family IfThenElseExpressionData phase
 
 type family ScopeExpressionData phase
+
+type family FunctionExpressionData phase
+
+type family FunctionExpressionContent phase
+
+type family FunctionCallExpressionData phase

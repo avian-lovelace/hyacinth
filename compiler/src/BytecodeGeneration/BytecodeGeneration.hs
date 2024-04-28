@@ -5,15 +5,17 @@ module BytecodeGeneration.BytecodeGeneration
     addVariableToScope,
     getVariableIndex,
     withNewScope,
+    withFunctionScope,
     initialState,
   )
 where
 
 import BytecodeGeneration.Bytecode
 import qualified Data.ByteString.Builder as BB
+import Data.Foldable (traverse_)
 import Data.Sequence (Seq (Empty, (:<|), (:|>)), elemIndexL, (|>))
 import qualified Data.Sequence as Seq
-import VariableBinding.SyntaxTree
+import IdentifierBinding.SyntaxTree
 
 data BytecodeGeneratorState = BytecodeGeneratorState
   { scopes :: Seq Scope,
@@ -52,6 +54,15 @@ withNewScope generator = do
   let popLocalVariables = popMultipleInstruction $ fromIntegral . Seq.length . variables $ endedScope
   return $ result <> popLocalVariables <> nilInstruction
 
+withFunctionScope :: Seq BoundIdentifier -> Seq BoundIdentifier -> BytecodeGenerator BB.Builder -> BytecodeGenerator BB.Builder
+withFunctionScope parameters capturedIdentifiers generator = do
+  pushNewScope
+  traverse_ addVariableToScope parameters
+  traverse_ addVariableToScope capturedIdentifiers
+  result <- generator
+  _ <- popScope
+  return result
+
 pushNewScope :: BytecodeGenerator ()
 pushNewScope = BytecodeGenerator $ \BytecodeGeneratorState {scopes, constants} ->
   (BytecodeGeneratorState {scopes = scopes |> Scope {variables = Empty}, constants}, ())
@@ -74,4 +85,8 @@ getVariableIndex variable = BytecodeGenerator $ \state -> (state, fromIntegral $
     getVariableIndexInScopes ((Scope {variables}) :<| tailScopes) = case elemIndexL variable variables of
       Just i -> i
       Nothing -> length variables + getVariableIndexInScopes tailScopes
+    {- Should not get here, as the identifier binding step checks if an identifier is used while not in scope. This is
+      undefined rather an ShouldNotGetHereError, as bytecode generation shouldn't throw errors unless there is a
+      compiler but, so it doesn't use WithErrors.
+    -}
     getVariableIndexInScopes _ = undefined

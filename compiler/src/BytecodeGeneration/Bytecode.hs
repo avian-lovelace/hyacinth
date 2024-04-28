@@ -30,6 +30,8 @@ module BytecodeGeneration.Bytecode
     jumpIfFalseInstructionNumBytes,
     intInstruction,
     doubleInstruction,
+    functionInstruction,
+    callInstruction,
     Constant (StringConstant),
     encodeConstant,
     charInstruction,
@@ -42,7 +44,7 @@ import qualified Data.ByteString.Char8 as C
 import Data.Int
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
-import Data.Word (Word16)
+import Data.Word (Word16, Word8)
 
 type ConstIndex = Word16
 
@@ -50,106 +52,114 @@ type StackIndex = Word16
 
 type InstructionOffset = Int16
 
+type FunctionIndex = Word16
+
 -- Instructions
 returnInstruction :: BB.Builder
-returnInstruction = BB.int8 1
+returnInstruction = BB.word8 1
 
 printInstruction :: BB.Builder
-printInstruction = BB.int8 2
+printInstruction = BB.word8 2
 
 constantInstruction :: ConstIndex -> BB.Builder
-constantInstruction constIndex = BB.int8 3 <> BB.word16BE constIndex
+constantInstruction constIndex = BB.word8 3 <> BB.word16BE constIndex
 
 negateInstruction :: BB.Builder
-negateInstruction = BB.int8 4
+negateInstruction = BB.word8 4
 
 addInstruction :: BB.Builder
-addInstruction = BB.int8 5
+addInstruction = BB.word8 5
 
 subtractInstruction :: BB.Builder
-subtractInstruction = BB.int8 6
+subtractInstruction = BB.word8 6
 
 multiplyInstruction :: BB.Builder
-multiplyInstruction = BB.int8 7
+multiplyInstruction = BB.word8 7
 
 divideInstruction :: BB.Builder
-divideInstruction = BB.int8 8
+divideInstruction = BB.word8 8
 
 moduloInstruction :: BB.Builder
-moduloInstruction = BB.int8 9
+moduloInstruction = BB.word8 9
 
 notInstruction :: BB.Builder
-notInstruction = BB.int8 10
+notInstruction = BB.word8 10
 
 andInstruction :: BB.Builder
-andInstruction = BB.int8 11
+andInstruction = BB.word8 11
 
 orInstruction :: BB.Builder
-orInstruction = BB.int8 12
+orInstruction = BB.word8 12
 
 equalInstruction :: BB.Builder
-equalInstruction = BB.int8 13
+equalInstruction = BB.word8 13
 
 notEqualInstruction :: BB.Builder
-notEqualInstruction = BB.int8 14
+notEqualInstruction = BB.word8 14
 
 greaterInstruction :: BB.Builder
-greaterInstruction = BB.int8 15
+greaterInstruction = BB.word8 15
 
 lessInstruction :: BB.Builder
-lessInstruction = BB.int8 16
+lessInstruction = BB.word8 16
 
 greaterEqualInstruction :: BB.Builder
-greaterEqualInstruction = BB.int8 17
+greaterEqualInstruction = BB.word8 17
 
 lessEqualInstruction :: BB.Builder
-lessEqualInstruction = BB.int8 18
+lessEqualInstruction = BB.word8 18
 
 trueInstruction :: BB.Builder
-trueInstruction = BB.int8 19
+trueInstruction = BB.word8 19
 
 falseInstruction :: BB.Builder
-falseInstruction = BB.int8 20
+falseInstruction = BB.word8 20
 
 readVariableInstruction :: StackIndex -> BB.Builder
-readVariableInstruction stackIndex = BB.int8 21 <> BB.word16BE stackIndex
+readVariableInstruction stackIndex = BB.word8 21 <> BB.word16BE stackIndex
 
 mutateVariableInstruction :: StackIndex -> BB.Builder
-mutateVariableInstruction stackIndex = BB.int8 22 <> BB.word16BE stackIndex
+mutateVariableInstruction stackIndex = BB.word8 22 <> BB.word16BE stackIndex
 
 nilInstruction :: BB.Builder
-nilInstruction = BB.int8 23
+nilInstruction = BB.word8 23
 
 popInstruction :: BB.Builder
-popInstruction = BB.int8 24
+popInstruction = BB.word8 24
 
 popMultipleInstruction :: StackIndex -> BB.Builder
-popMultipleInstruction numValuesToPop = BB.int8 25 <> BB.word16BE numValuesToPop
+popMultipleInstruction numValuesToPop = BB.word8 25 <> BB.word16BE numValuesToPop
 
 jumpInstruction :: InstructionOffset -> BB.Builder
-jumpInstruction bytesToJump = BB.int8 26 <> BB.int16BE bytesToJump
+jumpInstruction bytesToJump = BB.word8 26 <> BB.int16BE bytesToJump
 
 jumpInstructionNumBytes :: Int64
 jumpInstructionNumBytes = 3
 
 jumpIfFalseInstruction :: InstructionOffset -> BB.Builder
-jumpIfFalseInstruction bytesToJump = BB.int8 27 <> BB.int16BE bytesToJump
+jumpIfFalseInstruction bytesToJump = BB.word8 27 <> BB.int16BE bytesToJump
 
 jumpIfFalseInstructionNumBytes :: Int64
 jumpIfFalseInstructionNumBytes = 3
 
 intInstruction :: Int32 -> BB.Builder
-intInstruction value = BB.int8 28 <> BB.int32BE value
+intInstruction value = BB.word8 28 <> BB.int32BE value
 
 doubleInstruction :: Double -> BB.Builder
-doubleInstruction value = BB.int8 29 <> BB.doubleBE value
+doubleInstruction value = BB.word8 29 <> BB.doubleBE value
 
 charInstruction :: Char -> BB.Builder
-charInstruction value = BB.int8 30 <> BB.byteString encodedValue <> padding
+charInstruction value = BB.word8 30 <> BB.byteString encodedValue <> padding
   where
     encodedValue = C.singleton value
     -- A UTF-8 character is 1-4 bytes, so we pad with zero bytes to get a fixed instruction length
-    padding = mconcat $ replicate (4 - C.length encodedValue) (BB.int8 0)
+    padding = mconcat $ replicate (4 - C.length encodedValue) (BB.word8 0)
+
+functionInstruction :: FunctionIndex -> Word8 -> BB.Builder
+functionInstruction functionIndex numCapturedIdentifiers = BB.word8 31 <> BB.word16BE functionIndex <> BB.word8 numCapturedIdentifiers
+
+callInstruction :: Word8 -> BB.Builder
+callInstruction numArguments = BB.word8 32 <> BB.word8 numArguments
 
 -- Constants
 data Constant
@@ -157,6 +167,6 @@ data Constant
   deriving (Show)
 
 encodeConstant :: Constant -> BB.Builder
-encodeConstant (StringConstant value) = BB.int8 1 <> BB.word16BE (fromIntegral $ B.length encoded) <> BB.byteString encoded
+encodeConstant (StringConstant value) = BB.word8 1 <> BB.word16BE (fromIntegral $ B.length encoded) <> BB.byteString encoded
   where
     encoded = TE.encodeUtf8 value

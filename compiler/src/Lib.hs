@@ -12,13 +12,13 @@ import Core.Utils
 import qualified Data.ByteString.Builder as BB
 import Data.Text (Text)
 import qualified Data.Text as Text
+import IdentifierBinding.IdentifierBinder
 import Lexing.Lexer
 import Parsing.Parser
 import Sectioning.Sectioner
 import System.Directory
 import System.Exit
 import System.Process
-import VariableBinding.VariableBinder
 
 debug :: Bool
 debug = False
@@ -27,7 +27,7 @@ standardBytecodeFilePath :: FilePath
 standardBytecodeFilePath = "../byte.code"
 
 standardCode :: Text
-standardCode = "let i = 3; while i > 0 loop { print i; mut i = i - 1; }; print \"blastoff!\";"
+standardCode = "let cap = 2; let f = [x] -> [y] -> x - y + cap; print f[10][3];"
 
 run :: IO ()
 run = runAndOutputErrors $ do
@@ -49,13 +49,14 @@ compileCode logger code = do
   logger $ pretty tokens
   sections <- liftWithErrors $ sectionFile tokens
   logger "Completed sectioning"
+  logger $ pretty sections
   pAst <- liftWithErrors $ parseFile sections
   logger "Completed parsing"
   logger $ pretty pAst
-  vbAst <- liftWithErrors $ runVariableBinding pAst
-  logger "Completed variable binding"
-  logger $ pretty vbAst
-  let bytecode = encodeFile vbAst
+  ibAst <- liftWithErrors $ runIdentifierBinding pAst
+  logger "Completed identifier binding"
+  logger $ pretty ibAst
+  let bytecode = encodeFile ibAst
   logger "Completed bytecode generation"
   logger $ show $ BB.toLazyByteString bytecode
   return bytecode

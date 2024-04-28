@@ -2,6 +2,7 @@ module Parsing.Parsing
   ( Parser (Parser, runParser),
     (<&&>),
     pNext,
+    pRest,
     pTry,
     pOneOrMore,
     pZeroOrMore,
@@ -13,12 +14,13 @@ module Parsing.Parsing
     returnWithErrors,
     ParseState (ParseSuccess, BoundErrors, UnboundError),
     ParseFunction,
+    toParseState,
   )
 where
 
 import Control.Applicative
 import Core.Errors
-import Data.Sequence (Seq (Empty, (:<|)))
+import Data.Sequence (Seq (Empty, (:<|)), (<|))
 import Sectioning.Sectioning (Section)
 
 {- ParseFunction is used in situations where we have a bounded section of code, and we want to parse the whole chunk
@@ -73,8 +75,11 @@ instance Alternative Parser where
   parser1 <|> parser2 = Parser $ \sections ->
     case runParser parser1 sections of
       (restSections, ParseSuccess a) -> (restSections, ParseSuccess a)
-      (_, BoundErrors _) -> runParser parser2 sections
       (_, UnboundError) -> runParser parser2 sections
+      (restSections, BoundErrors es) -> case runParser parser2 sections of
+        -- We always try to return bound errors over unbound errors, as they are probably more helpful
+        (_, UnboundError) -> (restSections, BoundErrors es)
+        result -> result
 
 (<&&>) :: Parser a -> (a -> Maybe b) -> Parser b
 parser <&&> f = Parser $ \sections ->
@@ -91,6 +96,9 @@ pNext = Parser $ \sections ->
     nextSection :<| restSections -> (restSections, ParseSuccess nextSection)
     Empty -> (Empty, UnboundError)
 
+pRest :: Parser (Seq Section)
+pRest = Parser $ \sections -> (Empty, ParseSuccess sections)
+
 pTry :: Parser a -> Parser a
 pTry parser = Parser $ \sections ->
   case runParser parser sections of
@@ -98,17 +106,17 @@ pTry parser = Parser $ \sections ->
     (_, UnboundError) -> (sections, UnboundError)
     (_, BoundErrors es) -> (sections, BoundErrors es)
 
-pZeroOrMore :: Parser a -> Parser [a]
+pZeroOrMore :: Parser a -> Parser (Seq a)
 pZeroOrMore parser = Parser $ \sections ->
   case runParser parser sections of
-    (restSections, ParseSuccess a) -> runParser ((a :) <$> pZeroOrMore parser) restSections
+    (restSections, ParseSuccess a) -> runParser ((a <|) <$> pZeroOrMore parser) restSections
     _ -> (sections, ParseSuccess [])
 
-pOneOrMore :: Parser a -> Parser [a]
+pOneOrMore :: Parser a -> Parser (Seq a)
 pOneOrMore parser = do
   firstResult <- parser
   restResults <- pZeroOrMore parser
-  return (firstResult : restResults)
+  return (firstResult <| restResults)
 
 pZeroOrOne :: Parser a -> Parser (Maybe a)
 pZeroOrOne parser = Parser $ \sections ->

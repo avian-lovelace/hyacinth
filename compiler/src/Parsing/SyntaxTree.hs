@@ -3,24 +3,33 @@
 
 module Parsing.SyntaxTree
   ( ParsingPhase,
-    PFileScope,
+    PModule,
     PStatement,
-    PVariableName,
+    PIdentifier,
     PExpression,
     UnboundIdentifier,
+    PFunctionExpressionContent (PFunctionExpressionContent),
   )
 where
 
 import Core.FilePositions
 import Core.SyntaxTree
+import Core.Utils
+import Data.Sequence (Seq)
 import Data.Text (Text)
 
 data ParsingPhase
 
--- File Scope
-type PFileScope = FileScope ParsingPhase
+-- Module
+type PModule = Module ParsingPhase
 
-type instance FileScopeData ParsingPhase = ()
+type instance ModuleData ParsingPhase = ()
+
+type instance ModuleContent ParsingPhase = PMainFunctionDefinition
+
+type PMainFunctionDefinition = MainFunctionDefinition ParsingPhase
+
+type instance MainFunctionDefinitionData ParsingPhase = ()
 
 -- Statement
 type PStatement = Statement ParsingPhase
@@ -35,14 +44,14 @@ type instance ExpressionStatementData ParsingPhase = Range
 
 type instance WhileLoopStatementData ParsingPhase = Range
 
--- Variable Name
-type PVariableName = VariableName ParsingPhase
+-- Identifier
+type PIdentifier = Identifier ParsingPhase
 
-type instance VariableNameData ParsingPhase = Range
+type instance IdentifierData ParsingPhase = Range
 
 type UnboundIdentifier = Text
 
-type instance Identifier ParsingPhase = UnboundIdentifier
+type instance IdentifierContent ParsingPhase = UnboundIdentifier
 
 -- Expression
 type PExpression = Expression ParsingPhase
@@ -95,6 +104,17 @@ type instance IfThenElseExpressionData ParsingPhase = Range
 
 type instance ScopeExpressionData ParsingPhase = Range
 
+type instance FunctionExpressionData ParsingPhase = Range
+
+data PFunctionExpressionContent = PFunctionExpressionContent (Seq PIdentifier) PExpression
+
+instance Pretty PFunctionExpressionContent where
+  pretty (PFunctionExpressionContent parameters body) = "(" ++ pretty parameters ++ ")" ++ pretty body
+
+type instance FunctionExpressionContent ParsingPhase = PFunctionExpressionContent
+
+type instance FunctionCallExpressionData ParsingPhase = Range
+
 instance WithRange PExpression where
   getRange expression = case expression of
     IntLiteralExpression range _ -> range
@@ -121,3 +141,5 @@ instance WithRange PExpression where
     LessEqualExpression range _ _ -> range
     IfThenElseExpression range _ _ _ -> range
     ScopeExpression range _ -> range
+    FunctionExpression range _ -> range
+    FunctionCallExpression range _ _ -> range

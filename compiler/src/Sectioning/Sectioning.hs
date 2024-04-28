@@ -2,7 +2,7 @@
 
 {-# HLINT ignore "Use tuple-section" #-}
 module Sectioning.Sectioning
-  ( Section (TokenSection, ParenSection, BraceSection),
+  ( Section (TokenSection, ParenSection, CurlyBraceSection, SquareBracketSection),
     SectioningParser (SectioningParser, runParser),
   )
 where
@@ -16,18 +16,21 @@ import Lexing.Tokens
 data Section
   = TokenSection Token
   | ParenSection Range (Seq Section)
-  | BraceSection Range (Seq Section)
+  | CurlyBraceSection Range (Seq Section)
+  | SquareBracketSection Range (Seq Section)
   deriving (Show)
 
 instance WithRange Section where
   getRange (TokenSection token) = getRange token
   getRange (ParenSection range _) = range
-  getRange (BraceSection range _) = range
+  getRange (CurlyBraceSection range _) = range
+  getRange (SquareBracketSection range _) = range
 
 instance Pretty Section where
   pretty (TokenSection token) = pretty token
-  pretty (ParenSection _ inner) = "( " ++ foldMap (\section -> pretty section ++ " ") inner ++ ")"
-  pretty (BraceSection _ inner) = "{ " ++ foldMap (\section -> pretty section ++ " ") inner ++ "}"
+  pretty (ParenSection _ inner) = "( " ++ foldMap (\section -> pretty section ++ " ") inner ++ " )"
+  pretty (CurlyBraceSection _ inner) = "{ " ++ foldMap (\section -> pretty section ++ " ") inner ++ " }"
+  pretty (SquareBracketSection _ inner) = "[ " ++ foldMap (\section -> pretty section ++ " ") inner ++ " ]"
 
 newtype SectioningParser a = SectioningParser {runParser :: Seq Token -> (Seq Token, WithErrors a)}
 

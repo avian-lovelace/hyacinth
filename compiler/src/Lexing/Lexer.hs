@@ -68,8 +68,10 @@ lexers =
     -- Grouping
     lexSymbol '(' LeftParenToken,
     lexSymbol ')' RightParenToken,
-    lexSymbol '{' LeftBraceToken,
-    lexSymbol '}' RightBraceToken,
+    lexSymbol '{' LeftCurlyBraceToken,
+    lexSymbol '}' RightCurlyBraceToken,
+    lexSymbol '[' LeftSquareBracketToken,
+    lexSymbol ']' RightSquareBracketToken,
     -- Operators
     lexSymbol '+' PlusToken,
     lexSymbol '-' MinusToken,

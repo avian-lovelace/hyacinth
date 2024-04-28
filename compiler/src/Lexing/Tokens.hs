@@ -21,8 +21,10 @@ module Lexing.Tokens
         CommaToken,
         LeftParenToken,
         RightParenToken,
-        LeftBraceToken,
-        RightBraceToken,
+        LeftCurlyBraceToken,
+        RightCurlyBraceToken,
+        LeftSquareBracketToken,
+        RightSquareBracketToken,
         IdentifierToken,
         IntToken,
         DoubleToken,
@@ -82,8 +84,10 @@ data Token
   | -- Grouping
     LeftParenToken Range
   | RightParenToken Range
-  | LeftBraceToken Range
-  | RightBraceToken Range
+  | LeftCurlyBraceToken Range
+  | RightCurlyBraceToken Range
+  | LeftSquareBracketToken Range
+  | RightSquareBracketToken Range
   | -- Identifiers
     IdentifierToken Range Text
   | -- Primitive types
@@ -138,8 +142,10 @@ instance Pretty Token where
   pretty (CommaToken _) = ","
   pretty (LeftParenToken _) = "("
   pretty (RightParenToken _) = ")"
-  pretty (LeftBraceToken _) = "{"
-  pretty (RightBraceToken _) = "}"
+  pretty (LeftCurlyBraceToken _) = "{"
+  pretty (RightCurlyBraceToken _) = "}"
+  pretty (LeftSquareBracketToken _) = "["
+  pretty (RightSquareBracketToken _) = "]"
   pretty (IdentifierToken _ identifier) = "identifier:" ++ show identifier
   pretty (IntToken _) = "Int"
   pretty (DoubleToken _) = "Double"
@@ -189,8 +195,10 @@ instance WithRange Token where
   getRange (CommaToken range) = range
   getRange (LeftParenToken range) = range
   getRange (RightParenToken range) = range
-  getRange (LeftBraceToken range) = range
-  getRange (RightBraceToken range) = range
+  getRange (LeftCurlyBraceToken range) = range
+  getRange (RightCurlyBraceToken range) = range
+  getRange (LeftSquareBracketToken range) = range
+  getRange (RightSquareBracketToken range) = range
   getRange (IdentifierToken range _) = range
   getRange (IntToken range) = range
   getRange (DoubleToken range) = range

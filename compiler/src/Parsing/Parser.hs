@@ -15,11 +15,11 @@ import Parsing.Parsing
 import Parsing.SyntaxTree
 import Sectioning.Sectioning
 
-parseFile :: ParseFunction PFileScope
-parseFile sections = FileScope () <$> parseStatements sections
+parseFile :: ParseFunction PModule
+parseFile sections = Module () . MainFunctionDefinition () <$> parseStatements sections
 
 parseStatements :: ParseFunction (Seq PStatement)
-parseStatements sections = foldrWithErrors (<|) Empty (parseStatementsHelper sections)
+parseStatements sections = consolidateErrors $ parseStatementsHelper sections
   where
     parseStatementsHelper :: Seq Section -> Seq (WithErrors PStatement)
     parseStatementsHelper Empty = Empty
@@ -62,7 +62,7 @@ parseVariableDeclarationStatement
     VariableDeclarationStatement statementRange variableName <$> expression
     where
       statementRange = getRange (letTokenSection, seqTail expressionSections)
-      variableName = VariableName identifierRange identifier
+      variableName = Identifier identifierRange identifier
       expression = catchUnboundError (VariableDeclarationInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
       expressionRange = getRange expressionSections
 parseVariableDeclarationStatement letTokenSection restSections = singleError $ VariableDeclarationMalformedError (getRange (letTokenSection :<| restSections))
@@ -78,7 +78,7 @@ parseVariableMutationStatement
     VariableMutationStatement statementRange variableName <$> expression
     where
       statementRange = getRange (mutTokenSection, seqTail expressionSections)
-      variableName = VariableName identifierRange identifier
+      variableName = Identifier identifierRange identifier
       expression = catchUnboundError (VariableMutationInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
       expressionRange = getRange expressionSections
 parseVariableMutationStatement mutTokenSection restSections = singleError $ VariableDeclarationMalformedError (getRange (mutTokenSection :<| restSections))
@@ -211,8 +211,8 @@ toMultiplyDivideExpression _ = Nothing
 unaryExpressionParser :: Parser PExpression
 unaryExpressionParser = do
   operators <- pZeroOrMore $ pNext <&&> toUnaryExpressionAndRange
-  primary <- primaryExpressionParser
-  return $ foldr makeExpression primary operators
+  innerExpression <- functionCallParser
+  return $ foldr makeExpression innerExpression operators
   where
     makeExpression (operator, range) innerExpression = operator (range <> getRange innerExpression) innerExpression
 
@@ -220,6 +220,40 @@ toUnaryExpressionAndRange :: Section -> Maybe (Range -> PExpression -> PExpressi
 toUnaryExpressionAndRange (TokenSection (MinusToken range)) = Just (NegateExpression, range)
 toUnaryExpressionAndRange (TokenSection (BangToken range)) = Just (NotExpression, range)
 toUnaryExpressionAndRange _ = Nothing
+
+-- Function call level
+
+functionCallParser :: Parser PExpression
+functionCallParser = do
+  innerExpression <- primaryExpressionParser
+  argumentListSections <- pZeroOrMore $ pNext <&&> matchSquareBracketSection
+  returnWithErrors $ do
+    argumentLists <- consolidateErrors $ uncurry parseArguments <$> argumentListSections
+    return $ foldl' makeFunctionCallExpression innerExpression argumentLists
+  where
+    makeFunctionCallExpression :: PExpression -> (Range, Seq PExpression) -> PExpression
+    makeFunctionCallExpression func (argumentsRange, argumentSet) =
+      FunctionCallExpression (getRange (func, argumentsRange)) func argumentSet
+
+parseArguments :: Range -> ParseFunction (Range, Seq PExpression)
+parseArguments argumentsRange sections = do
+  let argumentSectionLists = seqSplitOn isCommaSection sections
+  arguments <- consolidateErrors $ parseArgument <$> argumentSectionLists
+  return (argumentsRange, arguments)
+  where
+    parseArgument :: Seq Section -> WithErrors PExpression
+    parseArgument Empty = singleError $ FunctionCallEmptyArgumentError argumentsRange
+    parseArgument argumentSections =
+      catchUnboundError (FunctionCallMalformedArgumentError $ getRange argumentSections) $
+        runParserToEnd expressionParser argumentSections
+
+isCommaSection :: Section -> Bool
+isCommaSection (TokenSection (CommaToken _)) = True
+isCommaSection _ = False
+
+matchSquareBracketSection :: Section -> Maybe (Range, Seq Section)
+matchSquareBracketSection (SquareBracketSection range innerSections) = Just (range, innerSections)
+matchSquareBracketSection _ = Nothing
 
 -- Primary level
 
@@ -229,6 +263,7 @@ primaryExpressionParser =
     <|> parenthesesExpressionParser
     <|> scopeExpressionParser
     <|> ifExpressionParser
+    <|> functionExpressionParser
 
 literalOrVariableExpressionParser :: Parser PExpression
 literalOrVariableExpressionParser = pNext <&&> toLiteralExpression
@@ -239,7 +274,7 @@ toLiteralExpression (TokenSection (DoubleLiteralToken range value)) = Just $ Dou
 toLiteralExpression (TokenSection (CharLiteralToken range value)) = Just $ CharLiteralExpression range value
 toLiteralExpression (TokenSection (StringLiteralToken range value)) = Just $ StringLiteralExpression range value
 toLiteralExpression (TokenSection (BoolLiteralToken range value)) = Just $ BoolLiteralExpression range value
-toLiteralExpression (TokenSection (IdentifierToken range value)) = Just $ VariableExpression range (VariableName range value)
+toLiteralExpression (TokenSection (IdentifierToken range value)) = Just $ VariableExpression range (Identifier range value)
 toLiteralExpression _ = Nothing
 
 parenthesesExpressionParser :: Parser PExpression
@@ -257,13 +292,13 @@ matchParenSection _ = Nothing
 
 scopeExpressionParser :: Parser PExpression
 scopeExpressionParser = do
-  (range, innerSections) <- pNext <&&> matchBraceSection
+  (range, innerSections) <- pNext <&&> matchCurlyBraceSection
   statements <- returnWithErrors $ parseStatements innerSections
   return $ ScopeExpression range statements
 
-matchBraceSection :: Section -> Maybe (Range, Seq Section)
-matchBraceSection (BraceSection range innerSections) = Just (range, innerSections)
-matchBraceSection _ = Nothing
+matchCurlyBraceSection :: Section -> Maybe (Range, Seq Section)
+matchCurlyBraceSection (CurlyBraceSection range innerSections) = Just (range, innerSections)
+matchCurlyBraceSection _ = Nothing
 
 -- TODO: Consider changing this to ParseFunction style to get better error reporting
 ifExpressionParser :: Parser PExpression
@@ -293,3 +328,47 @@ matchThenSection _ = Nothing
 matchElseSection :: Section -> Maybe ()
 matchElseSection (TokenSection (ElseToken _)) = Just ()
 matchElseSection _ = Nothing
+
+functionExpressionParser :: Parser PExpression
+functionExpressionParser = do
+  (parameterListRange, parameterListSections) <- pNext <&&> matchSquareBracketSection
+  arrowSectionRange <- pNext <&&> matchSingleRightArrowSection
+  expressionSections <- pRest
+  returnWithErrors $ do
+    let expressionErrorRange = case expressionSections of
+          Empty -> parameterListRange <> arrowSectionRange
+          _ -> getRange expressionSections
+    {- We use consolidateErrors2 here so that if parsing the parameter list and function value both return errors, we
+       return both errors.
+    -}
+    (parameterList, functionValue) <-
+      consolidateErrors2
+        ( parseParamterList parameterListRange parameterListSections,
+          catchUnboundError (FunctionMalformedBodyError expressionErrorRange) $
+            runParserToEnd expressionParser expressionSections
+        )
+    let functionExpressionRange = getRange (parameterListRange, expressionErrorRange)
+    return $ FunctionExpression functionExpressionRange $ PFunctionExpressionContent parameterList functionValue
+
+parseParamterList :: Range -> ParseFunction (Seq PIdentifier)
+parseParamterList _ Empty = Success Empty
+parseParamterList range sections = catchUnboundError (FunctionMalformedParameterListError range) $ runParserToEnd parser sections
+  where
+    parser = do
+      firstParameter <- pNext <&&> toVariableName
+      tailParameters <- pZeroOrMore $ do
+        pNext <&&> matchCommaSection
+        pNext <&&> toVariableName
+      return $ firstParameter <| tailParameters
+
+matchSingleRightArrowSection :: Section -> Maybe Range
+matchSingleRightArrowSection (TokenSection (SingleRightArrowToken range)) = Just range
+matchSingleRightArrowSection _ = Nothing
+
+toVariableName :: Section -> Maybe PIdentifier
+toVariableName (TokenSection (IdentifierToken range name)) = Just $ Identifier range name
+toVariableName _ = Nothing
+
+matchCommaSection :: Section -> Maybe ()
+matchCommaSection (TokenSection (CommaToken _)) = Just ()
+matchCommaSection _ = Nothing
