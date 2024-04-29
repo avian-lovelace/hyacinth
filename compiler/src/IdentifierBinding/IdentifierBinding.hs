@@ -96,6 +96,7 @@ addVariable dRange identifier = do
       throwBindingError $
         ConflictingVariableDeclarationsError identifier (declarationRange conflictingInfo) dRange
     Nothing -> do
+      checkForInvalidShadow dRange identifier
       identifierInfo <- getNewBinding dRange
       let variableInfo = VariableInfo identifierInfo BeforeDeclaration
       setCurrentScope $ ExpressionScope {variables = Map.insert identifier variableInfo variables}
@@ -119,9 +120,28 @@ addParameter dRange identifier = do
   case Map.lookup identifier parameters of
     Just conflictingInfo -> throwBindingError $ ConflictingParameterNamesError identifier (declarationRange conflictingInfo) dRange
     Nothing -> do
+      checkForInvalidShadow dRange identifier
       variableInfo <- getNewBinding dRange
       setCurrentScope $ FunctionScope {parameters = Map.insert identifier variableInfo parameters, capturedIdentifiers}
       return variableInfo
+
+checkForInvalidShadow :: Range -> UnboundIdentifier -> IdentifierBinder ()
+checkForInvalidShadow shadowRange identifier = do
+  scopes <- getScopes
+  checkForInvalidShadowHelper shadowRange identifier scopes
+
+checkForInvalidShadowHelper :: Range -> UnboundIdentifier -> [Scope] -> IdentifierBinder ()
+checkForInvalidShadowHelper _ _ [] = return ()
+checkForInvalidShadowHelper shadowRange identifier (FunctionScope {parameters, capturedIdentifiers} : restScopes) =
+  if Map.member identifier parameters || Map.member identifier capturedIdentifiers
+    -- Parameters are always usable if they are in scope, and if a variable is captured, we have already confirmed it is usable
+    then return ()
+    else checkForInvalidShadowHelper shadowRange identifier restScopes
+checkForInvalidShadowHelper shadowRange identifier (ExpressionScope {variables} : restScopes) =
+  case Map.lookup identifier variables of
+    Just (VariableInfo _ Usable) -> return ()
+    Just (VariableInfo IdentifierInfo {declarationRange} _) -> throwBindingError $ VariableShadowedInDeclarationError identifier declarationRange shadowRange
+    Nothing -> checkForInvalidShadowHelper shadowRange identifier restScopes
 
 {- Get the bound identifier corresponding to the input unbound identifier. If there are any function scopes above the
 found binding, their variable capture maps are updated to include this identifier. If the identifier is not usable, an

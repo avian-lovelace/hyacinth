@@ -121,7 +121,12 @@ data Statement phase
   | VariableDeclarationStatement (VariableDeclarationStatementData phase) (Identifier phase) (Expression phase)
   | VariableMutationStatement (VariableMutationStatementData phase) (Identifier phase) (Expression phase)
   | ExpressionStatement (ExpressionStatementData phase) (Expression phase)
-  | WhileLoopStatement (WhileLoopStatementData phase) (Expression phase) (Statement phase)
+  | {- The body of a while loop statement could really be a statement rather than an expression. However, this would
+      require a while loop statement to create a new scope for its body. For now, to avoid having to implement the
+      handling for this, I'm just making the body an expression instead. I expect that the body of a while loop is usually
+      a scope expression, so there isn't too much practical difference either way.
+    -}
+    WhileLoopStatement (WhileLoopStatementData phase) (Expression phase) (Expression phase)
 
 instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a)) => Pretty (Statement a) where
   pretty (PrintStatement _ expression) = "(PrintStatement " ++ pretty expression ++ ")"

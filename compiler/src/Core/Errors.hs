@@ -22,7 +22,8 @@ module Core.Errors
         WhileStatementNoLoopError,
         WhileStatementEmptyConditionError,
         WhileStatementEmptyStatementError,
-        WhileStatementMailformedConditionExpressionError,
+        WhileStatementMalformedConditionExpressionError,
+        WhileStatementMalformedBodyExpressionError,
         FunctionCallEmptyArgumentError,
         FunctionCallMalformedArgumentError,
         FunctionMalformedParameterListError,
@@ -31,6 +32,7 @@ module Core.Errors
         VariableUndefinedAtReferenceError,
         VariableDeclaredAfterReferenceError,
         VariableReferencedInDeclarationError,
+        VariableShadowedInDeclarationError,
         ConflictingParameterNamesError,
         RuntimeError
       ),
@@ -76,7 +78,8 @@ data Error
   | WhileStatementNoLoopError Range
   | WhileStatementEmptyConditionError Range
   | WhileStatementEmptyStatementError Range
-  | WhileStatementMailformedConditionExpressionError Range
+  | WhileStatementMalformedConditionExpressionError Range
+  | WhileStatementMalformedBodyExpressionError Range
   | FunctionCallEmptyArgumentError Range
   | FunctionCallMalformedArgumentError Range
   | FunctionMalformedParameterListError Range
@@ -86,6 +89,7 @@ data Error
   | VariableUndefinedAtReferenceError Text Range
   | VariableDeclaredAfterReferenceError Text Range Range
   | VariableReferencedInDeclarationError Text Range Range
+  | VariableShadowedInDeclarationError Text Range Range
   | ConflictingParameterNamesError Text Range Range
   | -- Runtime
     RuntimeError Int String
@@ -120,7 +124,8 @@ instance Pretty Error where
   pretty (WhileStatementNoLoopError range) = "While loop statement has no loop keyword at" ++ pretty range
   pretty (WhileStatementEmptyConditionError range) = "While loop statement has an empty condition at " ++ pretty range
   pretty (WhileStatementEmptyStatementError range) = "While loop statement has an empty statement at " ++ pretty range
-  pretty (WhileStatementMailformedConditionExpressionError range) = "Failed to parse condition of while loop statement as an expression at " ++ pretty range
+  pretty (WhileStatementMalformedConditionExpressionError range) = "Failed to parse condition of while loop statement as an expression at " ++ pretty range
+  pretty (WhileStatementMalformedBodyExpressionError range) = "Failed to parse body of while loop statement as an expression at " ++ pretty range
   pretty (FunctionCallEmptyArgumentError range) = "Found empty argument in function call at " ++ pretty range
   pretty (FunctionCallMalformedArgumentError range) = "Failed to parse function argument as an expression at " ++ pretty range
   pretty (FunctionMalformedParameterListError range) = "Failed to parse parameter list of function at " ++ pretty range
@@ -133,6 +138,8 @@ instance Pretty Error where
     "Variable " ++ Text.unpack variableName ++ " is defined at " ++ pretty delcarationRange ++ " before it is referenced at " ++ pretty referenceRange
   pretty (VariableReferencedInDeclarationError variableName declarationRange usageRange) =
     "Variable " ++ Text.unpack variableName ++ " is referenced at " ++ pretty usageRange ++ " inside its declaration at " ++ pretty declarationRange
+  pretty (VariableShadowedInDeclarationError variableName declarationRange shadowingRange) =
+    "Variable " ++ Text.unpack variableName ++ " is shadowed at " ++ pretty shadowingRange ++ " inside its declaration at " ++ pretty declarationRange
   pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
   pretty (ConflictingParameterNamesError variableName parameterRange1 parameterRange2) =
     Text.unpack variableName ++ " is used as a parameter twice in the same function definition at " ++ pretty parameterRange1 ++ " and " ++ pretty parameterRange2

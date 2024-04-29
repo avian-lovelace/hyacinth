@@ -1,5 +1,6 @@
 import ControlFlowSpec
 import ExpressionSpec
+import FunctionSpec
 import StringSpec
 import Test.Hspec
 import VariableSpec
@@ -11,3 +12,4 @@ main = hspec $ do
   testVariables
   testStrings
   testControlFlow
+  testFunctions

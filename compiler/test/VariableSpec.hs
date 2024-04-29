@@ -29,32 +29,40 @@ testVariables = do
     it "Multiple variables with the same name cannot be declared in the same scope" $
       "let foo = 3; let foo = 5;" `failsToCompileWithError` conflictingVariableDeclarationsError
     it "Variables cannot be mutated without being declared" $
-      "mut foo = 5;" `failsToCompileWithError` variableNotDefinedBeforeMutationError
+      "mut foo = 5;" `failsToCompileWithError` variableUndefinedAtReferenceError
     it "Variables cannot be mutated before being declared" $
-      "mut foo = 5; let foo = 3;" `failsToCompileWithError` variableNotDefinedBeforeMutationError
+      "mut foo = 5; let foo = 3;" `failsToCompileWithError` variableDeclaredAfterReferenceError
     it "Variables cannot be used without being declared" $
-      "print foo;" `failsToCompileWithError` variableNotDefinedBeforeUsageError
+      "print foo;" `failsToCompileWithError` variableUndefinedAtReferenceError
     it "Variables cannot be used before being declared" $
-      "print foo; let foo = 3;" `failsToCompileWithError` variableNotDefinedBeforeUsageError
+      "print foo; let foo = 3;" `failsToCompileWithError` variableDeclaredAfterReferenceError
     it "Variables cannot be used in the value of their declaration" $
       "let foo = 1 + foo;" `failsToCompileWithError` variableReferencedInDeclarationError
     it "Variables cannot be used in nested scopes in the value of their declaration" $
       "let foo = 1 + { print foo; };" `failsToCompileWithError` variableReferencedInDeclarationError
     it "Variables cannot be shadowed in nested scopes in the value of their declaration" $
-      "let foo = 1 + { let foo = 3; print foo; };" `failsToCompileWithError` variableReferencedInDeclarationError
+      "let foo = 1 + { let foo = 3; print foo; };" `failsToCompileWithError` variableShadowedInDeclarationError
 
 conflictingVariableDeclarationsError :: Error -> Bool
 conflictingVariableDeclarationsError (ConflictingVariableDeclarationsError _ _ _) = True
 conflictingVariableDeclarationsError _ = False
 
-variableNotDefinedBeforeMutationError :: Error -> Bool
-variableNotDefinedBeforeMutationError (VariableNotDefinedBeforeMutationError _ _) = True
-variableNotDefinedBeforeMutationError _ = False
+variableUndefinedAtReferenceError :: Error -> Bool
+variableUndefinedAtReferenceError (VariableUndefinedAtReferenceError _ _) = True
+variableUndefinedAtReferenceError _ = False
 
-variableNotDefinedBeforeUsageError :: Error -> Bool
-variableNotDefinedBeforeUsageError (VariableNotDefinedBeforeUsageError _ _) = True
-variableNotDefinedBeforeUsageError _ = False
+variableDeclaredAfterReferenceError :: Error -> Bool
+variableDeclaredAfterReferenceError (VariableDeclaredAfterReferenceError _ _ _) = True
+variableDeclaredAfterReferenceError _ = False
 
 variableReferencedInDeclarationError :: Error -> Bool
 variableReferencedInDeclarationError (VariableReferencedInDeclarationError _ _ _) = True
 variableReferencedInDeclarationError _ = False
+
+conflictingParameterNamesError :: Error -> Bool
+conflictingParameterNamesError (ConflictingParameterNamesError _ _ _) = True
+conflictingParameterNamesError _ = False
+
+variableShadowedInDeclarationError :: Error -> Bool
+variableShadowedInDeclarationError (VariableShadowedInDeclarationError _ _ _) = True
+variableShadowedInDeclarationError _ = False

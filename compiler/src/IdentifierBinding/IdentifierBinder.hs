@@ -19,28 +19,50 @@ moduleBinder (Module _ (MainFunctionDefinition _ statements)) = withNewExpressio
   boundFunctionDefinitions <- getBoundFunctions
   return $ Module () $ IBModuleContent (MainFunctionDefinition () boundStatements) boundFunctionDefinitions
 
-statementBinder :: PStatement -> IdentifierBinder IBStatement
-statementBinder (VariableDeclarationStatement declarationRange (Identifier identifierRange identifier) expression) =
+{- We preemtively add declared variables to the current scope in a before declaration state. This lets us catch and throw
+  errors in situations where a variable is used in a scope before it is later shadowed. This could be allowed, but it is
+  confusing enough that it's probably worth just giving a compilation error.
+
+  Code example:
+  let x = 1;
+  {
+    print x;
+    let x = 2;
+  };
+
+  BindingReadyStatement is just a wrapper around statement that shows that we've completed this pre-binding step.
+  -}
+newtype BindingReadyStatement = BindingReadyStatement PStatement
+
+prepareStatementForBinding :: PStatement -> IdentifierBinder BindingReadyStatement
+prepareStatementForBinding statement = case statement of
+  (VariableDeclarationStatement range (Identifier _ identifierName) _) -> do
+    _ <- addVariable range identifierName
+    return $ BindingReadyStatement statement
+  _ -> return $ BindingReadyStatement statement
+
+statementBinder :: BindingReadyStatement -> IdentifierBinder IBStatement
+statementBinder (BindingReadyStatement (VariableDeclarationStatement declarationRange (Identifier identifierRange identifier) expression)) =
   do
     IdentifierInfo {boundIdentifier} <- setVariableUsability identifier InDeclaration
     boundExpression <- expressionBinder expression
     return $ VariableDeclarationStatement declarationRange (Identifier identifierRange boundIdentifier) boundExpression
     `andFinally` setVariableUsability identifier Usable
-statementBinder (VariableMutationStatement statementRange (Identifier identifierRange identifier) expression) = do
+statementBinder (BindingReadyStatement (VariableMutationStatement statementRange (Identifier identifierRange identifier) expression)) = do
   IdentifierInfo {boundIdentifier} <- getIdentifierBinding identifierRange identifier
   boundExpression <- expressionBinder expression
   return $ VariableMutationStatement statementRange (Identifier identifierRange boundIdentifier) boundExpression
 -- Standard cases
-statementBinder (PrintStatement range expression) = do
+statementBinder (BindingReadyStatement (PrintStatement range expression)) = do
   boundExpression <- expressionBinder expression
   return $ PrintStatement range boundExpression
-statementBinder (ExpressionStatement range expression) = do
+statementBinder (BindingReadyStatement (ExpressionStatement range expression)) = do
   boundExpression <- expressionBinder expression
   return $ ExpressionStatement range boundExpression
-statementBinder (WhileLoopStatement range condition statement) = do
+statementBinder (BindingReadyStatement (WhileLoopStatement range condition body)) = do
   boundCondition <- expressionBinder condition
-  boundStatement <- statementBinder statement
-  return $ WhileLoopStatement range boundCondition boundStatement
+  boundBody <- expressionBinder body
+  return $ WhileLoopStatement range boundCondition boundBody
 
 expressionBinder :: PExpression -> IdentifierBinder IBExpression
 expressionBinder (VariableExpression expressionRange (Identifier identifierRange identifier)) = do
@@ -135,27 +157,10 @@ expressionBinder (FunctionCallExpression d function arguments) = do
   boundArguments <- traverse' expressionBinder arguments
   return $ FunctionCallExpression d boundFunction boundArguments
 
-addVariableDeclarationsToScope :: PStatement -> IdentifierBinder ()
-addVariableDeclarationsToScope (VariableDeclarationStatement range (Identifier _ identifierName) _) = do
-  _ <- addVariable range identifierName
-  return ()
-addVariableDeclarationsToScope _ = return ()
-
 bindScope :: Seq PStatement -> IdentifierBinder (Seq IBStatement)
 bindScope statements = do
-  {- Preemtively add declared variables to the current scope in a before declaration state. This lets us catch and throw
-  errors in situations where a variable is used in a scope before it is later shadowed. This could be allowed, but it is
-  confusing enough that it's probably worth just giving a compilation error.
-
-  Code example:
-  let x = 1;
-  {
-    print x;
-    let x = 2;
-  };
-  -}
-  _ <- traverse' addVariableDeclarationsToScope statements
-  traverse' statementBinder statements
+  readyStatements <- traverse' prepareStatementForBinding statements
+  traverse' statementBinder readyStatements
 
 bindParameter :: PIdentifier -> IdentifierBinder IBIdentifier
 bindParameter (Identifier range identifier) = do

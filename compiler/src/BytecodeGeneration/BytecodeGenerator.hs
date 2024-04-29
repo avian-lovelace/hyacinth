@@ -58,16 +58,17 @@ encodeStatement (VariableMutationStatement _ (Identifier _ variableName) variabl
 encodeStatement (ExpressionStatement _ expression) = do
   encodedExpression <- encodeExpression expression
   return $ encodedExpression <> popInstruction
-encodeStatement (WhileLoopStatement _ condition statement) = do
+encodeStatement (WhileLoopStatement d condition body) = do
   encodedCondition <- encodeExpression condition
   let conditionBytestring = BB.toLazyByteString encodedCondition
-  encodedStatement <- encodeStatement statement
-  let statementBytestring = BB.toLazyByteString encodedStatement
+  -- The body of a while loop statement is implicitly an expression statement, not just an expresison
+  encodedBody <- encodeStatement (ExpressionStatement d body)
+  let bodyBytestring = BB.toLazyByteString encodedBody
   return $
     BB.lazyByteString conditionBytestring
-      <> jumpIfFalseInstruction (fromIntegral (LB.length statementBytestring + jumpInstructionNumBytes))
-      <> BB.lazyByteString statementBytestring
-      <> jumpInstruction (fromIntegral (-(LB.length statementBytestring + jumpIfFalseInstructionNumBytes + LB.length conditionBytestring + jumpIfFalseInstructionNumBytes)))
+      <> jumpIfFalseInstruction (fromIntegral (LB.length bodyBytestring + jumpInstructionNumBytes))
+      <> BB.lazyByteString bodyBytestring
+      <> jumpInstruction (fromIntegral (-(LB.length bodyBytestring + jumpIfFalseInstructionNumBytes + LB.length conditionBytestring + jumpIfFalseInstructionNumBytes)))
 
 encodeExpression :: IBExpression -> BytecodeGenerator BB.Builder
 encodeExpression (IntLiteralExpression _ value) = return $ intInstruction $ fromIntegral value

@@ -215,7 +215,7 @@ impl VM {
                 }
                 Instruction::MutateVariable(stack_index) => {
                     let value = self.pop();
-                    self.set(stack_index, value)
+                    self.set(self.stack_index + stack_index, value)
                 }
                 Instruction::Nil => self.push(Value::Nil),
                 Instruction::Pop => {

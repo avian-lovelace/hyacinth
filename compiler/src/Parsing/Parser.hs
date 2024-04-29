@@ -95,12 +95,14 @@ parseWhileLoopStatement whileTokenSection restSections = case breakl matchLoopTo
   (_, Empty) -> singleError $ WhileStatementNoLoopError whileStatementRange
   (Empty, _) -> singleError $ WhileStatementEmptyConditionError whileStatementRange
   (_, _loopTokenSection :<| Empty) -> singleError $ WhileStatementEmptyStatementError whileStatementRange
-  (conditionSections, _loopTokenSection :<| statementSections) -> do
+  (conditionSections, _loopTokenSection :<| bodySections) -> do
     condition <-
-      catchUnboundError (WhileStatementMailformedConditionExpressionError $ getRange conditionSections) $
+      catchUnboundError (WhileStatementMalformedConditionExpressionError $ getRange conditionSections) $
         runParserToEnd expressionParser conditionSections
-    statement <- parseStatement statementSections
-    return $ WhileLoopStatement whileStatementRange condition statement
+    body <-
+      catchUnboundError (WhileStatementMalformedBodyExpressionError $ getRange bodySections) $
+        runParserToEnd expressionParser bodySections
+    return $ WhileLoopStatement whileStatementRange condition body
   where
     matchLoopTokenSection (TokenSection (LoopToken _)) = True
     matchLoopTokenSection _ = False
