@@ -36,13 +36,15 @@ type PStatement = Statement ParsingPhase
 
 type instance PrintStatementData ParsingPhase = Range
 
-type instance VariableDeclarationStatementData ParsingPhase = Range
+type instance VariableDeclarationStatementData ParsingPhase = (Range, Bool)
 
 type instance VariableMutationStatementData ParsingPhase = Range
 
 type instance ExpressionStatementData ParsingPhase = Range
 
 type instance WhileLoopStatementData ParsingPhase = Range
+
+type instance ReturnStatementData ParsingPhase = Range
 
 -- Identifier
 type PIdentifier = Identifier ParsingPhase

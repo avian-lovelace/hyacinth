@@ -36,20 +36,20 @@ newtype BindingReadyStatement = BindingReadyStatement PStatement
 
 prepareStatementForBinding :: PStatement -> IdentifierBinder BindingReadyStatement
 prepareStatementForBinding statement = case statement of
-  (VariableDeclarationStatement range (Identifier _ identifierName) _) -> do
-    _ <- addVariable range identifierName
+  (VariableDeclarationStatement (range, isMutable) (Identifier _ identifierName) _) -> do
+    _ <- addVariable range isMutable identifierName
     return $ BindingReadyStatement statement
   _ -> return $ BindingReadyStatement statement
 
 statementBinder :: BindingReadyStatement -> IdentifierBinder IBStatement
-statementBinder (BindingReadyStatement (VariableDeclarationStatement declarationRange (Identifier identifierRange identifier) expression)) =
+statementBinder (BindingReadyStatement (VariableDeclarationStatement (declarationRange, _) (Identifier identifierRange identifier) expression)) =
   do
     IdentifierInfo {boundIdentifier} <- setVariableUsability identifier InDeclaration
     boundExpression <- expressionBinder expression
     return $ VariableDeclarationStatement declarationRange (Identifier identifierRange boundIdentifier) boundExpression
     `andFinally` setVariableUsability identifier Usable
 statementBinder (BindingReadyStatement (VariableMutationStatement statementRange (Identifier identifierRange identifier) expression)) = do
-  IdentifierInfo {boundIdentifier} <- getIdentifierBinding identifierRange identifier
+  IdentifierInfo {boundIdentifier} <- getIdentifierBinding identifierRange True identifier
   boundExpression <- expressionBinder expression
   return $ VariableMutationStatement statementRange (Identifier identifierRange boundIdentifier) boundExpression
 -- Standard cases
@@ -63,10 +63,15 @@ statementBinder (BindingReadyStatement (WhileLoopStatement range condition body)
   boundCondition <- expressionBinder condition
   boundBody <- expressionBinder body
   return $ WhileLoopStatement range boundCondition boundBody
+statementBinder (BindingReadyStatement (ReturnStatement range (Just expression))) = do
+  boundExpression <- expressionBinder expression
+  return $ ReturnStatement range (Just boundExpression)
+statementBinder (BindingReadyStatement (ReturnStatement range Nothing)) =
+  return $ ReturnStatement range Nothing
 
 expressionBinder :: PExpression -> IdentifierBinder IBExpression
 expressionBinder (VariableExpression expressionRange (Identifier identifierRange identifier)) = do
-  IdentifierInfo {boundIdentifier} <- getIdentifierBinding expressionRange identifier
+  IdentifierInfo {boundIdentifier} <- getIdentifierBinding expressionRange False identifier
   return $ VariableExpression expressionRange (Identifier identifierRange boundIdentifier)
 expressionBinder (ScopeExpression d statements) = withNewExpressionScope $ do
   boundStatements <- bindScope statements

@@ -28,12 +28,16 @@ module Core.Errors
         FunctionCallMalformedArgumentError,
         FunctionMalformedParameterListError,
         FunctionMalformedBodyError,
+        ReturnStatementInvalidExpressionError,
         ConflictingVariableDeclarationsError,
         VariableUndefinedAtReferenceError,
         VariableDeclaredAfterReferenceError,
         VariableReferencedInDeclarationError,
         VariableShadowedInDeclarationError,
         ConflictingParameterNamesError,
+        MutatedImmutableVariableError,
+        MutatedParameterError,
+        MutatedCapturedIdentifierError,
         RuntimeError
       ),
     WithErrors (Error, Success),
@@ -84,6 +88,7 @@ data Error
   | FunctionCallMalformedArgumentError Range
   | FunctionMalformedParameterListError Range
   | FunctionMalformedBodyError Range
+  | ReturnStatementInvalidExpressionError Range
   | -- Variable binding
     ConflictingVariableDeclarationsError Text Range Range
   | VariableUndefinedAtReferenceError Text Range
@@ -91,6 +96,9 @@ data Error
   | VariableReferencedInDeclarationError Text Range Range
   | VariableShadowedInDeclarationError Text Range Range
   | ConflictingParameterNamesError Text Range Range
+  | MutatedImmutableVariableError Text Range Range
+  | MutatedParameterError Text Range Range
+  | MutatedCapturedIdentifierError Text Range Range
   | -- Runtime
     RuntimeError Int String
   deriving (Show, Eq)
@@ -130,6 +138,7 @@ instance Pretty Error where
   pretty (FunctionCallMalformedArgumentError range) = "Failed to parse function argument as an expression at " ++ pretty range
   pretty (FunctionMalformedParameterListError range) = "Failed to parse parameter list of function at " ++ pretty range
   pretty (FunctionMalformedBodyError range) = "Failed to parse function body as an expression at " ++ pretty range
+  pretty (ReturnStatementInvalidExpressionError range) = "Failed to parse argument of return statement as an expression at " ++ pretty range
   pretty (ConflictingVariableDeclarationsError variableName declarationRange1 declarationRange2) =
     "Variable " ++ Text.unpack variableName ++ " has conflicting declarations at " ++ pretty declarationRange1 ++ " and " ++ pretty declarationRange2
   pretty (VariableUndefinedAtReferenceError variableName range) =
@@ -140,9 +149,15 @@ instance Pretty Error where
     "Variable " ++ Text.unpack variableName ++ " is referenced at " ++ pretty usageRange ++ " inside its declaration at " ++ pretty declarationRange
   pretty (VariableShadowedInDeclarationError variableName declarationRange shadowingRange) =
     "Variable " ++ Text.unpack variableName ++ " is shadowed at " ++ pretty shadowingRange ++ " inside its declaration at " ++ pretty declarationRange
-  pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
   pretty (ConflictingParameterNamesError variableName parameterRange1 parameterRange2) =
     Text.unpack variableName ++ " is used as a parameter twice in the same function definition at " ++ pretty parameterRange1 ++ " and " ++ pretty parameterRange2
+  pretty (MutatedImmutableVariableError variableName declarationRange mutationRange) =
+    "Variable " ++ Text.unpack variableName ++ " declared as immutable at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
+  pretty (MutatedParameterError parameterName declarationRange mutationRange) =
+    "Function parameter " ++ Text.unpack parameterName ++ " defined at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
+  pretty (MutatedCapturedIdentifierError identifierName declarationRange mutationRange) =
+    "Identifier " ++ Text.unpack identifierName ++ " defined at " ++ pretty declarationRange ++ " cannot be mutated at " ++ pretty mutationRange ++ " in a nested function"
+  pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
 
 data WithErrors a
   = Error (Seq Error)

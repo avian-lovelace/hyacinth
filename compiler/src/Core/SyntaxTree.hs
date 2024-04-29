@@ -15,13 +15,15 @@ module Core.SyntaxTree
         VariableDeclarationStatement,
         VariableMutationStatement,
         ExpressionStatement,
-        WhileLoopStatement
+        WhileLoopStatement,
+        ReturnStatement
       ),
     PrintStatementData,
     VariableDeclarationStatementData,
     VariableMutationStatementData,
     ExpressionStatementData,
     WhileLoopStatementData,
+    ReturnStatementData,
     Identifier (Identifier),
     IdentifierData,
     IdentifierContent,
@@ -127,6 +129,7 @@ data Statement phase
       a scope expression, so there isn't too much practical difference either way.
     -}
     WhileLoopStatement (WhileLoopStatementData phase) (Expression phase) (Expression phase)
+  | ReturnStatement (ReturnStatementData phase) (Maybe (Expression phase))
 
 instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a)) => Pretty (Statement a) where
   pretty (PrintStatement _ expression) = "(PrintStatement " ++ pretty expression ++ ")"
@@ -134,6 +137,8 @@ instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a)) => P
   pretty (VariableMutationStatement _ variableName value) = "(VariableMutationStatement " ++ pretty variableName ++ " " ++ pretty value ++ ")"
   pretty (ExpressionStatement _ expression) = "(ExpressionStatement " ++ pretty expression ++ ")"
   pretty (WhileLoopStatement _ condition statement) = "(WhileLoopStatement " ++ pretty condition ++ " " ++ pretty statement ++ ")"
+  pretty (ReturnStatement _ (Just expression)) = "(ReturnStatement " ++ pretty expression ++ ")"
+  pretty (ReturnStatement _ Nothing) = "(ReturnStatement)"
 
 type family PrintStatementData phase
 
@@ -144,6 +149,8 @@ type family VariableMutationStatementData phase
 type family ExpressionStatementData phase
 
 type family WhileLoopStatementData phase
+
+type family ReturnStatementData phase
 
 --     AlgebraicDataTypeStatement TypeVariableName [TypeVariableName] [(ProductTypeName, [ProperType])]
 --   | TypeAssignmentStatement TypeVariableName Type

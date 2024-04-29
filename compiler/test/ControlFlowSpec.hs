@@ -39,4 +39,4 @@ testControlFlow = do
       "print 1 + if false then 2 else 3 * 4;" `runsSuccessfullyWithOutput` "13\n"
   describe "While loop statements" $ do
     it "While loops work" $
-      "let i = 3; while i > 0 loop { print i; mut i = i - 1; }; print \"blastoff!\";" `runsSuccessfullyWithOutput` "3\n2\n1\nblastoff!\n"
+      "let mut i = 3; while i > 0 loop { print i; mut i = i - 1; }; print \"blastoff!\";" `runsSuccessfullyWithOutput` "3\n2\n1\nblastoff!\n"

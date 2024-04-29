@@ -199,6 +199,7 @@ lexKeywordOrIdentifier = do
                 "print" -> PrintToken
                 "while" -> WhileToken
                 "loop" -> LoopToken
+                "return" -> ReturnToken
                 "Int" -> IntToken
                 "Double" -> DoubleToken
                 "Char" -> CharToken

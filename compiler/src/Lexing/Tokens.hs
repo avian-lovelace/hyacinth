@@ -12,6 +12,7 @@ module Lexing.Tokens
         PrintToken,
         WhileToken,
         LoopToken,
+        ReturnToken,
         SemicolonToken,
         ColonToken,
         EqualsToken,
@@ -73,6 +74,7 @@ data Token
   | PrintToken Range
   | WhileToken Range
   | LoopToken Range
+  | ReturnToken Range
   | -- Separators
     SemicolonToken Range
   | ColonToken Range
@@ -133,6 +135,7 @@ instance Pretty Token where
   pretty (PrintToken _) = "print"
   pretty (WhileToken _) = "while"
   pretty (LoopToken _) = "loop"
+  pretty (ReturnToken _) = "return"
   pretty (SemicolonToken _) = ";"
   pretty (ColonToken _) = ":"
   pretty (EqualsToken _) = "="
@@ -186,6 +189,7 @@ instance WithRange Token where
   getRange (PrintToken range) = range
   getRange (WhileToken range) = range
   getRange (LoopToken range) = range
+  getRange (ReturnToken range) = range
   getRange (SemicolonToken range) = range
   getRange (ColonToken range) = range
   getRange (EqualsToken range) = range

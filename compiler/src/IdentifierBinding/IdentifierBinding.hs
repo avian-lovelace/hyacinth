@@ -57,7 +57,7 @@ data Scope
   = ExpressionScope {variables :: Map UnboundIdentifier VariableInfo}
   | FunctionScope {parameters :: Map UnboundIdentifier IdentifierInfo, capturedIdentifiers :: Map UnboundIdentifier CapturedIdentifierInfo}
 
-data VariableInfo = VariableInfo IdentifierInfo VariableUsability
+data VariableInfo = VariableInfo IdentifierInfo VariableUsability Bool
 
 data CapturedIdentifierInfo = CapturedIdentifierInfo {outsideIdentifier :: IdentifierInfo, insideIdentifier :: IdentifierInfo}
 
@@ -87,18 +87,18 @@ withNewFunctionScope binder =
     binder
     `andFinally` popScope
 
-addVariable :: Range -> UnboundIdentifier -> IdentifierBinder IdentifierInfo
-addVariable dRange identifier = do
+addVariable :: Range -> Bool -> UnboundIdentifier -> IdentifierBinder IdentifierInfo
+addVariable dRange isMutable identifier = do
   currentScope <- getCurrentScope
   variables <- liftWithError $ expectExpressionScope currentScope
   case Map.lookup identifier variables of
-    Just (VariableInfo conflictingInfo _) ->
+    Just (VariableInfo conflictingInfo _ _) ->
       throwBindingError $
         ConflictingVariableDeclarationsError identifier (declarationRange conflictingInfo) dRange
     Nothing -> do
       checkForInvalidShadow dRange identifier
       identifierInfo <- getNewBinding dRange
-      let variableInfo = VariableInfo identifierInfo BeforeDeclaration
+      let variableInfo = VariableInfo identifierInfo BeforeDeclaration isMutable
       setCurrentScope $ ExpressionScope {variables = Map.insert identifier variableInfo variables}
       return identifierInfo
 
@@ -107,8 +107,8 @@ setVariableUsability identifier usability = do
   currentScope <- getCurrentScope
   variables <- liftWithError $ expectExpressionScope currentScope
   case Map.lookup identifier variables of
-    Just (VariableInfo info _) -> do
-      let updatedVariables = Map.insert identifier (VariableInfo info usability) variables
+    Just (VariableInfo info _ isMutable) -> do
+      let updatedVariables = Map.insert identifier (VariableInfo info usability isMutable) variables
       setCurrentScope $ ExpressionScope {variables = updatedVariables}
       return info
     Nothing -> throwBindingError $ ShouldNotGetHereError "Set variable usability of identifier not in scope"
@@ -139,48 +139,58 @@ checkForInvalidShadowHelper shadowRange identifier (FunctionScope {parameters, c
     else checkForInvalidShadowHelper shadowRange identifier restScopes
 checkForInvalidShadowHelper shadowRange identifier (ExpressionScope {variables} : restScopes) =
   case Map.lookup identifier variables of
-    Just (VariableInfo _ Usable) -> return ()
-    Just (VariableInfo IdentifierInfo {declarationRange} _) -> throwBindingError $ VariableShadowedInDeclarationError identifier declarationRange shadowRange
+    Just (VariableInfo IdentifierInfo {declarationRange} InDeclaration _) -> throwBindingError $ VariableShadowedInDeclarationError identifier declarationRange shadowRange
+    Just _ -> return ()
     Nothing -> checkForInvalidShadowHelper shadowRange identifier restScopes
 
 {- Get the bound identifier corresponding to the input unbound identifier. If there are any function scopes above the
 found binding, their variable capture maps are updated to include this identifier. If the identifier is not usable, an
 error is thrown.
 -}
-getIdentifierBinding :: Range -> UnboundIdentifier -> IdentifierBinder IdentifierInfo
-getIdentifierBinding usageRange identifier = do
+getIdentifierBinding :: Range -> Bool -> UnboundIdentifier -> IdentifierBinder IdentifierInfo
+getIdentifierBinding usageRange requireMutable identifier = do
   scopes <- getScopes
-  (info, updatedScopes) <- getIdentifierBindingHelper usageRange identifier scopes
+  (info, updatedScopes) <- getIdentifierBindingHelper usageRange requireMutable identifier scopes
   setScopes updatedScopes
   return info
 
-getIdentifierBindingHelper :: Range -> UnboundIdentifier -> [Scope] -> IdentifierBinder (IdentifierInfo, [Scope])
-getIdentifierBindingHelper usageRange identifier scopes = case scopes of
+getIdentifierBindingHelper :: Range -> Bool -> UnboundIdentifier -> [Scope] -> IdentifierBinder (IdentifierInfo, [Scope])
+getIdentifierBindingHelper usageRange requireMutable identifier scopes = case scopes of
   [] -> throwBindingError $ VariableUndefinedAtReferenceError identifier usageRange
   ExpressionScope {variables} : restScopes -> case Map.lookup identifier variables of
-    Just (VariableInfo info usability) -> do
-      assertVariableIsUsable $ VariableInfo info usability
+    Just (VariableInfo info usability isMutable) -> do
+      assertVariableIsUsable info usability
+      if requireMutable && not isMutable
+        then throwBindingError $ MutatedImmutableVariableError identifier (declarationRange info) usageRange
+        else return ()
       return (info, scopes)
     Nothing -> do
-      (info, updatedRestScopes) <- getIdentifierBindingHelper usageRange identifier restScopes
+      (info, updatedRestScopes) <- getIdentifierBindingHelper usageRange requireMutable identifier restScopes
       return (info, ExpressionScope {variables} : updatedRestScopes)
   FunctionScope {parameters, capturedIdentifiers} : restScopes -> case Map.lookup identifier parameters of
     Just info -> do
-      return (info, scopes)
+      if requireMutable
+        then throwBindingError $ MutatedParameterError identifier (declarationRange info) usageRange
+        else return (info, scopes)
     Nothing -> case Map.lookup identifier capturedIdentifiers of
       Just (CapturedIdentifierInfo {insideIdentifier}) -> do
-        return (insideIdentifier, scopes)
+        if requireMutable
+          then throwBindingError $ MutatedCapturedIdentifierError identifier (declarationRange insideIdentifier) usageRange
+          else return (insideIdentifier, scopes)
       Nothing -> do
-        (outsideIdentifier, updatedRestScopes) <- getIdentifierBindingHelper usageRange identifier restScopes
+        (outsideIdentifier, updatedRestScopes) <- getIdentifierBindingHelper usageRange requireMutable identifier restScopes
+        if requireMutable
+          then throwBindingError $ MutatedCapturedIdentifierError identifier (declarationRange outsideIdentifier) usageRange
+          else return ()
         insideIdentifier <- getNewBinding (declarationRange outsideIdentifier)
         let updatedCapturedVariables = Map.insert identifier (CapturedIdentifierInfo {outsideIdentifier, insideIdentifier}) capturedIdentifiers
         return (insideIdentifier, FunctionScope {parameters, capturedIdentifiers = updatedCapturedVariables} : updatedRestScopes)
   where
-    assertVariableIsUsable :: VariableInfo -> IdentifierBinder ()
-    assertVariableIsUsable (VariableInfo _ Usable) = return ()
-    assertVariableIsUsable (VariableInfo info BeforeDeclaration) =
+    assertVariableIsUsable :: IdentifierInfo -> VariableUsability -> IdentifierBinder ()
+    assertVariableIsUsable _ Usable = return ()
+    assertVariableIsUsable info BeforeDeclaration =
       throwBindingError $ VariableDeclaredAfterReferenceError identifier usageRange (declarationRange info)
-    assertVariableIsUsable (VariableInfo info InDeclaration) =
+    assertVariableIsUsable info InDeclaration =
       throwBindingError $ VariableReferencedInDeclarationError identifier usageRange (declarationRange info)
 
 getState :: IdentifierBinder IdentifierBindingState

@@ -55,6 +55,8 @@ type instance ExpressionStatementData IdentifierBindingPhase = Range
 
 type instance WhileLoopStatementData IdentifierBindingPhase = Range
 
+type instance ReturnStatementData IdentifierBindingPhase = Range
+
 -- Identifier
 type IBIdentifier = Identifier IdentifierBindingPhase
 

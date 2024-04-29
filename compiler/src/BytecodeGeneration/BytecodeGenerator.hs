@@ -69,6 +69,10 @@ encodeStatement (WhileLoopStatement d condition body) = do
       <> jumpIfFalseInstruction (fromIntegral (LB.length bodyBytestring + jumpInstructionNumBytes))
       <> BB.lazyByteString bodyBytestring
       <> jumpInstruction (fromIntegral (-(LB.length bodyBytestring + jumpIfFalseInstructionNumBytes + LB.length conditionBytestring + jumpIfFalseInstructionNumBytes)))
+encodeStatement (ReturnStatement _ (Just expression)) = do
+  encodedExpression <- encodeExpression expression
+  return $ encodedExpression <> returnInstruction
+encodeStatement (ReturnStatement _ Nothing) = return $ nilInstruction <> returnInstruction
 
 encodeExpression :: IBExpression -> BytecodeGenerator BB.Builder
 encodeExpression (IntLiteralExpression _ value) = return $ intInstruction $ fromIntegral value

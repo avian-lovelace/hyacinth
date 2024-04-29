@@ -40,6 +40,7 @@ parseStatement (currentSection :<| tailSections) = case currentSection of
   TokenSection (LetToken _) -> parseVariableDeclarationStatement currentSection tailSections
   TokenSection (MutToken _) -> parseVariableMutationStatement currentSection tailSections
   TokenSection (WhileToken _) -> parseWhileLoopStatement currentSection tailSections
+  TokenSection (ReturnToken _) -> parseReturnStatement currentSection tailSections
   _ -> parseExpressionStatement (currentSection <| tailSections)
 
 parsePrintStatement :: Section -> ParseFunction PStatement
@@ -58,8 +59,24 @@ parseVariableDeclarationStatement
     singleError $ VariableDeclarationEmptyExpressionError $ getRange (letTokenSection, equalsRange)
 parseVariableDeclarationStatement
   letTokenSection
-  ((TokenSection (IdentifierToken identifierRange identifier)) :<| (TokenSection (EqualsToken _)) :<| expressionSections) =
-    VariableDeclarationStatement statementRange variableName <$> expression
+  ( (TokenSection (IdentifierToken identifierRange identifier))
+      :<| (TokenSection (EqualsToken _))
+      :<| expressionSections
+    ) =
+    VariableDeclarationStatement (statementRange, False) variableName <$> expression
+    where
+      statementRange = getRange (letTokenSection, seqTail expressionSections)
+      variableName = Identifier identifierRange identifier
+      expression = catchUnboundError (VariableDeclarationInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
+      expressionRange = getRange expressionSections
+parseVariableDeclarationStatement
+  letTokenSection
+  ( (TokenSection (MutToken _))
+      :<| (TokenSection (IdentifierToken identifierRange identifier))
+      :<| (TokenSection (EqualsToken _))
+      :<| expressionSections
+    ) =
+    VariableDeclarationStatement (statementRange, True) variableName <$> expression
     where
       statementRange = getRange (letTokenSection, seqTail expressionSections)
       variableName = Identifier identifierRange identifier
@@ -108,6 +125,15 @@ parseWhileLoopStatement whileTokenSection restSections = case breakl matchLoopTo
     matchLoopTokenSection _ = False
     -- Must check that restSections is non-empty before using
     whileStatementRange = getRange (whileTokenSection, seqTail restSections)
+
+parseReturnStatement :: Section -> ParseFunction PStatement
+parseReturnStatement returnTokenSection expressionSections = case expressionSections of
+  Empty -> Success $ ReturnStatement (getRange returnTokenSection) Nothing
+  _ -> ReturnStatement statementRange . Just <$> expressionOrErrors
+    where
+      statementRange = getRange (returnTokenSection, seqTail expressionSections)
+      expressionRange = getRange expressionSections
+      expressionOrErrors = catchUnboundError (ReturnStatementInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
 
 -- Expressions
 
