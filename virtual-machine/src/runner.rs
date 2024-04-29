@@ -16,7 +16,8 @@ impl VM {
                     None => break,
                     Some(frame) => {
                         let return_value = self.pop();
-                        self.stack.truncate(self.stack_index as usize);
+                        // We truncate at one lower than the stack index to remove the function object that we just finished calling
+                        self.stack.truncate(self.stack_index as usize - 1);
                         self.function_index = frame.function_index;
                         self.instruction_index = frame.instruction_index;
                         self.stack_index = frame.stack_index;
@@ -211,11 +212,11 @@ impl VM {
                 Instruction::True => self.push(Value::Bool(true)),
                 Instruction::False => self.push(Value::Bool(false)),
                 Instruction::ReadVariable(stack_index) => {
-                    self.push(self.peek(self.stack_index + stack_index))
+                    self.push(self.peek_from_frame_bottom(stack_index))
                 }
                 Instruction::MutateVariable(stack_index) => {
                     let value = self.pop();
-                    self.set(self.stack_index + stack_index, value)
+                    self.set_from_frame_bottom(stack_index, value)
                 }
                 Instruction::Nil => self.push(Value::Nil),
                 Instruction::Pop => {
@@ -246,27 +247,29 @@ impl VM {
                     let function_object_value = self.heap.add(function_object);
                     self.push(function_object_value)
                 }
-                Instruction::Call(num_arguments) => match self.pop() {
-                    Value::Object(object_index) => match self.heap.get(object_index) {
-                        Object::FunctionObj {
-                            function_index,
-                            closed_variables,
-                        } => {
-                            let current_frame = Frame {
-                                function_index: self.function_index,
-                                instruction_index: self.instruction_index,
-                                stack_index: self.stack_index,
-                            };
-                            self.frames.push(current_frame);
-                            self.function_index = *function_index;
-                            self.instruction_index = 0;
-                            self.stack_index = self.stack.len() as u16 - num_arguments as u16;
-                            self.stack.extend(closed_variables);
-                        }
-                        obj => panic!("Attempted to call non-function object {}", obj),
-                    },
-                    value => panic!("Attempted to call non-function value {}", value),
-                },
+                Instruction::Call(num_arguments) => {
+                    match self.peek_from_top(num_arguments as StackIndex) {
+                        Value::Object(object_index) => match self.heap.get(object_index) {
+                            Object::FunctionObj {
+                                function_index,
+                                closed_variables,
+                            } => {
+                                let current_frame = Frame {
+                                    function_index: self.function_index,
+                                    instruction_index: self.instruction_index,
+                                    stack_index: self.stack_index,
+                                };
+                                self.frames.push(current_frame);
+                                self.function_index = *function_index;
+                                self.instruction_index = 0;
+                                self.stack_index = self.stack.len() as u16 - num_arguments as u16;
+                                self.stack.extend(closed_variables);
+                            }
+                            obj => panic!("Attempted to call non-function object {}", obj),
+                        },
+                        value => panic!("Attempted to call non-function value {}", value),
+                    }
+                }
             };
         }
         self.garbage_collect();
@@ -394,15 +397,22 @@ impl VM {
         return slice;
     }
 
-    fn peek(&self, index: StackIndex) -> Value {
+    fn peek_from_top(&self, index: StackIndex) -> Value {
         self.stack
-            .get(index as usize)
+            .get(self.stack.len() - index as usize - 1)
             .copied()
             .expect(format!("Failed to read stack at index {}", index).as_str())
     }
 
-    fn set(&mut self, index: StackIndex, value: Value) {
-        self.stack[index as usize] = value
+    fn peek_from_frame_bottom(&self, index: StackIndex) -> Value {
+        self.stack
+            .get((self.stack_index + index) as usize)
+            .copied()
+            .expect(format!("Failed to read stack at index {}", index).as_str())
+    }
+
+    fn set_from_frame_bottom(&mut self, index: StackIndex, value: Value) {
+        self.stack[(self.stack_index + index) as usize] = value
     }
 
     fn jump(&mut self, offset: i16) {

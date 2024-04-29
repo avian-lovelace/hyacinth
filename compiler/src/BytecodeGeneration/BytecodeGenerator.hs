@@ -168,7 +168,7 @@ encodeExpression (FunctionExpression _ (IBFunctionExpressionContent functionInde
 encodeExpression (FunctionCallExpression _ function arguments) = do
   encodedFunction <- encodeExpression function
   encodedArguments <- traverse encodeExpression arguments
-  return $ fold encodedArguments <> encodedFunction <> callInstruction (fromIntegral . length $ arguments)
+  return $ encodedFunction <> fold encodedArguments <> callInstruction (fromIntegral . length $ arguments)
 
 pushIdentifierValue :: IBIdentifier -> BytecodeGenerator BB.Builder
 pushIdentifierValue (Identifier _ variableName) = do

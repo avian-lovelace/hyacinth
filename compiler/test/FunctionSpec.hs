@@ -34,6 +34,8 @@ testFunctions = do
       "let mut cap = 3; let foo = [] -> { print cap; }; mut cap = 5; foo[];" `runsSuccessfullyWithOutput` "3\n"
     it "Captured variables can be used, even if the original variable no longer exists" $
       "let foo = [] -> { let cap = 3; return [] -> cap; }; print foo[][];" `runsSuccessfullyWithOutput` "3\n"
+    it "When calling a function call expression, first the function expression is evaluated, then the arguments left-to-right, then the function call happens" $
+      "let foo = [] -> { print 1; return [x, y] -> { print 4; }; }; foo[][{print 2;}, {print 3;}];" `runsSuccessfullyWithOutput` "1\n2\n3\n4\n"
   describe "Function errors" $ do
     it "Functions cannot have multiple parameters with the same name" $
       "let foo = [x, y, x] -> x + y + x;" `failsToCompileWithError` conflictingParameterNamesError
