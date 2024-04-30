@@ -29,7 +29,7 @@ module BytecodeGeneration.Bytecode
     jumpIfFalseInstruction,
     jumpIfFalseInstructionNumBytes,
     intInstruction,
-    doubleInstruction,
+    floatInstruction,
     functionInstruction,
     callInstruction,
     Constant (StringConstant),
@@ -145,8 +145,8 @@ jumpIfFalseInstructionNumBytes = 3
 intInstruction :: Int32 -> BB.Builder
 intInstruction value = BB.word8 28 <> BB.int32BE value
 
-doubleInstruction :: Double -> BB.Builder
-doubleInstruction value = BB.word8 29 <> BB.doubleBE value
+floatInstruction :: Double -> BB.Builder
+floatInstruction value = BB.word8 29 <> BB.doubleBE value
 
 charInstruction :: Char -> BB.Builder
 charInstruction value = BB.word8 30 <> BB.byteString encodedValue <> padding

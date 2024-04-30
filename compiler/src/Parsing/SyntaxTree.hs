@@ -60,7 +60,7 @@ type PExpression = Expression ParsingPhase
 
 type instance IntLiteralExpressionData ParsingPhase = Range
 
-type instance DoubleLiteralExpressionData ParsingPhase = Range
+type instance FloatLiteralExpressionData ParsingPhase = Range
 
 type instance CharLiteralExpressionData ParsingPhase = Range
 
@@ -120,7 +120,7 @@ type instance FunctionCallExpressionData ParsingPhase = Range
 instance WithRange PExpression where
   getRange expression = case expression of
     IntLiteralExpression range _ -> range
-    DoubleLiteralExpression range _ -> range
+    FloatLiteralExpression range _ -> range
     CharLiteralExpression range _ -> range
     StringLiteralExpression range _ -> range
     BoolLiteralExpression range _ -> range

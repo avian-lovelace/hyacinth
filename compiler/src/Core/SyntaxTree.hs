@@ -29,7 +29,7 @@ module Core.SyntaxTree
     IdentifierContent,
     Expression
       ( IntLiteralExpression,
-        DoubleLiteralExpression,
+        FloatLiteralExpression,
         CharLiteralExpression,
         StringLiteralExpression,
         BoolLiteralExpression,
@@ -56,7 +56,7 @@ module Core.SyntaxTree
         FunctionCallExpression
       ),
     IntLiteralExpressionData,
-    DoubleLiteralExpressionData,
+    FloatLiteralExpressionData,
     CharLiteralExpressionData,
     StringLiteralExpressionData,
     BoolLiteralExpressionData,
@@ -158,7 +158,7 @@ type family ReturnStatementData phase
 
 -- data ProperType =
 --     IntType
---   | DoubleType
+--   | FloatType
 --   | CharType
 --   | StringType
 --   | BoolType
@@ -187,7 +187,7 @@ instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a)) => P
 
 data Expression phase
   = IntLiteralExpression (IntLiteralExpressionData phase) Int
-  | DoubleLiteralExpression (DoubleLiteralExpressionData phase) Double
+  | FloatLiteralExpression (FloatLiteralExpressionData phase) Double
   | CharLiteralExpression (CharLiteralExpressionData phase) Char
   | StringLiteralExpression (StringLiteralExpressionData phase) Text
   | BoolLiteralExpression (BoolLiteralExpressionData phase) Bool
@@ -215,7 +215,7 @@ data Expression phase
 
 instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a)) => Pretty (Expression a) where
   pretty (IntLiteralExpression _ value) = "(IntLiteralExpression " ++ show value ++ ")"
-  pretty (DoubleLiteralExpression _ value) = "(DoubleLiteralExpression " ++ show value ++ ")"
+  pretty (FloatLiteralExpression _ value) = "(FloatLiteralExpression " ++ show value ++ ")"
   pretty (CharLiteralExpression _ value) = "(CharLiteralExpression " ++ show value ++ ")"
   pretty (StringLiteralExpression _ value) = "(StringLiteralExpression " ++ show value ++ ")"
   pretty (BoolLiteralExpression _ value) = "(BoolLiteralExpression " ++ show value ++ ")"
@@ -246,7 +246,7 @@ instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a)) => P
 
 type family IntLiteralExpressionData phase
 
-type family DoubleLiteralExpressionData phase
+type family FloatLiteralExpressionData phase
 
 type family CharLiteralExpressionData phase
 

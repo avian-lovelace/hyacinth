@@ -74,7 +74,7 @@ module LexerSpec where
 
 --       it "lexes =>" $
 --         let input = "=>"
---             expected = fromList [Token DoubleRightArrowToken (startRange 2)]
+--             expected = fromList [Token FloatRightArrowToken (startRange 2)]
 --          in lexText input `shouldBe` (Success expected)
 
 --       it "lexes ," $
@@ -109,9 +109,9 @@ module LexerSpec where
 --             expected = fromList [Token IntToken (startRange 3)]
 --          in lexText input `shouldBe` (Success expected)
 
---       it "lexes Double" $
---         let input = "Double"
---             expected = fromList [Token DoubleToken (startRange 6)]
+--       it "lexes Float" $
+--         let input = "Float"
+--             expected = fromList [Token FloatToken (startRange 6)]
 --          in lexText input `shouldBe` (Success expected)
 
 --       it "lexes Char" $
@@ -206,20 +206,20 @@ module LexerSpec where
 --             expected = fromList [Token (IntLiteralToken 1234567890) (startRange 10)]
 --          in lexText input `shouldBe` (Success expected)
 
---     describe "Double literals" $ do
+--     describe "Float literals" $ do
 --       it "lexes 0." $
 --         let input = "0."
---             expected = fromList [Token (DoubleLiteralToken 0) (startRange 2)]
+--             expected = fromList [Token (FloatLiteralToken 0) (startRange 2)]
 --          in lexText input `shouldBe` (Success expected)
 
 --       it "lexes 0.1" $
 --         let input = "0.1"
---             expected = fromList [Token (DoubleLiteralToken 0.1) (startRange 3)]
+--             expected = fromList [Token (FloatLiteralToken 0.1) (startRange 3)]
 --          in lexText input `shouldBe` (Success expected)
 
 --       it "lexes 12.34" $
 --         let input = "12.34"
---             expected = fromList [Token (DoubleLiteralToken 12.34) (startRange 5)]
+--             expected = fromList [Token (FloatLiteralToken 12.34) (startRange 5)]
 --          in lexText input `shouldBe` (Success expected)
 
 --     describe "Char literals" $ do

@@ -17,7 +17,7 @@ pub struct VM {
 pub enum Value {
     Nil,
     Int(IntValue),
-    Double(FloatValue),
+    Float(FloatValue),
     Bool(bool),
     Char(char),
     Object(ObjectKey),
@@ -31,7 +31,7 @@ impl fmt::Display for Value {
         match self {
             Value::Nil => write!(f, "()"),
             Value::Int(i) => write!(f, "{}", i),
-            Value::Double(d) => write!(f, "{}", d),
+            Value::Float(d) => write!(f, "{}", d),
             Value::Bool(b) => write!(f, "{}", b),
             Value::Char(c) => write!(f, "{}", c),
             Value::Object(k) => write!(f, "Object {}", k),

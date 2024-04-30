@@ -29,7 +29,7 @@ impl VM {
                     match value {
                         Value::Nil => println!("()"),
                         Value::Int(i) => println!("{}", i),
-                        Value::Double(d) => println!("{}", d),
+                        Value::Float(d) => println!("{}", d),
                         Value::Bool(b) => println!("{}", b),
                         Value::Char(c) => println!("{}", c),
                         Value::Object(object_index) => {
@@ -48,7 +48,7 @@ impl VM {
                     let value = self.pop();
                     match value {
                         Value::Int(i) => self.push(Value::Int(-i)),
-                        Value::Double(d) => self.push(Value::Double(-d)),
+                        Value::Float(d) => self.push(Value::Float(-d)),
                         _ => panic!("Attemped to negate value {}", value),
                     }
                 }
@@ -57,7 +57,7 @@ impl VM {
                     let value_1 = self.pop();
                     match (value_1, value_2) {
                         (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 + i2)),
-                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Double(d1 + d2)),
+                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Float(d1 + d2)),
                         (Value::Object(o1), Value::Object(o2)) => {
                             match (self.heap.get(o1), self.heap.get(o2)) {
                                 (Object::StringObj(s1), Object::StringObj(s2)) => {
@@ -97,7 +97,7 @@ impl VM {
                     let value_1 = self.pop();
                     match (value_1, value_2) {
                         (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 - i2)),
-                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Double(d1 - d2)),
+                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Float(d1 - d2)),
                         _ => panic!("Attempted to subtract values {} and {}", value_1, value_2),
                     }
                 }
@@ -106,7 +106,7 @@ impl VM {
                     let value_1 = self.pop();
                     match (value_1, value_2) {
                         (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 * i2)),
-                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Double(d1 * d2)),
+                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Float(d1 * d2)),
                         _ => panic!("Attempted to multiply values {} and {}", value_1, value_2),
                     }
                 }
@@ -115,7 +115,7 @@ impl VM {
                     let value_1 = self.pop();
                     match (value_1, value_2) {
                         (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 / i2)),
-                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Double(d1 / d2)),
+                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Float(d1 / d2)),
                         _ => panic!("Attempted to divide values {} and {}", value_1, value_2),
                     }
                 }
@@ -155,7 +155,7 @@ impl VM {
                     let value_1 = self.pop();
                     match (value_1, value_2) {
                         (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 == i2)),
-                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Bool(d1 == d2)),
+                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 == d2)),
                         (Value::Bool(b1), Value::Bool(b2)) => self.push(Value::Bool(b1 == b2)),
                         _ => panic!("Attempted to equal values {} and {}", value_1, value_2),
                     }
@@ -165,7 +165,7 @@ impl VM {
                     let value_1 = self.pop();
                     match (value_1, value_2) {
                         (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 != i2)),
-                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Bool(d1 != d2)),
+                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 != d2)),
                         (Value::Bool(b1), Value::Bool(b2)) => self.push(Value::Bool(b1 != b2)),
                         _ => panic!("Attempted to not equal values {} and {}", value_1, value_2),
                     }
@@ -175,7 +175,7 @@ impl VM {
                     let value_1 = self.pop();
                     match (value_1, value_2) {
                         (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 > i2)),
-                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Bool(d1 > d2)),
+                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 > d2)),
                         _ => panic!("Attempted to greater values {} and {}", value_1, value_2),
                     }
                 }
@@ -184,7 +184,7 @@ impl VM {
                     let value_1 = self.pop();
                     match (value_1, value_2) {
                         (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 < i2)),
-                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Bool(d1 < d2)),
+                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 < d2)),
                         _ => panic!("Attempted to less values {} and {}", value_1, value_2),
                     }
                 }
@@ -193,7 +193,7 @@ impl VM {
                     let value_1 = self.pop();
                     match (value_1, value_2) {
                         (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 >= i2)),
-                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Bool(d1 >= d2)),
+                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 >= d2)),
                         _ => panic!(
                             "Attempted to greater equal values {} and {}",
                             value_1, value_2
@@ -205,7 +205,7 @@ impl VM {
                     let value_1 = self.pop();
                     match (value_1, value_2) {
                         (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 <= i2)),
-                        (Value::Double(d1), Value::Double(d2)) => self.push(Value::Bool(d1 <= d2)),
+                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 <= d2)),
                         _ => panic!("Attempted to less equal values {} and {}", value_1, value_2),
                     }
                 }
@@ -236,7 +236,7 @@ impl VM {
                     }
                 }
                 Instruction::Int(i) => self.push(Value::Int(i)),
-                Instruction::Float(f) => self.push(Value::Double(f)),
+                Instruction::Float(f) => self.push(Value::Float(f)),
                 Instruction::Char(c) => self.push(Value::Char(c)),
                 Instruction::Function(function_index, num_closed) => {
                     let closed_variables = self.pop_slice(num_closed as usize);

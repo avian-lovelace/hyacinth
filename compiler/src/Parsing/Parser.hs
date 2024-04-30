@@ -298,7 +298,7 @@ literalOrVariableExpressionParser = pNext <&&> toLiteralExpression
 
 toLiteralExpression :: Section -> Maybe PExpression
 toLiteralExpression (TokenSection (IntLiteralToken range value)) = Just $ IntLiteralExpression range value
-toLiteralExpression (TokenSection (DoubleLiteralToken range value)) = Just $ DoubleLiteralExpression range value
+toLiteralExpression (TokenSection (FloatLiteralToken range value)) = Just $ FloatLiteralExpression range value
 toLiteralExpression (TokenSection (CharLiteralToken range value)) = Just $ CharLiteralExpression range value
 toLiteralExpression (TokenSection (StringLiteralToken range value)) = Just $ StringLiteralExpression range value
 toLiteralExpression (TokenSection (BoolLiteralToken range value)) = Just $ BoolLiteralExpression range value

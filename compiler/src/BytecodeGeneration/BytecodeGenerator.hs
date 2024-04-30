@@ -76,7 +76,7 @@ encodeStatement (ReturnStatement _ Nothing) = return $ nilInstruction <> returnI
 
 encodeExpression :: IBExpression -> BytecodeGenerator BB.Builder
 encodeExpression (IntLiteralExpression _ value) = return $ intInstruction $ fromIntegral value
-encodeExpression (DoubleLiteralExpression _ value) = return $ doubleInstruction value
+encodeExpression (FloatLiteralExpression _ value) = return $ floatInstruction value
 encodeExpression (CharLiteralExpression _ value) = return $ charInstruction value
 encodeExpression (StringLiteralExpression _ value) = do
   index <- addConstant (StringConstant value)

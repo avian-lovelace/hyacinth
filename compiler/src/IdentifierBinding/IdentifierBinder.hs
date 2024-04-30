@@ -85,7 +85,7 @@ expressionBinder (FunctionExpression d (PFunctionExpressionContent parameters bo
   return $ FunctionExpression d $ IBFunctionExpressionContent functionIndex (toAstIdentifier . outsideIdentifier <$> capturedVariables)
 -- Standard cases
 expressionBinder (IntLiteralExpression d value) = return $ IntLiteralExpression d value
-expressionBinder (DoubleLiteralExpression d value) = return $ DoubleLiteralExpression d value
+expressionBinder (FloatLiteralExpression d value) = return $ FloatLiteralExpression d value
 expressionBinder (CharLiteralExpression d value) = return $ CharLiteralExpression d value
 expressionBinder (StringLiteralExpression d value) = return $ StringLiteralExpression d value
 expressionBinder (BoolLiteralExpression d value) = return $ BoolLiteralExpression d value

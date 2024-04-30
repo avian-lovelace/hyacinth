@@ -18,7 +18,7 @@ module Lexing.Tokens
         EqualsToken,
         PipeToken,
         SingleRightArrowToken,
-        DoubleRightArrowToken,
+        FloatRightArrowToken,
         CommaToken,
         LeftParenToken,
         RightParenToken,
@@ -28,12 +28,12 @@ module Lexing.Tokens
         RightSquareBracketToken,
         IdentifierToken,
         IntToken,
-        DoubleToken,
+        FloatToken,
         CharToken,
         StringToken,
         BoolToken,
         IntLiteralToken,
-        DoubleLiteralToken,
+        FloatLiteralToken,
         CharLiteralToken,
         StringLiteralToken,
         BoolLiteralToken,
@@ -81,7 +81,7 @@ data Token
   | EqualsToken Range
   | PipeToken Range
   | SingleRightArrowToken Range
-  | DoubleRightArrowToken Range
+  | FloatRightArrowToken Range
   | CommaToken Range
   | -- Grouping
     LeftParenToken Range
@@ -94,13 +94,13 @@ data Token
     IdentifierToken Range Text
   | -- Primitive types
     IntToken Range
-  | DoubleToken Range
+  | FloatToken Range
   | CharToken Range
   | StringToken Range
   | BoolToken Range
   | -- Literals
     IntLiteralToken Range Int
-  | DoubleLiteralToken Range Double
+  | FloatLiteralToken Range Double
   | CharLiteralToken Range Char
   | StringLiteralToken Range Text
   | BoolLiteralToken Range Bool
@@ -141,7 +141,7 @@ instance Pretty Token where
   pretty (EqualsToken _) = "="
   pretty (PipeToken _) = "|"
   pretty (SingleRightArrowToken _) = "->"
-  pretty (DoubleRightArrowToken _) = "=>"
+  pretty (FloatRightArrowToken _) = "=>"
   pretty (CommaToken _) = ","
   pretty (LeftParenToken _) = "("
   pretty (RightParenToken _) = ")"
@@ -151,12 +151,12 @@ instance Pretty Token where
   pretty (RightSquareBracketToken _) = "]"
   pretty (IdentifierToken _ identifier) = "identifier:" ++ show identifier
   pretty (IntToken _) = "Int"
-  pretty (DoubleToken _) = "Double"
+  pretty (FloatToken _) = "Float"
   pretty (CharToken _) = "Char"
   pretty (StringToken _) = "String"
   pretty (BoolToken _) = "Bool"
   pretty (IntLiteralToken _ value) = "intLiteral:" ++ show value
-  pretty (DoubleLiteralToken _ value) = "doubleLiteral:" ++ show value
+  pretty (FloatLiteralToken _ value) = "floatLiteral:" ++ show value
   pretty (CharLiteralToken _ value) = "charLiteral:" ++ show value
   pretty (StringLiteralToken _ value) = "stringLiteral:" ++ show value
   pretty (BoolLiteralToken _ value) = "boolLiteral:" ++ show value
@@ -195,7 +195,7 @@ instance WithRange Token where
   getRange (EqualsToken range) = range
   getRange (PipeToken range) = range
   getRange (SingleRightArrowToken range) = range
-  getRange (DoubleRightArrowToken range) = range
+  getRange (FloatRightArrowToken range) = range
   getRange (CommaToken range) = range
   getRange (LeftParenToken range) = range
   getRange (RightParenToken range) = range
@@ -205,12 +205,12 @@ instance WithRange Token where
   getRange (RightSquareBracketToken range) = range
   getRange (IdentifierToken range _) = range
   getRange (IntToken range) = range
-  getRange (DoubleToken range) = range
+  getRange (FloatToken range) = range
   getRange (CharToken range) = range
   getRange (StringToken range) = range
   getRange (BoolToken range) = range
   getRange (IntLiteralToken range _) = range
-  getRange (DoubleLiteralToken range _) = range
+  getRange (FloatLiteralToken range _) = range
   getRange (CharLiteralToken range _) = range
   getRange (StringLiteralToken range _) = range
   getRange (BoolLiteralToken range _) = range

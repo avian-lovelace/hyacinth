@@ -71,7 +71,7 @@ type IBExpression = Expression IdentifierBindingPhase
 
 type instance IntLiteralExpressionData IdentifierBindingPhase = Range
 
-type instance DoubleLiteralExpressionData IdentifierBindingPhase = Range
+type instance FloatLiteralExpressionData IdentifierBindingPhase = Range
 
 type instance CharLiteralExpressionData IdentifierBindingPhase = Range
 
@@ -133,7 +133,7 @@ type instance FunctionCallExpressionData IdentifierBindingPhase = Range
 instance WithRange IBExpression where
   getRange expression = case expression of
     IntLiteralExpression range _ -> range
-    DoubleLiteralExpression range _ -> range
+    FloatLiteralExpression range _ -> range
     CharLiteralExpression range _ -> range
     StringLiteralExpression range _ -> range
     BoolLiteralExpression range _ -> range

@@ -51,7 +51,7 @@ lexers =
   [ lexWhiteSpace,
     -- Multiple character symbols
     lexMultiCharSymbol "->" SingleRightArrowToken,
-    lexMultiCharSymbol "=>" DoubleRightArrowToken,
+    lexMultiCharSymbol "=>" FloatRightArrowToken,
     lexMultiCharSymbol "&&" AndToken,
     lexMultiCharSymbol "||" OrToken,
     lexMultiCharSymbol "++" PlusPlusToken,
@@ -134,8 +134,8 @@ lexNumericLiteral = do
             decimalText <- consumeWhile isDigit
             let decimalText' = if Text.length decimalText == 0 then "0" else decimalText
             end <- getPosition
-            let doubleValue = read $ Text.unpack (intText <> "." <> decimalText')
-            let token = DoubleLiteralToken (Range {start, end}) doubleValue
+            let floatValue = read $ Text.unpack (intText <> "." <> decimalText')
+            let token = FloatLiteralToken (Range {start, end}) floatValue
             return $ Just $ Success $ singleton token
           _ -> do
             end <- getPosition
@@ -201,7 +201,7 @@ lexKeywordOrIdentifier = do
                 "loop" -> LoopToken
                 "return" -> ReturnToken
                 "Int" -> IntToken
-                "Double" -> DoubleToken
+                "Float" -> FloatToken
                 "Char" -> CharToken
                 "String" -> StringToken
                 "Bool" -> BoolToken

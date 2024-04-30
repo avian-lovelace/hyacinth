@@ -82,7 +82,7 @@ testExpressions = do
       "3 * -5" `evaluatesTo` "-15"
     it "respects nested parentheses" $
       "7 * (18 - (3 * 5))" `evaluatesTo` "21"
-    it "calculates with doubles" $
+    it "calculates with floats" $
       "3.5 + 2.0" `evaluatesTo` "5.5"
     it "can be a statement" $
       "2 + 2; print 5;" `runsSuccessfullyWithOutput` "5\n"
