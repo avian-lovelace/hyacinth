@@ -36,6 +36,10 @@ testFunctions = do
       "let foo = [] -> { let cap = 3; return [] -> cap; }; print foo[][];" `runsSuccessfullyWithOutput` "3\n"
     it "When calling a function call expression, first the function expression is evaluated, then the arguments left-to-right, then the function call happens" $
       "let foo = [] -> { print 1; return [x, y] -> { print 4; }; }; foo[][{print 2;}, {print 3;}];" `runsSuccessfullyWithOutput` "1\n2\n3\n4\n"
+    it "Functions bodies can shadow variables" $
+      "let x = 1; let foo = [] -> { let x = 2; print x; }; print x; foo[];" `runsSuccessfullyWithOutput` "1\n2\n"
+    it "Functions bodies can shadow variables from before they are declared in a scope" $
+      "let foo = [] -> { let x = 2; print x; }; let x = 1; print x; foo[];" `runsSuccessfullyWithOutput` "1\n2\n"
   describe "Function errors" $ do
     it "Functions cannot have multiple parameters with the same name" $
       "let foo = [x, y, x] -> x + y + x;" `failsToCompileWithError` conflictingParameterNamesError

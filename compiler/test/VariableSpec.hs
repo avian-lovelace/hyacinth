@@ -25,6 +25,8 @@ testVariables = do
       "let mut foo = 5; { mut foo = 3; }; print foo;" `runsSuccessfullyWithOutput` "3\n"
     it "Variables can be shadowed from within a nested scope" $
       "let foo = 5; { let foo = 3; print foo; }; print foo;" `runsSuccessfullyWithOutput` "3\n5\n"
+    it "Variables can be shadowed from within a nested scope before they are declared" $
+      "{ let foo = 3; print foo; }; let foo = 5; print foo;" `runsSuccessfullyWithOutput` "3\n5\n"
   describe "Variable errors" $ do
     it "Multiple variables with the same name cannot be declared in the same scope" $
       "let foo = 3; let foo = 5;" `failsToCompileWithError` conflictingVariableDeclarationsError
