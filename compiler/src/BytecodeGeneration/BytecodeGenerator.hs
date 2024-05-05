@@ -5,22 +5,23 @@ where
 
 import BytecodeGeneration.Bytecode
 import BytecodeGeneration.BytecodeGeneration
-import Core.FilePositions (dummyRange)
+import Core.FilePositions
 import Core.SyntaxTree
+import Core.Type
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as LB
 import Data.Foldable
-import IdentifierBinding.SyntaxTree
+import TypeChecking.SyntaxTree
 
-encodeFile :: IBModule -> BB.Builder
+encodeFile :: TCModule -> BB.Builder
 encodeFile fileScope =
   let (BytecodeGeneratorState {constants}, code) = runGenerator (encodeModule fileScope) initialState
    in BB.word16BE (fromIntegral $ length constants)
         <> foldMap encodeConstant constants
         <> code
 
-encodeModule :: IBModule -> BytecodeGenerator BB.Builder
-encodeModule (Module _ (IBModuleContent mainFunction subFunctions)) = do
+encodeModule :: TCModule -> BytecodeGenerator BB.Builder
+encodeModule (Module _ (TCModuleContent mainFunction subFunctions)) = do
   encodedMainFunction <- encodeMainFunction mainFunction
   encodedSubFunctions <- traverse encodeFunction subFunctions
   return $ withNumBytes encodedMainFunction <> fold (withNumBytes <$> encodedSubFunctions)
@@ -29,25 +30,26 @@ encodeModule (Module _ (IBModuleContent mainFunction subFunctions)) = do
       let bytestring = BB.toLazyByteString builder
        in BB.word32BE (fromIntegral . LB.length $ bytestring) <> BB.lazyByteString bytestring
 
-encodeMainFunction :: IBMainFunctionDefinition -> BytecodeGenerator BB.Builder
+encodeMainFunction :: TCMainFunctionDefinition -> BytecodeGenerator BB.Builder
 encodeMainFunction (MainFunctionDefinition _ statements) = do
   body <- withNewScope $ do
     encodedStatements <- mapM encodeStatement statements
     return $ fold encodedStatements
   return $ body <> returnInstruction
 
-encodeFunction :: IBFunctionDefinition -> BytecodeGenerator BB.Builder
-encodeFunction (FunctionDefinition _ parameters capturedIdentifiers body) = do
-  encodedBody <- withFunctionScope (getIdentifier <$> parameters) (getIdentifier <$> capturedIdentifiers) $ encodeExpression body
+encodeFunction :: TCFunctionDefinition -> BytecodeGenerator BB.Builder
+encodeFunction (FunctionDefinition _ parameters capturedIdentifiers (WithTypeAnnotation body ())) = do
+  encodedBody <- withFunctionScope (getParameterName <$> parameters) (getIdentifier <$> capturedIdentifiers) $ encodeExpression body
   return $ encodedBody <> returnInstruction
   where
+    getParameterName (WithTypeAnnotation (Identifier _ identifier) ()) = identifier
     getIdentifier (Identifier _ identifier) = identifier
 
-encodeStatement :: IBStatement -> BytecodeGenerator BB.Builder
+encodeStatement :: TCStatement -> BytecodeGenerator BB.Builder
 encodeStatement (PrintStatement _ expression) = do
   encodedExpression <- encodeExpression expression
   return $ encodedExpression <> printInstruction
-encodeStatement (VariableDeclarationStatement _ (Identifier _ variableName) variableValue) = do
+encodeStatement (VariableDeclarationStatement _ _ (WithTypeAnnotation (Identifier _ variableName) _) variableValue) = do
   addVariableToScope variableName
   encodedVariableValue <- encodeExpression variableValue
   return encodedVariableValue
@@ -74,7 +76,7 @@ encodeStatement (ReturnStatement _ (Just expression)) = do
   return $ encodedExpression <> returnInstruction
 encodeStatement (ReturnStatement _ Nothing) = return $ nilInstruction <> returnInstruction
 
-encodeExpression :: IBExpression -> BytecodeGenerator BB.Builder
+encodeExpression :: TCExpression -> BytecodeGenerator BB.Builder
 encodeExpression (IntLiteralExpression _ value) = return $ intInstruction $ fromIntegral value
 encodeExpression (FloatLiteralExpression _ value) = return $ floatInstruction value
 encodeExpression (CharLiteralExpression _ value) = return $ charInstruction value
@@ -150,7 +152,7 @@ encodeExpression (IfThenElseExpression _ condition trueExpression maybeFalseExpr
   let trueExpressionBytestring = BB.toLazyByteString encodedTrueExpression
   encodedFalseExpression <- case maybeFalseExpression of
     Just falseExpression -> encodeExpression falseExpression
-    Nothing -> encodeExpression $ NilExpression dummyRange
+    Nothing -> encodeExpression $ NilExpression (TCExpresionData dummyRange NilType NeverReturns)
   let falseExpressionBytestring = BB.toLazyByteString encodedFalseExpression
   let jumpAfterTrueBytestring = BB.toLazyByteString $ jumpInstruction (fromIntegral $ LB.length falseExpressionBytestring)
   return $
@@ -162,7 +164,7 @@ encodeExpression (IfThenElseExpression _ condition trueExpression maybeFalseExpr
 encodeExpression (ScopeExpression _ statements) = withNewScope $ do
   encodedStatements <- mapM encodeStatement statements
   return $ fold encodedStatements
-encodeExpression (FunctionExpression _ (IBFunctionExpressionContent functionIndex capturedIdentifiers)) = do
+encodeExpression (FunctionExpression _ (TCFunctionExpressionContent functionIndex capturedIdentifiers)) = do
   pushIdentifierValues <- traverse pushIdentifierValue capturedIdentifiers
   return $ fold pushIdentifierValues <> functionInstruction (fromIntegral functionIndex) (fromIntegral . length $ capturedIdentifiers)
 encodeExpression (FunctionCallExpression _ function arguments) = do
@@ -170,7 +172,7 @@ encodeExpression (FunctionCallExpression _ function arguments) = do
   encodedArguments <- traverse encodeExpression arguments
   return $ encodedFunction <> fold encodedArguments <> callInstruction (fromIntegral . length $ arguments)
 
-pushIdentifierValue :: IBIdentifier -> BytecodeGenerator BB.Builder
+pushIdentifierValue :: TCIdentifier -> BytecodeGenerator BB.Builder
 pushIdentifierValue (Identifier _ variableName) = do
   index <- getVariableIndex variableName
   return $ readVariableInstruction (fromIntegral index)

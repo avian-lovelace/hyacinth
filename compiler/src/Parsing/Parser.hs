@@ -9,7 +9,9 @@ import Core.FilePositions
 import Core.SyntaxTree
 import Core.Utils
 import Data.Foldable
-import Data.Sequence (Seq (Empty, (:<|)), breakl, singleton, (<|))
+import Data.Maybe (isJust)
+import Data.Sequence (Seq (Empty, (:<|)), (<|))
+import qualified Data.Sequence as Seq
 import Lexing.Tokens
 import Parsing.Parsing
 import Parsing.SyntaxTree
@@ -23,13 +25,13 @@ parseStatements sections = consolidateErrors $ parseStatementsHelper sections
   where
     parseStatementsHelper :: Seq Section -> Seq (WithErrors PStatement)
     parseStatementsHelper Empty = Empty
-    parseStatementsHelper helperSections = case breakl matchSemicolon helperSections of
-      (statementSections, Empty) -> singleton $ Error [ExpectedToEndWithSemicolonError $ getRange statementSections]
+    parseStatementsHelper helperSections = case Seq.breakl (isJust . matchSemicolon) helperSections of
+      (statementSections, Empty) -> Seq.singleton $ Error [ExpectedToEndWithSemicolonError $ getRange statementSections]
       (statementSections, _semicolon :<| restTokens) -> parseStatement statementSections <| parseStatementsHelper restTokens
 
-matchSemicolon :: Section -> Bool
-matchSemicolon (TokenSection (SemicolonToken _)) = True
-matchSemicolon _ = False
+matchSemicolon :: Section -> Maybe ()
+matchSemicolon (TokenSection (SemicolonToken _)) = Just ()
+matchSemicolon _ = Nothing
 
 -- Statements
 
@@ -53,36 +55,39 @@ parsePrintStatement printTokenSection expressionSections = case expressionSectio
       expressionOrErrors = catchUnboundError (PrintStatementInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
 
 parseVariableDeclarationStatement :: Section -> ParseFunction PStatement
-parseVariableDeclarationStatement
-  letTokenSection
-  ((TokenSection (IdentifierToken _ _)) :<| (TokenSection (EqualsToken equalsRange)) :<| Empty) =
-    singleError $ VariableDeclarationEmptyExpressionError $ getRange (letTokenSection, equalsRange)
-parseVariableDeclarationStatement
-  letTokenSection
-  ( (TokenSection (IdentifierToken identifierRange identifier))
-      :<| (TokenSection (EqualsToken _))
-      :<| expressionSections
-    ) =
-    VariableDeclarationStatement (statementRange, False) variableName <$> expression
-    where
-      statementRange = getRange (letTokenSection, seqTail expressionSections)
-      variableName = Identifier identifierRange identifier
-      expression = catchUnboundError (VariableDeclarationInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
-      expressionRange = getRange expressionSections
-parseVariableDeclarationStatement
-  letTokenSection
-  ( (TokenSection (MutToken _))
-      :<| (TokenSection (IdentifierToken identifierRange identifier))
-      :<| (TokenSection (EqualsToken _))
-      :<| expressionSections
-    ) =
-    VariableDeclarationStatement (statementRange, True) variableName <$> expression
-    where
-      statementRange = getRange (letTokenSection, seqTail expressionSections)
-      variableName = Identifier identifierRange identifier
-      expression = catchUnboundError (VariableDeclarationInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
-      expressionRange = getRange expressionSections
-parseVariableDeclarationStatement letTokenSection restSections = singleError $ VariableDeclarationMalformedError (getRange (letTokenSection :<| restSections))
+parseVariableDeclarationStatement letTokenSection restSections1 = do
+  (mutability, restSections2) <- case restSections1 of
+    ((TokenSection (MutToken _)) :<| restSections2) -> return (Mutable, restSections2)
+    _ -> return (Immutable, restSections1)
+  (variableName, restSections3) <- case restSections2 of
+    (TokenSection (IdentifierToken identifierRange identifierName)) :<| restSections3 -> return (Identifier identifierRange identifierName, restSections3)
+    _ -> singleError $ VariableDeclarationMalformedError statementRange
+  (maybeVariableTypeSections, valueSections) <- case restSections3 of
+    (TokenSection (ColonToken _)) :<| restSections4 -> do
+      (typeSections, valueSections) <- case Seq.breakl isEqualsSection restSections4 of
+        (_, Empty) -> singleError $ VariableDeclarationMalformedError statementRange
+        (typeSections, _equalsSection :<| valueSections) -> return (typeSections, valueSections)
+      return (Just typeSections, valueSections)
+    (TokenSection (EqualsToken _)) :<| valueSections -> return (Nothing, valueSections)
+    _ -> singleError $ VariableDeclarationMalformedError statementRange
+  variableType <- case maybeVariableTypeSections of
+    Nothing -> return Nothing
+    Just Empty -> singleError $ VariableDeclarationEmptyTypeError statementRange
+    Just variableTypeSections ->
+      catchUnboundError (VariableDeclarationMalformedTypeError (getRange valueSections)) $
+        Just <$> runParserToEnd typeParser variableTypeSections
+  variableValue <- case valueSections of
+    Empty -> singleError $ VariableDeclarationEmptyExpressionError statementRange
+    _ -> catchUnboundError (VariableDeclarationInvalidExpressionError (getRange valueSections)) $ runParserToEnd expressionParser valueSections
+  return $ VariableDeclarationStatement statementRange mutability (WithTypeAnnotation variableName variableType) variableValue
+  where
+    statementRange = case restSections1 of
+      Empty -> getRange letTokenSection
+      _ -> getRange (letTokenSection, restSections1)
+
+isEqualsSection :: Section -> Bool
+isEqualsSection (TokenSection (EqualsToken _)) = True
+isEqualsSection _ = False
 
 parseVariableMutationStatement :: Section -> ParseFunction PStatement
 parseVariableMutationStatement
@@ -107,7 +112,7 @@ parseExpressionStatement expressionSections = ExpressionStatement expressionRang
     expressionRange = getRange expressionSections
 
 parseWhileLoopStatement :: Section -> ParseFunction PStatement
-parseWhileLoopStatement whileTokenSection restSections = case breakl matchLoopTokenSection restSections of
+parseWhileLoopStatement whileTokenSection restSections = case Seq.breakl matchLoopTokenSection restSections of
   (Empty, Empty) -> singleError $ WhileStatementNoLoopError $ getRange whileTokenSection
   (_, Empty) -> singleError $ WhileStatementNoLoopError whileStatementRange
   (Empty, _) -> singleError $ WhileStatementEmptyConditionError whileStatementRange
@@ -302,17 +307,14 @@ toLiteralExpression (TokenSection (FloatLiteralToken range value)) = Just $ Floa
 toLiteralExpression (TokenSection (CharLiteralToken range value)) = Just $ CharLiteralExpression range value
 toLiteralExpression (TokenSection (StringLiteralToken range value)) = Just $ StringLiteralExpression range value
 toLiteralExpression (TokenSection (BoolLiteralToken range value)) = Just $ BoolLiteralExpression range value
+toLiteralExpression (TokenSection (NilLiteralToken range)) = Just $ NilExpression range
 toLiteralExpression (TokenSection (IdentifierToken range value)) = Just $ VariableExpression range (Identifier range value)
 toLiteralExpression _ = Nothing
 
 parenthesesExpressionParser :: Parser PExpression
 parenthesesExpressionParser = do
   (range, innerSections) <- pNext <&&> matchParenSection
-  case innerSections of
-    Empty -> return $ NilExpression range
-    _ -> do
-      innerExpression <- returnWithErrors $ catchUnboundError (ExpectedExpressionInParensError range) $ runParserToEnd expressionParser innerSections
-      return innerExpression
+  returnWithErrors $ catchUnboundError (ExpectedExpressionInParensError range) $ runParserToEnd expressionParser innerSections
 
 matchParenSection :: Section -> Maybe (Range, Seq Section)
 matchParenSection (ParenSection range innerSections) = Just (range, innerSections)
@@ -360,6 +362,9 @@ matchElseSection _ = Nothing
 functionExpressionParser :: Parser PExpression
 functionExpressionParser = do
   (parameterListRange, parameterListSections) <- pNext <&&> matchSquareBracketSection
+  returnType <- pZeroOrOne $ do
+    pNext <&&> matchColonSection
+    typeParser
   arrowSectionRange <- pNext <&&> matchSingleRightArrowSection
   expressionSections <- pRest
   returnWithErrors $ do
@@ -369,34 +374,87 @@ functionExpressionParser = do
     {- We use consolidateErrors2 here so that if parsing the parameter list and function value both return errors, we
        return both errors.
     -}
-    (parameterList, functionValue) <-
+    (parameterList, body) <-
       consolidateErrors2
         ( parseParamterList parameterListRange parameterListSections,
           catchUnboundError (FunctionMalformedBodyError expressionErrorRange) $
             runParserToEnd expressionParser expressionSections
         )
     let functionExpressionRange = getRange (parameterListRange, expressionErrorRange)
-    return $ FunctionExpression functionExpressionRange $ PFunctionExpressionContent parameterList functionValue
+    return $ FunctionExpression functionExpressionRange $ PFunctionExpressionContent parameterList (WithTypeAnnotation body returnType)
 
-parseParamterList :: Range -> ParseFunction (Seq PIdentifier)
+parseParamterList :: Range -> ParseFunction (Seq (PWithTypeAnnotation PIdentifier))
 parseParamterList _ Empty = Success Empty
-parseParamterList range sections = catchUnboundError (FunctionMalformedParameterListError range) $ runParserToEnd parser sections
+parseParamterList parameterListRange sections = do
+  let parameterSectionLists = seqSplitOn isCommaSection sections
+  consolidateErrors $ parseParameter <$> parameterSectionLists
   where
-    parser = do
-      firstParameter <- pNext <&&> toVariableName
-      tailParameters <- pZeroOrMore $ do
-        pNext <&&> matchCommaSection
-        pNext <&&> toVariableName
-      return $ firstParameter <| tailParameters
+    parseParameter :: Seq Section -> WithErrors (PWithTypeAnnotation PIdentifier)
+    parseParameter Empty = singleError $ FunctionEmptyParameterError parameterListRange
+    parseParameter (TokenSection (IdentifierToken identifierRange identifier) :<| Empty) =
+      Success $ WithTypeAnnotation (Identifier identifierRange identifier) Nothing
+    parseParameter
+      ( TokenSection (IdentifierToken _ _)
+          :<| (TokenSection (ColonToken _))
+          :<| Empty
+        ) = singleError $ FunctionEmptyParameterTypeError parameterListRange
+    parseParameter
+      ( TokenSection (IdentifierToken identifierRange identifier)
+          :<| (TokenSection (ColonToken _))
+          :<| typeSections
+        ) = do
+        parameterType <-
+          catchUnboundError (FunctionMalformedParameterTypeError $ getRange typeSections) $
+            runParserToEnd typeParser typeSections
+        return $ WithTypeAnnotation (Identifier identifierRange identifier) (Just parameterType)
+    parseParameter _ = singleError $ FunctionMalformedParameterError parameterListRange
 
 matchSingleRightArrowSection :: Section -> Maybe Range
 matchSingleRightArrowSection (TokenSection (SingleRightArrowToken range)) = Just range
 matchSingleRightArrowSection _ = Nothing
 
-toVariableName :: Section -> Maybe PIdentifier
-toVariableName (TokenSection (IdentifierToken range name)) = Just $ Identifier range name
-toVariableName _ = Nothing
+matchColonSection :: Section -> Maybe ()
+matchColonSection (TokenSection (ColonToken _)) = Just ()
+matchColonSection _ = Nothing
 
-matchCommaSection :: Section -> Maybe ()
-matchCommaSection (TokenSection (CommaToken _)) = Just ()
-matchCommaSection _ = Nothing
+-- Types
+
+typeParser :: Parser PTypeExpression
+typeParser = functionTypeParser <|> primaryTypeParser <|> parenthesesTypeExpressionParser
+
+functionTypeParser :: Parser PTypeExpression
+functionTypeParser = do
+  (argumentRange, argumentSections) <- pNext <&&> matchSquareBracketSection
+  _ <- pNext <&&> matchSingleRightArrowSection
+  argumentTypes <- returnWithErrors $ parseParameterTypes argumentRange argumentSections
+  returnType <- typeParser
+  return $ FunctionTypeExpression (getRange (argumentRange, returnType)) argumentTypes returnType
+
+parseParameterTypes :: Range -> ParseFunction (Seq PTypeExpression)
+parseParameterTypes parameterListRange sections = do
+  let parameterSectionLists = seqSplitOn isCommaSection sections
+  parameters <- consolidateErrors $ parseParameterType <$> parameterSectionLists
+  return parameters
+  where
+    parseParameterType :: Seq Section -> WithErrors PTypeExpression
+    parseParameterType Empty = singleError $ FunctionTypeEmptyParameterError parameterListRange
+    parseParameterType parameterSections =
+      catchUnboundError (FunctionTypeMalformedParameterError $ getRange parameterSections) $
+        runParserToEnd typeParser parameterSections
+
+primaryTypeParser :: Parser PTypeExpression
+primaryTypeParser = pNext <&&> asPrimaryType
+
+asPrimaryType :: Section -> Maybe PTypeExpression
+asPrimaryType (TokenSection (IntToken range)) = Just $ IntTypeExpression range
+asPrimaryType (TokenSection (FloatToken range)) = Just $ FloatTypeExpression range
+asPrimaryType (TokenSection (CharToken range)) = Just $ CharTypeExpression range
+asPrimaryType (TokenSection (StringToken range)) = Just $ StringTypeExpression range
+asPrimaryType (TokenSection (BoolToken range)) = Just $ BoolTypeExpression range
+asPrimaryType (TokenSection (NilToken range)) = Just $ NilTypeExpression range
+asPrimaryType _ = Nothing
+
+parenthesesTypeExpressionParser :: Parser PTypeExpression
+parenthesesTypeExpressionParser = do
+  (range, innerSections) <- pNext <&&> matchParenSection
+  returnWithErrors $ catchUnboundError (ExpectedTypeExpressionInParensError range) $ runParserToEnd typeParser innerSections

@@ -8,8 +8,6 @@ module Parsing.Parsing
     pZeroOrMore,
     pZeroOrOne,
     catchUnboundError,
-    --   pTryAll,
-    --   pTryOr,
     runParserToEnd,
     returnWithErrors,
     ParseState (ParseSuccess, BoundErrors, UnboundError),

@@ -15,6 +15,8 @@ module Core.Errors
         VariableDeclarationMalformedError,
         VariableDeclarationEmptyExpressionError,
         VariableDeclarationInvalidExpressionError,
+        VariableDeclarationEmptyTypeError,
+        VariableDeclarationMalformedTypeError,
         VariableMutationMalformedError,
         VariableMutationEmptyExpressionError,
         VariableMutationInvalidExpressionError,
@@ -26,9 +28,15 @@ module Core.Errors
         WhileStatementMalformedBodyExpressionError,
         FunctionCallEmptyArgumentError,
         FunctionCallMalformedArgumentError,
-        FunctionMalformedParameterListError,
+        FunctionEmptyParameterError,
+        FunctionMalformedParameterError,
+        FunctionEmptyParameterTypeError,
+        FunctionMalformedParameterTypeError,
         FunctionMalformedBodyError,
         ReturnStatementInvalidExpressionError,
+        FunctionTypeEmptyParameterError,
+        FunctionTypeMalformedParameterError,
+        ExpectedTypeExpressionInParensError,
         ConflictingVariableDeclarationsError,
         VariableUndefinedAtReferenceError,
         VariableDeclaredAfterReferenceError,
@@ -38,6 +46,34 @@ module Core.Errors
         MutatedImmutableVariableError,
         MutatedParameterError,
         MutatedCapturedIdentifierError,
+        VariableDeclarationTypeError,
+        VariableMutationTypeError,
+        WhileLoopConditionTypeError,
+        MainFunctionReturnTypeError,
+        FunctionReturnTypeError,
+        NegateExpressionTypeError,
+        AddExpressionTypeError,
+        SubtractExpressionTypeError,
+        MultiplyExpressionTypeError,
+        DivideExpressionTypeError,
+        ModuloExpressionTypeError,
+        NotExpressionTypeError,
+        AndExpressionTypeError,
+        OrExpressionTypeError,
+        EqualExpressionTypeError,
+        NotEqualExpressionTypeError,
+        GreaterExpressionTypeError,
+        LessExpressionTypeError,
+        GreaterEqualExpressionTypeError,
+        LessEqualExpressionTypeError,
+        IfThenElseExpressionConditionTypeError,
+        IfThenExpressionBranchesTypeError,
+        IfThenElseExpressionBranchesTypeError,
+        FunctionCallExpressionNotAFunctionTypeError,
+        FunctionCallExpressionArityError,
+        FunctionCallExpressionArgumentTypeError,
+        FunctionMissingParameterTypeAnnotation,
+        FunctionMissingReturnTypeAnnotation,
         RuntimeError
       ),
     WithErrors (Error, Success),
@@ -49,6 +85,7 @@ module Core.Errors
 where
 
 import Core.FilePositions
+import Core.Type
 import Core.Utils
 import Data.Sequence (Seq (Empty), singleton, (<|), (><))
 import Data.Text (Text)
@@ -75,6 +112,8 @@ data Error
   | VariableDeclarationMalformedError Range
   | VariableDeclarationEmptyExpressionError Range
   | VariableDeclarationInvalidExpressionError Range
+  | VariableDeclarationEmptyTypeError Range
+  | VariableDeclarationMalformedTypeError Range
   | VariableMutationMalformedError Range
   | VariableMutationEmptyExpressionError Range
   | VariableMutationInvalidExpressionError Range
@@ -86,9 +125,15 @@ data Error
   | WhileStatementMalformedBodyExpressionError Range
   | FunctionCallEmptyArgumentError Range
   | FunctionCallMalformedArgumentError Range
-  | FunctionMalformedParameterListError Range
+  | FunctionEmptyParameterError Range
+  | FunctionMalformedParameterError Range
+  | FunctionEmptyParameterTypeError Range
+  | FunctionMalformedParameterTypeError Range
   | FunctionMalformedBodyError Range
   | ReturnStatementInvalidExpressionError Range
+  | FunctionTypeEmptyParameterError Range
+  | FunctionTypeMalformedParameterError Range
+  | ExpectedTypeExpressionInParensError Range
   | -- Variable binding
     ConflictingVariableDeclarationsError Text Range Range
   | VariableUndefinedAtReferenceError Text Range
@@ -99,9 +144,38 @@ data Error
   | MutatedImmutableVariableError Text Range Range
   | MutatedParameterError Text Range Range
   | MutatedCapturedIdentifierError Text Range Range
+  | -- Type checking
+    VariableDeclarationTypeError Range Type Type
+  | VariableMutationTypeError Range Type Type
+  | WhileLoopConditionTypeError Range Type
+  | MainFunctionReturnTypeError Range Type
+  | FunctionReturnTypeError Range Type Range Type
+  | NegateExpressionTypeError Range Type
+  | AddExpressionTypeError Range Type Type
+  | SubtractExpressionTypeError Range Type Type
+  | MultiplyExpressionTypeError Range Type Type
+  | DivideExpressionTypeError Range Type Type
+  | ModuloExpressionTypeError Range Type Type
+  | NotExpressionTypeError Range Type
+  | AndExpressionTypeError Range Type Type
+  | OrExpressionTypeError Range Type Type
+  | EqualExpressionTypeError Range Type Type
+  | NotEqualExpressionTypeError Range Type Type
+  | GreaterExpressionTypeError Range Type Type
+  | LessExpressionTypeError Range Type Type
+  | GreaterEqualExpressionTypeError Range Type Type
+  | LessEqualExpressionTypeError Range Type Type
+  | IfThenElseExpressionConditionTypeError Range Type
+  | IfThenExpressionBranchesTypeError Range Type
+  | IfThenElseExpressionBranchesTypeError Range Type Type
+  | FunctionCallExpressionNotAFunctionTypeError Range Type
+  | FunctionCallExpressionArityError Range Int Int
+  | FunctionCallExpressionArgumentTypeError Range Type Type
+  | FunctionMissingParameterTypeAnnotation Range
+  | FunctionMissingReturnTypeAnnotation Range
   | -- Runtime
     RuntimeError Int String
-  deriving (Show, Eq)
+  deriving (Eq)
 
 instance Pretty Error where
   pretty (ShouldNotGetHereError message) = "Should not get here: " ++ message
@@ -128,6 +202,8 @@ instance Pretty Error where
   pretty (VariableMutationMalformedError range) = "Failed to parse variable mutation statement at " ++ pretty range
   pretty (VariableMutationEmptyExpressionError range) = "Variable mutation must have an expression at " ++ pretty range
   pretty (VariableMutationInvalidExpressionError range) = "Failed to parse variable mutation value as an expression at " ++ pretty range
+  pretty (VariableDeclarationEmptyTypeError range) = "Variable type annotation must have a type at " ++ pretty range
+  pretty (VariableDeclarationMalformedTypeError range) = "Failed to parse variable type annotation as a type at " ++ pretty range
   pretty (ExpressionStatementInvalidExpressionError range) = "Failed to parse statement as an expression at " ++ pretty range
   pretty (WhileStatementNoLoopError range) = "While loop statement has no loop keyword at" ++ pretty range
   pretty (WhileStatementEmptyConditionError range) = "While loop statement has an empty condition at " ++ pretty range
@@ -136,9 +212,15 @@ instance Pretty Error where
   pretty (WhileStatementMalformedBodyExpressionError range) = "Failed to parse body of while loop statement as an expression at " ++ pretty range
   pretty (FunctionCallEmptyArgumentError range) = "Found empty argument in function call at " ++ pretty range
   pretty (FunctionCallMalformedArgumentError range) = "Failed to parse function argument as an expression at " ++ pretty range
-  pretty (FunctionMalformedParameterListError range) = "Failed to parse parameter list of function at " ++ pretty range
+  pretty (FunctionEmptyParameterError range) = "Function had an empty parameter at " ++ pretty range
+  pretty (FunctionMalformedParameterError range) = "Failed to parse function parameter at " ++ pretty range
+  pretty (FunctionEmptyParameterTypeError range) = "Function parameter type annotation was empty at " ++ pretty range
+  pretty (FunctionMalformedParameterTypeError range) = "Failed to parse function parameter type annotation as a type at " ++ pretty range
   pretty (FunctionMalformedBodyError range) = "Failed to parse function body as an expression at " ++ pretty range
   pretty (ReturnStatementInvalidExpressionError range) = "Failed to parse argument of return statement as an expression at " ++ pretty range
+  pretty (FunctionTypeEmptyParameterError range) = "Function type had an empty parameter at " ++ pretty range
+  pretty (FunctionTypeMalformedParameterError range) = "Failed to parse parameter of function type as a type at " ++ pretty range
+  pretty (ExpectedTypeExpressionInParensError range) = "Failed to parse contents of parentheses as a type at " ++ pretty range
   pretty (ConflictingVariableDeclarationsError variableName declarationRange1 declarationRange2) =
     "Variable " ++ Text.unpack variableName ++ " has conflicting declarations at " ++ pretty declarationRange1 ++ " and " ++ pretty declarationRange2
   pretty (VariableUndefinedAtReferenceError variableName range) =
@@ -157,12 +239,69 @@ instance Pretty Error where
     "Function parameter " ++ Text.unpack parameterName ++ " defined at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
   pretty (MutatedCapturedIdentifierError identifierName declarationRange mutationRange) =
     "Identifier " ++ Text.unpack identifierName ++ " defined at " ++ pretty declarationRange ++ " cannot be mutated at " ++ pretty mutationRange ++ " in a nested function"
+  pretty (VariableDeclarationTypeError range expectedType actualType) =
+    "In variable declaration at " ++ pretty range ++ ", the variable has type " ++ pretty expectedType ++ ", but the value has type " ++ pretty actualType
+  pretty (VariableMutationTypeError range expectedType actualType) =
+    "In variable mutation at " ++ pretty range ++ ", the variable has type " ++ pretty expectedType ++ ", but the value has type " ++ pretty actualType
+  pretty (WhileLoopConditionTypeError range conditionType) =
+    "While loop condition should have type Bool, but is " ++ pretty conditionType ++ " at " ++ pretty range
+  pretty (MainFunctionReturnTypeError range returnType) =
+    "Return from main function should have type Nil, but is " ++ pretty returnType ++ " at " ++ pretty range
+  pretty (FunctionReturnTypeError expectedTypeRange expectedType returnStatementRange actualType) =
+    "Return from function should have type " ++ pretty expectedType ++ " set at " ++ pretty expectedTypeRange ++ ", but is " ++ pretty actualType ++ " at " ++ pretty returnStatementRange
+  pretty (NegateExpressionTypeError range innerType) = "Cannot negate expression of type " ++ pretty innerType ++ " at " ++ pretty range
+  pretty (AddExpressionTypeError range leftType rightType) =
+    "Cannot add expressions of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
+  pretty (SubtractExpressionTypeError range leftType rightType) =
+    "Cannot subtract expressions of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
+  pretty (MultiplyExpressionTypeError range leftType rightType) =
+    "Cannot multiply expressions of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
+  pretty (DivideExpressionTypeError range leftType rightType) =
+    "Cannot divide expressions of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
+  pretty (ModuloExpressionTypeError range leftType rightType) =
+    "Cannot modulo expressions of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
+  pretty (NotExpressionTypeError range innerType) = "Cannot not expression of type " ++ pretty innerType ++ " at " ++ pretty range
+  pretty (AndExpressionTypeError range leftType rightType) =
+    "Cannot and expressions of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
+  pretty (OrExpressionTypeError range leftType rightType) =
+    "Cannot or expressions of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
+  pretty (EqualExpressionTypeError range leftType rightType) =
+    "Cannot check equality of expressions of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
+  pretty (NotEqualExpressionTypeError range leftType rightType) =
+    "Cannot check inequality of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
+  pretty (GreaterExpressionTypeError range leftType rightType) =
+    "Cannot compare expressions of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
+  pretty (LessExpressionTypeError range leftType rightType) =
+    "Cannot compare expressions of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
+  pretty (GreaterEqualExpressionTypeError range leftType rightType) =
+    "Cannot compare expressions of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
+  pretty (LessEqualExpressionTypeError range leftType rightType) =
+    "Cannot compare expressions of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
+  pretty (IfThenElseExpressionConditionTypeError range conditionType) =
+    "If expression condition should have type Bool, but is " ++ pretty conditionType ++ " at " ++ pretty range
+  pretty (IfThenExpressionBranchesTypeError range trueBranchType) =
+    "If expression true branch should have type Nil when there is no false branch, but has type" ++ pretty trueBranchType ++ " at " ++ pretty range
+  pretty (IfThenElseExpressionBranchesTypeError range trueBranchType falseBranchType) =
+    "Branches of if expression have differring types " ++ pretty trueBranchType ++ " and " ++ pretty falseBranchType ++ " at " ++ pretty range
+  pretty (FunctionCallExpressionNotAFunctionTypeError range functionType) =
+    "Attempted to call a value of non-function type " ++ pretty functionType ++ " at " ++ pretty range
+  pretty (FunctionCallExpressionArityError range numParameters numArguments) =
+    "Attempted to call function with " ++ show numParameters ++ " parameters with " ++ show numArguments ++ " at " ++ pretty range
+  pretty (FunctionCallExpressionArgumentTypeError range parameterType argumentType) =
+    "When calling functtion, parameter type " ++ pretty parameterType ++ " does not match argument type " ++ pretty argumentType ++ " at " ++ pretty range
+  pretty (FunctionMissingParameterTypeAnnotation range) =
+    "Function parameter has no type annotation at " ++ pretty range
+  pretty (FunctionMissingReturnTypeAnnotation range) =
+    "Function has no return type annotation at " ++ pretty range
   pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
+
+instance Show Error where
+  show = pretty
 
 data WithErrors a
   = Error (Seq Error)
   | Success a
-  deriving (Eq, Show)
+  deriving (Eq)
 
 singleError :: Error -> WithErrors a
 singleError = Error . singleton

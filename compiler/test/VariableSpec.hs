@@ -12,6 +12,8 @@ testVariables = do
   describe "Variables" $ do
     it "Variables can be defined and used" $
       "let foo = 4; print foo;" `runsSuccessfullyWithOutput` "4\n"
+    it "Variable declarations can have type annotations" $
+      "let foo: Float = 1.2; print foo;" `runsSuccessfullyWithOutput` "1.2\n"
     it "Multiple variables can be defined and retrieved from the same scope" $ do
       "let foo = 4; let bar = true; print foo; print bar;" `runsSuccessfullyWithOutput` "4\ntrue\n"
       "let foo = false; let bar = 3.5; print bar; print foo;" `runsSuccessfullyWithOutput` "3.5\nfalse\n"
@@ -46,6 +48,12 @@ testVariables = do
       "let foo = 1 + { let foo = 3; print foo; };" `failsToCompileWithError` variableShadowedInDeclarationError
     it "Variables declared as immutable cannot be mutated" $
       "let foo = 5; mut foo = 2;" `failsToCompileWithError` mutatedImmutableVariableError
+    it "Variables declared with a type must have their value match that type" $
+      "let foo: String = 5; print foo;" `failsToCompileWithError` variableDeclarationTypeError
+    it "Variable mutation values must match the variable type when declared" $
+      "let mut foo: Bool = true; mut foo = 7;" `failsToCompileWithError` variableMutationTypeError
+    it "Variable mutation values must match the variable type when inferred" $
+      "let mut foo = true; mut foo = 7;" `failsToCompileWithError` variableMutationTypeError
 
 conflictingVariableDeclarationsError :: Error -> Bool
 conflictingVariableDeclarationsError (ConflictingVariableDeclarationsError _ _ _) = True
@@ -70,3 +78,11 @@ variableShadowedInDeclarationError _ = False
 mutatedImmutableVariableError :: Error -> Bool
 mutatedImmutableVariableError (MutatedImmutableVariableError _ _ _) = True
 mutatedImmutableVariableError _ = False
+
+variableDeclarationTypeError :: Error -> Bool
+variableDeclarationTypeError (VariableDeclarationTypeError _ _ _) = True
+variableDeclarationTypeError _ = False
+
+variableMutationTypeError :: Error -> Bool
+variableMutationTypeError (VariableMutationTypeError _ _ _) = True
+variableMutationTypeError _ = False

@@ -3,6 +3,7 @@ module IdentifierBinding.IdentifierBinder
   )
 where
 
+import Core.ErrorState
 import Core.Errors
 import Core.SyntaxTree
 import Data.Sequence (Seq)
@@ -11,7 +12,7 @@ import IdentifierBinding.SyntaxTree
 import Parsing.SyntaxTree
 
 runIdentifierBinding :: PModule -> WithErrors IBModule
-runIdentifierBinding m = snd $ runBinder (moduleBinder m) initialBindingState
+runIdentifierBinding m = snd $ runErrorState (moduleBinder m) initialBindingState
 
 moduleBinder :: PModule -> IdentifierBinder IBModule
 moduleBinder (Module _ (MainFunctionDefinition _ statements)) = withNewExpressionScope $ do
@@ -36,18 +37,27 @@ newtype BindingReadyStatement = BindingReadyStatement PStatement
 
 prepareStatementForBinding :: PStatement -> IdentifierBinder BindingReadyStatement
 prepareStatementForBinding statement = case statement of
-  (VariableDeclarationStatement (range, isMutable) (Identifier _ identifierName) _) -> do
-    _ <- addVariable range isMutable identifierName
+  (VariableDeclarationStatement range mutability (WithTypeAnnotation (Identifier _ variableName) _) _) -> do
+    _ <- addVariable range mutability variableName
     return $ BindingReadyStatement statement
   _ -> return $ BindingReadyStatement statement
 
 statementBinder :: BindingReadyStatement -> IdentifierBinder IBStatement
-statementBinder (BindingReadyStatement (VariableDeclarationStatement (declarationRange, _) (Identifier identifierRange identifier) expression)) =
-  do
-    IdentifierInfo {boundIdentifier} <- setVariableUsability identifier InDeclaration
-    boundExpression <- expressionBinder expression
-    return $ VariableDeclarationStatement declarationRange (Identifier identifierRange boundIdentifier) boundExpression
-    `andFinally` setVariableUsability identifier Usable
+statementBinder
+  ( BindingReadyStatement
+      ( VariableDeclarationStatement
+          declarationRange
+          mutability
+          (WithTypeAnnotation (Identifier identifierRange identifier) typeAnnotation)
+          expression
+        )
+    ) =
+    do
+      IdentifierInfo {boundIdentifier} <- setVariableUsability identifier InDeclaration
+      boundExpression <- expressionBinder expression
+      boundTypeAnnotation <- mapM typeExpressionBinder typeAnnotation
+      return $ VariableDeclarationStatement declarationRange mutability (WithTypeAnnotation (Identifier identifierRange boundIdentifier) boundTypeAnnotation) boundExpression
+      `andFinally` setVariableUsability identifier Usable
 statementBinder (BindingReadyStatement (VariableMutationStatement statementRange (Identifier identifierRange identifier) expression)) = do
   IdentifierInfo {boundIdentifier} <- getIdentifierBinding identifierRange True identifier
   boundExpression <- expressionBinder expression
@@ -76,11 +86,12 @@ expressionBinder (VariableExpression expressionRange (Identifier identifierRange
 expressionBinder (ScopeExpression d statements) = withNewExpressionScope $ do
   boundStatements <- bindScope statements
   return $ ScopeExpression d boundStatements
-expressionBinder (FunctionExpression d (PFunctionExpressionContent parameters body)) = withNewFunctionScope $ do
+expressionBinder (FunctionExpression d (PFunctionExpressionContent parameters (WithTypeAnnotation body returnTypeAnnotation))) = withNewFunctionScope $ do
   boundParameters <- traverse' bindParameter parameters
+  boundReturnTypeAnnotation <- mapM typeExpressionBinder returnTypeAnnotation
   boundBody <- expressionBinder body
   capturedVariables <- getCapturedIdentifiers
-  let functionDefinition = FunctionDefinition d boundParameters (toAstIdentifier . insideIdentifier <$> capturedVariables) boundBody
+  let functionDefinition = FunctionDefinition d boundParameters (toAstIdentifier . insideIdentifier <$> capturedVariables) (WithTypeAnnotation boundBody boundReturnTypeAnnotation)
   functionIndex <- addBoundFunctionDefinition functionDefinition
   return $ FunctionExpression d $ IBFunctionExpressionContent functionIndex (toAstIdentifier . outsideIdentifier <$> capturedVariables)
 -- Standard cases
@@ -167,11 +178,24 @@ bindScope statements = do
   readyStatements <- traverse' prepareStatementForBinding statements
   traverse' statementBinder readyStatements
 
-bindParameter :: PIdentifier -> IdentifierBinder IBIdentifier
-bindParameter (Identifier range identifier) = do
-  IdentifierInfo {boundIdentifier} <- addParameter range identifier
-  return $ Identifier range boundIdentifier
+bindParameter :: PWithTypeAnnotation PIdentifier -> IdentifierBinder (IBWithTypeAnnotation IBIdentifier)
+bindParameter (WithTypeAnnotation (Identifier identifierRange identifier) typeAnnotation) = do
+  IdentifierInfo {boundIdentifier} <- addParameter identifierRange identifier
+  boundTypeAnnotation <- mapM typeExpressionBinder typeAnnotation
+  return $ WithTypeAnnotation (Identifier identifierRange boundIdentifier) boundTypeAnnotation
 
 -- Note that this function uses the identifier declaration range as its range, so this should not be used for most identifier uses
 toAstIdentifier :: IdentifierInfo -> IBIdentifier
 toAstIdentifier (IdentifierInfo {boundIdentifier, declarationRange}) = Identifier declarationRange boundIdentifier
+
+typeExpressionBinder :: PTypeExpression -> IdentifierBinder IBTypeExpression
+typeExpressionBinder (IntTypeExpression range) = return $ IntTypeExpression range
+typeExpressionBinder (FloatTypeExpression range) = return $ FloatTypeExpression range
+typeExpressionBinder (CharTypeExpression range) = return $ CharTypeExpression range
+typeExpressionBinder (StringTypeExpression range) = return $ StringTypeExpression range
+typeExpressionBinder (BoolTypeExpression range) = return $ BoolTypeExpression range
+typeExpressionBinder (NilTypeExpression range) = return $ NilTypeExpression range
+typeExpressionBinder (FunctionTypeExpression range parameterTypes returnType) = do
+  boundParameterTypes <- mapM typeExpressionBinder parameterTypes
+  boundReturnType <- typeExpressionBinder returnType
+  return $ FunctionTypeExpression range boundParameterTypes boundReturnType

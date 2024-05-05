@@ -17,6 +17,13 @@ class Pretty t where
 instance (Pretty a) => Pretty (Seq a) where
   pretty xs = fold . Seq.intersperse " " $ pretty <$> xs
 
+instance (Pretty a) => Pretty (Maybe a) where
+  pretty (Just x) = pretty x
+  pretty Nothing = "()"
+
+instance Pretty () where
+  pretty () = "()"
+
 -- Utility function
 seqHead :: Seq a -> a
 seqHead s = Seq.index s 0

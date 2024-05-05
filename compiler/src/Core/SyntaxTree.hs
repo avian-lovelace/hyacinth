@@ -18,15 +18,13 @@ module Core.SyntaxTree
         WhileLoopStatement,
         ReturnStatement
       ),
-    PrintStatementData,
-    VariableDeclarationStatementData,
-    VariableMutationStatementData,
-    ExpressionStatementData,
-    WhileLoopStatementData,
-    ReturnStatementData,
+    StatementData,
+    getStatementData,
+    Mutability (Mutable, Immutable),
     Identifier (Identifier),
     IdentifierData,
     IdentifierContent,
+    getIdentifierName,
     Expression
       ( IntLiteralExpression,
         FloatLiteralExpression,
@@ -55,165 +53,181 @@ module Core.SyntaxTree
         FunctionExpression,
         FunctionCallExpression
       ),
-    IntLiteralExpressionData,
-    FloatLiteralExpressionData,
-    CharLiteralExpressionData,
-    StringLiteralExpressionData,
-    BoolLiteralExpressionData,
-    NilExpressionData,
-    NegateExpressionData,
-    AddExpressionData,
-    SubtractExpressionData,
-    MultiplyExpressionData,
-    DivideExpressionData,
-    ModuloExpressionData,
-    NotExpressionData,
-    AndExpressionData,
-    OrExpressionData,
-    EqualExpressionData,
-    NotEqualExpressionData,
-    GreaterExpressionData,
-    LessExpressionData,
-    GreaterEqualExpressionData,
-    LessEqualExpressionData,
-    VariableExpressionData,
-    IfThenElseExpressionData,
-    ScopeExpressionData,
-    FunctionExpressionData,
+    ExpressionData,
+    getExpressionData,
     FunctionExpressionContent,
-    FunctionCallExpressionData,
+    WithTypeAnnotation (WithTypeAnnotation),
+    TypeAnnotation,
+    TypeExpression
+      ( IntTypeExpression,
+        FloatTypeExpression,
+        CharTypeExpression,
+        StringTypeExpression,
+        BoolTypeExpression,
+        NilTypeExpression,
+        FunctionTypeExpression
+      ),
+    TypeExpressionData,
+    getTypeExpressionData,
+    fromTypeExpression,
   )
 where
 
+import Core.Type
 import Core.Utils
 import Data.Sequence (Seq)
 import Data.Text (Text)
 
+-- Module
 data Module phase = Module (ModuleData phase) (ModuleContent phase)
 
 type family ModuleData phase
 
 type family ModuleContent phase
 
-instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a), Pretty (ModuleContent a)) => Pretty (Module a) where
+instance
+  ( Show (IdentifierContent phase),
+    Pretty (FunctionExpressionContent phase),
+    Pretty (ModuleContent phase)
+  ) =>
+  Pretty (Module phase)
+  where
   pretty (Module _ content) = "(Module " ++ pretty content ++ ")"
 
+-- MainFunctionDefinition
 data MainFunctionDefinition phase = MainFunctionDefinition (MainFunctionDefinitionData phase) (Seq (Statement phase))
 
 type family MainFunctionDefinitionData phase
 
-instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a), Pretty (ModuleContent a)) => Pretty (MainFunctionDefinition a) where
+instance
+  ( Show (IdentifierContent phase),
+    Pretty (FunctionExpressionContent phase),
+    Pretty (ModuleContent phase),
+    Pretty (TypeAnnotation phase)
+  ) =>
+  Pretty (MainFunctionDefinition phase)
+  where
   pretty (MainFunctionDefinition _ statements) = "(MainFunctionDefinition " ++ pretty statements ++ ")"
 
+-- FunctionDefinition
 data FunctionDefinition phase
   = FunctionDefinition
       (FunctionDefinitionData phase)
-      (Seq (Identifier phase)) -- Parameters
+      (Seq (WithTypeAnnotation phase (Identifier phase))) -- Parameters
       (Seq (Identifier phase)) -- Captured identifiers
-      (Expression phase) -- body
-
-instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a), Pretty (ModuleContent a)) => Pretty (FunctionDefinition a) where
-  pretty (FunctionDefinition _ parameters capturedIdentifiers body) =
-    "(FunctionDefinition (" ++ pretty parameters ++ ") (" ++ pretty capturedIdentifiers ++ ")" ++ pretty body ++ ")"
+      (WithTypeAnnotation phase (Expression phase)) -- body
 
 type family FunctionDefinitionData phase
 
+instance
+  ( Show (IdentifierContent phase),
+    Pretty (FunctionExpressionContent phase),
+    Pretty (ModuleContent phase),
+    Pretty (TypeAnnotation phase)
+  ) =>
+  Pretty (FunctionDefinition phase)
+  where
+  pretty (FunctionDefinition _ parameters capturedIdentifiers body) =
+    "(FunctionDefinition (" ++ pretty parameters ++ ") (" ++ pretty capturedIdentifiers ++ ") " ++ pretty body ++ ")"
+
+-- Statement
 data Statement phase
-  = PrintStatement (PrintStatementData phase) (Expression phase)
-  | VariableDeclarationStatement (VariableDeclarationStatementData phase) (Identifier phase) (Expression phase)
-  | VariableMutationStatement (VariableMutationStatementData phase) (Identifier phase) (Expression phase)
-  | ExpressionStatement (ExpressionStatementData phase) (Expression phase)
+  = PrintStatement (StatementData phase) (Expression phase)
+  | VariableDeclarationStatement (StatementData phase) Mutability (WithTypeAnnotation phase (Identifier phase)) (Expression phase)
+  | VariableMutationStatement (StatementData phase) (Identifier phase) (Expression phase)
+  | ExpressionStatement (StatementData phase) (Expression phase)
   | {- The body of a while loop statement could really be a statement rather than an expression. However, this would
       require a while loop statement to create a new scope for its body. For now, to avoid having to implement the
       handling for this, I'm just making the body an expression instead. I expect that the body of a while loop is usually
       a scope expression, so there isn't too much practical difference either way.
     -}
-    WhileLoopStatement (WhileLoopStatementData phase) (Expression phase) (Expression phase)
-  | ReturnStatement (ReturnStatementData phase) (Maybe (Expression phase))
+    WhileLoopStatement (StatementData phase) (Expression phase) (Expression phase)
+  | ReturnStatement (StatementData phase) (Maybe (Expression phase))
 
-instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a)) => Pretty (Statement a) where
+type family StatementData phase
+
+data Mutability = Mutable | Immutable deriving (Show, Eq)
+
+instance Pretty Mutability where
+  pretty = show
+
+instance
+  ( Show (IdentifierContent phase),
+    Pretty (FunctionExpressionContent phase),
+    Pretty (TypeAnnotation phase)
+  ) =>
+  Pretty (Statement phase)
+  where
   pretty (PrintStatement _ expression) = "(PrintStatement " ++ pretty expression ++ ")"
-  pretty (VariableDeclarationStatement _ variableName value) = "(VariableDeclarationStatement " ++ pretty variableName ++ " " ++ pretty value ++ ")"
+  pretty (VariableDeclarationStatement _ mutability variableName value) =
+    "(VariableDeclarationStatement " ++ pretty mutability ++ " " ++ pretty variableName ++ " " ++ pretty value ++ ")"
   pretty (VariableMutationStatement _ variableName value) = "(VariableMutationStatement " ++ pretty variableName ++ " " ++ pretty value ++ ")"
   pretty (ExpressionStatement _ expression) = "(ExpressionStatement " ++ pretty expression ++ ")"
   pretty (WhileLoopStatement _ condition statement) = "(WhileLoopStatement " ++ pretty condition ++ " " ++ pretty statement ++ ")"
   pretty (ReturnStatement _ (Just expression)) = "(ReturnStatement " ++ pretty expression ++ ")"
   pretty (ReturnStatement _ Nothing) = "(ReturnStatement)"
 
-type family PrintStatementData phase
+getStatementData :: Statement phase -> StatementData phase
+getStatementData (PrintStatement d _) = d
+getStatementData (VariableDeclarationStatement d _ _ _) = d
+getStatementData (VariableMutationStatement d _ _) = d
+getStatementData (ExpressionStatement d _) = d
+getStatementData (WhileLoopStatement d _ _) = d
+getStatementData (ReturnStatement d _) = d
 
-type family VariableDeclarationStatementData phase
-
-type family VariableMutationStatementData phase
-
-type family ExpressionStatementData phase
-
-type family WhileLoopStatementData phase
-
-type family ReturnStatementData phase
-
---     AlgebraicDataTypeStatement TypeVariableName [TypeVariableName] [(ProductTypeName, [ProperType])]
---   | TypeAssignmentStatement TypeVariableName Type
---   | ValueAssignmentStatement VariableName (Maybe ProperType) Expression
-
--- data ProperType =
---     IntType
---   | FloatType
---   | CharType
---   | StringType
---   | BoolType
---   | FunctionType Type Type
---   | VariableType TypeVariableName
---   | TypeApplication Type Type
-
--- data Type =
---     ProperType ProperType
---   | GenericType TypeVariableName Type
-
+-- Identifier
 data Identifier phase = Identifier (IdentifierData phase) (IdentifierContent phase)
 
 type family IdentifierData phase
 
 type family IdentifierContent phase
 
-instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a)) => Pretty (Identifier a) where
+instance (Show (IdentifierContent phase)) => Pretty (Identifier phase) where
   pretty (Identifier _ name) = "(Identifier " ++ show name ++ ")"
 
--- data TypeVariableName = TypeVariableName Identifier
+getIdentifierName :: Identifier phase -> IdentifierContent phase
+getIdentifierName (Identifier _ identifierName) = identifierName
 
--- data ProductTypeName = ProductTypeName Identifier
-
--- data Scope = Scope [Statement] Expression
-
+-- Expression
 data Expression phase
-  = IntLiteralExpression (IntLiteralExpressionData phase) Int
-  | FloatLiteralExpression (FloatLiteralExpressionData phase) Double
-  | CharLiteralExpression (CharLiteralExpressionData phase) Char
-  | StringLiteralExpression (StringLiteralExpressionData phase) Text
-  | BoolLiteralExpression (BoolLiteralExpressionData phase) Bool
-  | NilExpression (NilExpressionData phase)
-  | VariableExpression (VariableExpressionData phase) (Identifier phase)
-  | NegateExpression (NegateExpressionData phase) (Expression phase)
-  | AddExpression (AddExpressionData phase) (Expression phase) (Expression phase)
-  | SubtractExpression (SubtractExpressionData phase) (Expression phase) (Expression phase)
-  | MultiplyExpression (MultiplyExpressionData phase) (Expression phase) (Expression phase)
-  | DivideExpression (DivideExpressionData phase) (Expression phase) (Expression phase)
-  | ModuloExpression (ModuloExpressionData phase) (Expression phase) (Expression phase)
-  | NotExpression (NotExpressionData phase) (Expression phase)
-  | AndExpression (AndExpressionData phase) (Expression phase) (Expression phase)
-  | OrExpression (OrExpressionData phase) (Expression phase) (Expression phase)
-  | EqualExpression (EqualExpressionData phase) (Expression phase) (Expression phase)
-  | NotEqualExpression (NotEqualExpressionData phase) (Expression phase) (Expression phase)
-  | GreaterExpression (GreaterExpressionData phase) (Expression phase) (Expression phase)
-  | LessExpression (LessExpressionData phase) (Expression phase) (Expression phase)
-  | GreaterEqualExpression (GreaterEqualExpressionData phase) (Expression phase) (Expression phase)
-  | LessEqualExpression (LessEqualExpressionData phase) (Expression phase) (Expression phase)
-  | IfThenElseExpression (IfThenElseExpressionData phase) (Expression phase) (Expression phase) (Maybe (Expression phase))
-  | ScopeExpression (ScopeExpressionData phase) (Seq (Statement phase))
-  | FunctionExpression (FunctionExpressionData phase) (FunctionExpressionContent phase)
-  | FunctionCallExpression (FunctionCallExpressionData phase) (Expression phase) (Seq (Expression phase))
+  = IntLiteralExpression (ExpressionData phase) Int
+  | FloatLiteralExpression (ExpressionData phase) Double
+  | CharLiteralExpression (ExpressionData phase) Char
+  | StringLiteralExpression (ExpressionData phase) Text
+  | BoolLiteralExpression (ExpressionData phase) Bool
+  | NilExpression (ExpressionData phase)
+  | VariableExpression (ExpressionData phase) (Identifier phase)
+  | NegateExpression (ExpressionData phase) (Expression phase)
+  | AddExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | SubtractExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | MultiplyExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | DivideExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | ModuloExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | NotExpression (ExpressionData phase) (Expression phase)
+  | AndExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | OrExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | EqualExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | NotEqualExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | GreaterExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | LessExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | GreaterEqualExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | LessEqualExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | IfThenElseExpression (ExpressionData phase) (Expression phase) (Expression phase) (Maybe (Expression phase))
+  | ScopeExpression (ExpressionData phase) (Seq (Statement phase))
+  | FunctionExpression (ExpressionData phase) (FunctionExpressionContent phase)
+  | FunctionCallExpression (ExpressionData phase) (Expression phase) (Seq (Expression phase))
 
-instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a)) => Pretty (Expression a) where
+type family ExpressionData phase
+
+type family FunctionExpressionContent phase
+
+instance
+  ( Show (IdentifierContent phase),
+    Pretty (FunctionExpressionContent phase),
+    Pretty (TypeAnnotation phase)
+  ) =>
+  Pretty (Expression phase)
+  where
   pretty (IntLiteralExpression _ value) = "(IntLiteralExpression " ++ show value ++ ")"
   pretty (FloatLiteralExpression _ value) = "(FloatLiteralExpression " ++ show value ++ ")"
   pretty (CharLiteralExpression _ value) = "(CharLiteralExpression " ++ show value ++ ")"
@@ -244,56 +258,77 @@ instance (Show (IdentifierContent a), Pretty (FunctionExpressionContent a)) => P
   pretty (FunctionExpression _ content) = "(FunctionExpression" ++ pretty content ++ ")"
   pretty (FunctionCallExpression _ function arguments) = "(FunctionCallExpression " ++ pretty function ++ " (" ++ pretty arguments ++ "))"
 
-type family IntLiteralExpressionData phase
+getExpressionData :: Expression phase -> ExpressionData phase
+getExpressionData (IntLiteralExpression d _) = d
+getExpressionData (FloatLiteralExpression d _) = d
+getExpressionData (CharLiteralExpression d _) = d
+getExpressionData (StringLiteralExpression d _) = d
+getExpressionData (BoolLiteralExpression d _) = d
+getExpressionData (NilExpression d) = d
+getExpressionData (VariableExpression d _) = d
+getExpressionData (NegateExpression d _) = d
+getExpressionData (AddExpression d _ _) = d
+getExpressionData (SubtractExpression d _ _) = d
+getExpressionData (MultiplyExpression d _ _) = d
+getExpressionData (DivideExpression d _ _) = d
+getExpressionData (ModuloExpression d _ _) = d
+getExpressionData (NotExpression d _) = d
+getExpressionData (AndExpression d _ _) = d
+getExpressionData (OrExpression d _ _) = d
+getExpressionData (EqualExpression d _ _) = d
+getExpressionData (NotEqualExpression d _ _) = d
+getExpressionData (GreaterExpression d _ _) = d
+getExpressionData (LessExpression d _ _) = d
+getExpressionData (GreaterEqualExpression d _ _) = d
+getExpressionData (LessEqualExpression d _ _) = d
+getExpressionData (IfThenElseExpression d _ _ _) = d
+getExpressionData (ScopeExpression d _) = d
+getExpressionData (FunctionExpression d _) = d
+getExpressionData (FunctionCallExpression d _ _) = d
 
-type family FloatLiteralExpressionData phase
+-- Type annotation
+data WithTypeAnnotation phase a = WithTypeAnnotation a (TypeAnnotation phase)
 
-type family CharLiteralExpressionData phase
+type family TypeAnnotation phase
 
-type family StringLiteralExpressionData phase
+instance (Pretty (TypeAnnotation phase), Pretty a) => Pretty (WithTypeAnnotation phase a) where
+  pretty (WithTypeAnnotation inner annotation) = "(WithTypeAnnotation " ++ pretty inner ++ " " ++ pretty annotation ++ ")"
 
-type family BoolLiteralExpressionData phase
+-- Type
+data TypeExpression phase
+  = IntTypeExpression (TypeExpressionData phase)
+  | FloatTypeExpression (TypeExpressionData phase)
+  | CharTypeExpression (TypeExpressionData phase)
+  | StringTypeExpression (TypeExpressionData phase)
+  | BoolTypeExpression (TypeExpressionData phase)
+  | NilTypeExpression (TypeExpressionData phase)
+  | FunctionTypeExpression (TypeExpressionData phase) (Seq (TypeExpression phase)) (TypeExpression phase)
 
-type family NilExpressionData phase
+type family TypeExpressionData phase
 
-type family VariableExpressionData phase
+instance Pretty (TypeExpression phase) where
+  pretty (IntTypeExpression _) = "IntTypeExpression"
+  pretty (FloatTypeExpression _) = "FloatTypeExpression"
+  pretty (CharTypeExpression _) = "CharTypeExpression"
+  pretty (StringTypeExpression _) = "StringTypeExpression"
+  pretty (BoolTypeExpression _) = "BoolTypeExpression"
+  pretty (NilTypeExpression _) = "NilTypeExpression"
+  pretty (FunctionTypeExpression _ argumentTypes returnType) = "(FunctionTypeExpression (" ++ pretty argumentTypes ++ ") " ++ pretty returnType ++ ")"
 
-type family NegateExpressionData phase
+getTypeExpressionData :: TypeExpression phase -> TypeExpressionData phase
+getTypeExpressionData (IntTypeExpression d) = d
+getTypeExpressionData (FloatTypeExpression d) = d
+getTypeExpressionData (CharTypeExpression d) = d
+getTypeExpressionData (StringTypeExpression d) = d
+getTypeExpressionData (BoolTypeExpression d) = d
+getTypeExpressionData (NilTypeExpression d) = d
+getTypeExpressionData (FunctionTypeExpression d _ _) = d
 
-type family AddExpressionData phase
-
-type family SubtractExpressionData phase
-
-type family MultiplyExpressionData phase
-
-type family DivideExpressionData phase
-
-type family ModuloExpressionData phase
-
-type family NotExpressionData phase
-
-type family AndExpressionData phase
-
-type family OrExpressionData phase
-
-type family EqualExpressionData phase
-
-type family NotEqualExpressionData phase
-
-type family GreaterExpressionData phase
-
-type family LessExpressionData phase
-
-type family GreaterEqualExpressionData phase
-
-type family LessEqualExpressionData phase
-
-type family IfThenElseExpressionData phase
-
-type family ScopeExpressionData phase
-
-type family FunctionExpressionData phase
-
-type family FunctionExpressionContent phase
-
-type family FunctionCallExpressionData phase
+fromTypeExpression :: TypeExpression phase -> Type
+fromTypeExpression (IntTypeExpression _) = IntType
+fromTypeExpression (FloatTypeExpression _) = FloatType
+fromTypeExpression (CharTypeExpression _) = CharType
+fromTypeExpression (StringTypeExpression _) = StringType
+fromTypeExpression (BoolTypeExpression _) = BoolType
+fromTypeExpression (NilTypeExpression _) = NilType
+fromTypeExpression (FunctionTypeExpression _ parameterTypes returnType) = FunctionType (fromTypeExpression <$> parameterTypes) (fromTypeExpression returnType)

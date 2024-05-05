@@ -19,7 +19,7 @@ testExpressions :: Spec
 testExpressions = do
   describe "An expression" $ do
     it "can be nil" $
-      "()" `evaluatesTo` "()"
+      "nil" `evaluatesTo` "nil"
     it "negates" $
       "-5" `evaluatesTo` "-5"
     it "adds" $
@@ -52,6 +52,10 @@ testExpressions = do
       "1 + 1 != 3" `evaluatesTo` "true"
     it "checks inequality to false" $
       "1 + 1 != 2" `evaluatesTo` "false"
+    it "checks equality of strings (true)" $
+      "\"foo\" == \"foo\"" `evaluatesTo` "true"
+    it "checks equality of strings (false)" $
+      "\"foo\" == \"bar\"" `evaluatesTo` "false"
     it "checks greater to true" $
       "2 * 2 > 3" `evaluatesTo` "true"
     it "checks greater to false" $

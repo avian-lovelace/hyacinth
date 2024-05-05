@@ -32,11 +32,13 @@ module Lexing.Tokens
         CharToken,
         StringToken,
         BoolToken,
+        NilToken,
         IntLiteralToken,
         FloatLiteralToken,
         CharLiteralToken,
         StringLiteralToken,
         BoolLiteralToken,
+        NilLiteralToken,
         PlusToken,
         MinusToken,
         StarToken,
@@ -98,12 +100,14 @@ data Token
   | CharToken Range
   | StringToken Range
   | BoolToken Range
+  | NilToken Range
   | -- Literals
     IntLiteralToken Range Int
   | FloatLiteralToken Range Double
   | CharLiteralToken Range Char
   | StringLiteralToken Range Text
   | BoolLiteralToken Range Bool
+  | NilLiteralToken Range
   | -- Operators
     PlusToken Range
   | MinusToken Range
@@ -155,11 +159,13 @@ instance Pretty Token where
   pretty (CharToken _) = "Char"
   pretty (StringToken _) = "String"
   pretty (BoolToken _) = "Bool"
+  pretty (NilToken _) = "Nil"
   pretty (IntLiteralToken _ value) = "intLiteral:" ++ show value
   pretty (FloatLiteralToken _ value) = "floatLiteral:" ++ show value
   pretty (CharLiteralToken _ value) = "charLiteral:" ++ show value
   pretty (StringLiteralToken _ value) = "stringLiteral:" ++ show value
   pretty (BoolLiteralToken _ value) = "boolLiteral:" ++ show value
+  pretty (NilLiteralToken _) = "nil"
   pretty (PlusToken _) = "+"
   pretty (MinusToken _) = "-"
   pretty (StarToken _) = "*"
@@ -209,11 +215,13 @@ instance WithRange Token where
   getRange (CharToken range) = range
   getRange (StringToken range) = range
   getRange (BoolToken range) = range
+  getRange (NilToken range) = range
   getRange (IntLiteralToken range _) = range
   getRange (FloatLiteralToken range _) = range
   getRange (CharLiteralToken range _) = range
   getRange (StringLiteralToken range _) = range
   getRange (BoolLiteralToken range _) = range
+  getRange (NilLiteralToken range) = range
   getRange (PlusToken range) = range
   getRange (MinusToken range) = range
   getRange (StarToken range) = range

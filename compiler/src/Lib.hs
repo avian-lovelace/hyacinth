@@ -19,6 +19,7 @@ import Sectioning.Sectioner
 import System.Directory
 import System.Exit
 import System.Process
+import TypeChecking.TypeChecker
 
 debug :: Bool
 debug = False
@@ -27,7 +28,7 @@ standardBytecodeFilePath :: FilePath
 standardBytecodeFilePath = "../byte.code"
 
 standardCode :: Text
-standardCode = "let cap = 2; let f = [x] -> [y] -> x - y + cap; print f[10][3];"
+standardCode = "let foo = [x: Int]: Nil -> { if x < 0 then { return; }; print x; }; print foo[-5]; print foo[3];"
 
 run :: IO ()
 run = runAndOutputErrors $ do
@@ -56,7 +57,10 @@ compileCode logger code = do
   ibAst <- liftWithErrors $ runIdentifierBinding pAst
   logger "Completed identifier binding"
   logger $ pretty ibAst
-  let bytecode = encodeFile ibAst
+  tcAst <- liftWithErrors $ runTypeChecking ibAst
+  logger "Completed type checking"
+  logger $ pretty tcAst
+  let bytecode = encodeFile tcAst
   logger "Completed bytecode generation"
   logger $ show $ BB.toLazyByteString bytecode
   return bytecode

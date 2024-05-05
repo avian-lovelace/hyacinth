@@ -12,6 +12,8 @@ module IdentifierBinding.SyntaxTree
     IBFunctionDefinition,
     FunctionIndex,
     IBFunctionExpressionContent (IBFunctionExpressionContent),
+    IBTypeExpression,
+    IBWithTypeAnnotation,
   )
 where
 
@@ -45,17 +47,7 @@ type instance FunctionDefinitionData IdentifierBindingPhase = Range
 -- Statement
 type IBStatement = Statement IdentifierBindingPhase
 
-type instance PrintStatementData IdentifierBindingPhase = Range
-
-type instance VariableDeclarationStatementData IdentifierBindingPhase = Range
-
-type instance VariableMutationStatementData IdentifierBindingPhase = Range
-
-type instance ExpressionStatementData IdentifierBindingPhase = Range
-
-type instance WhileLoopStatementData IdentifierBindingPhase = Range
-
-type instance ReturnStatementData IdentifierBindingPhase = Range
+type instance StatementData IdentifierBindingPhase = Range
 
 -- Identifier
 type IBIdentifier = Identifier IdentifierBindingPhase
@@ -66,58 +58,13 @@ type BoundIdentifier = Int
 
 type instance IdentifierContent IdentifierBindingPhase = BoundIdentifier
 
+instance WithRange IBIdentifier where
+  getRange (Identifier d _) = d
+
 -- Expression
 type IBExpression = Expression IdentifierBindingPhase
 
-type instance IntLiteralExpressionData IdentifierBindingPhase = Range
-
-type instance FloatLiteralExpressionData IdentifierBindingPhase = Range
-
-type instance CharLiteralExpressionData IdentifierBindingPhase = Range
-
-type instance StringLiteralExpressionData IdentifierBindingPhase = Range
-
-type instance BoolLiteralExpressionData IdentifierBindingPhase = Range
-
-type instance NilExpressionData IdentifierBindingPhase = Range
-
-type instance VariableExpressionData IdentifierBindingPhase = Range
-
-type instance NegateExpressionData IdentifierBindingPhase = Range
-
-type instance AddExpressionData IdentifierBindingPhase = Range
-
-type instance SubtractExpressionData IdentifierBindingPhase = Range
-
-type instance MultiplyExpressionData IdentifierBindingPhase = Range
-
-type instance DivideExpressionData IdentifierBindingPhase = Range
-
-type instance ModuloExpressionData IdentifierBindingPhase = Range
-
-type instance NotExpressionData IdentifierBindingPhase = Range
-
-type instance AndExpressionData IdentifierBindingPhase = Range
-
-type instance OrExpressionData IdentifierBindingPhase = Range
-
-type instance EqualExpressionData IdentifierBindingPhase = Range
-
-type instance NotEqualExpressionData IdentifierBindingPhase = Range
-
-type instance GreaterExpressionData IdentifierBindingPhase = Range
-
-type instance LessExpressionData IdentifierBindingPhase = Range
-
-type instance GreaterEqualExpressionData IdentifierBindingPhase = Range
-
-type instance LessEqualExpressionData IdentifierBindingPhase = Range
-
-type instance IfThenElseExpressionData IdentifierBindingPhase = Range
-
-type instance ScopeExpressionData IdentifierBindingPhase = Range
-
-type instance FunctionExpressionData IdentifierBindingPhase = Range
+type instance ExpressionData IdentifierBindingPhase = Range
 
 type FunctionIndex = Int
 
@@ -128,33 +75,18 @@ instance Pretty IBFunctionExpressionContent where
 
 type instance FunctionExpressionContent IdentifierBindingPhase = IBFunctionExpressionContent
 
-type instance FunctionCallExpressionData IdentifierBindingPhase = Range
-
 instance WithRange IBExpression where
-  getRange expression = case expression of
-    IntLiteralExpression range _ -> range
-    FloatLiteralExpression range _ -> range
-    CharLiteralExpression range _ -> range
-    StringLiteralExpression range _ -> range
-    BoolLiteralExpression range _ -> range
-    NilExpression range -> range
-    VariableExpression range _ -> range
-    NegateExpression range _ -> range
-    AddExpression range _ _ -> range
-    SubtractExpression range _ _ -> range
-    MultiplyExpression range _ _ -> range
-    DivideExpression range _ _ -> range
-    ModuloExpression range _ _ -> range
-    NotExpression range _ -> range
-    AndExpression range _ _ -> range
-    OrExpression range _ _ -> range
-    EqualExpression range _ _ -> range
-    NotEqualExpression range _ _ -> range
-    GreaterExpression range _ _ -> range
-    LessExpression range _ _ -> range
-    GreaterEqualExpression range _ _ -> range
-    LessEqualExpression range _ _ -> range
-    IfThenElseExpression range _ _ _ -> range
-    ScopeExpression range _ -> range
-    FunctionExpression range _ -> range
-    FunctionCallExpression range _ _ -> range
+  getRange = getExpressionData
+
+-- Type annotation
+type IBWithTypeAnnotation = WithTypeAnnotation IdentifierBindingPhase
+
+type instance TypeAnnotation IdentifierBindingPhase = Maybe IBTypeExpression
+
+-- Type
+type IBTypeExpression = TypeExpression IdentifierBindingPhase
+
+type instance TypeExpressionData IdentifierBindingPhase = Range
+
+instance WithRange IBTypeExpression where
+  getRange = getTypeExpressionData

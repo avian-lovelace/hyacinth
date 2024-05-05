@@ -205,8 +205,10 @@ lexKeywordOrIdentifier = do
                 "Char" -> CharToken
                 "String" -> StringToken
                 "Bool" -> BoolToken
+                "Nil" -> NilToken
                 "true" -> \range -> BoolLiteralToken range True
                 "false" -> \range -> BoolLiteralToken range False
+                "nil" -> NilLiteralToken
                 _ -> \range -> IdentifierToken range identifierText
             )
       let token = tokenConstructor Range {start, end}

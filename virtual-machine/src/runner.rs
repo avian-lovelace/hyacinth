@@ -27,7 +27,7 @@ impl VM {
                 Instruction::Print => {
                     let value = self.pop();
                     match value {
-                        Value::Nil => println!("()"),
+                        Value::Nil => println!("nil"),
                         Value::Int(i) => println!("{}", i),
                         Value::Float(d) => println!("{}", d),
                         Value::Bool(b) => println!("{}", b),
@@ -154,20 +154,58 @@ impl VM {
                     let value_2 = self.pop();
                     let value_1 = self.pop();
                     match (value_1, value_2) {
+                        (Value::Nil, Value::Nil) => self.push(Value::Bool(true)),
                         (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 == i2)),
                         (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 == d2)),
                         (Value::Bool(b1), Value::Bool(b2)) => self.push(Value::Bool(b1 == b2)),
-                        _ => panic!("Attempted to equal values {} and {}", value_1, value_2),
+                        (Value::Char(c1), Value::Char(c2)) => self.push(Value::Bool(c1 == c2)),
+                        (Value::Object(o1), Value::Object(o2)) => {
+                            let are_equal = (o1 == o2) || {
+                                let obj_1 = self.heap.get(o1);
+                                let obj_2 = self.heap.get(o2);
+                                match (self.heap.get(o1), self.heap.get(o2)) {
+                                    (Object::StringObj(s1), Object::StringObj(s2)) => s1 == s2,
+                                    _ => panic!(
+                                        "Attempted to check equality of objects {} and {}",
+                                        obj_1, obj_2
+                                    ),
+                                }
+                            };
+                            self.push(Value::Bool(are_equal))
+                        }
+                        _ => panic!(
+                            "Attempted to check equality of values {} and {}",
+                            value_1, value_2
+                        ),
                     }
                 }
                 Instruction::NotEqual => {
                     let value_2 = self.pop();
                     let value_1 = self.pop();
                     match (value_1, value_2) {
+                        (Value::Nil, Value::Nil) => self.push(Value::Bool(false)),
                         (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 != i2)),
                         (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 != d2)),
                         (Value::Bool(b1), Value::Bool(b2)) => self.push(Value::Bool(b1 != b2)),
-                        _ => panic!("Attempted to not equal values {} and {}", value_1, value_2),
+                        (Value::Char(c1), Value::Char(c2)) => self.push(Value::Bool(c1 != c2)),
+                        (Value::Object(o1), Value::Object(o2)) => {
+                            let are_equal = (o1 == o2) || {
+                                let obj_1 = self.heap.get(o1);
+                                let obj_2 = self.heap.get(o2);
+                                match (self.heap.get(o1), self.heap.get(o2)) {
+                                    (Object::StringObj(s1), Object::StringObj(s2)) => s1 == s2,
+                                    _ => panic!(
+                                        "Attempted to check equality of objects {} and {}",
+                                        obj_1, obj_2
+                                    ),
+                                }
+                            };
+                            self.push(Value::Bool(!are_equal))
+                        }
+                        _ => panic!(
+                            "Attempted to check equality of values {} and {}",
+                            value_1, value_2
+                        ),
                     }
                 }
                 Instruction::Greater => {
