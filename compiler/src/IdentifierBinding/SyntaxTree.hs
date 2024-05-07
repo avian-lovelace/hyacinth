@@ -8,8 +8,8 @@ module IdentifierBinding.SyntaxTree
     IBIdentifier,
     IBExpression,
     BoundIdentifier,
-    IBMainFunctionDefinition,
-    IBFunctionDefinition,
+    IBMainFunction,
+    IBSubFunction,
     FunctionIndex,
     IBFunctionExpressionContent (IBFunctionExpressionContent),
     IBTypeExpression,
@@ -29,20 +29,20 @@ type IBModule = Module IdentifierBindingPhase
 
 type instance ModuleData IdentifierBindingPhase = ()
 
-data IBModuleContent = IBModuleContent IBMainFunctionDefinition (Seq IBFunctionDefinition)
+data IBModuleContent = IBModuleContent IBMainFunction (Seq IBSubFunction)
 
 instance Pretty IBModuleContent where
-  pretty (IBModuleContent mainFunctionDefinition subFunctionDefinitions) = pretty mainFunctionDefinition ++ "(" ++ pretty subFunctionDefinitions ++ ")"
+  pretty (IBModuleContent mainFunction subFunctions) = pretty mainFunction ++ "(" ++ pretty subFunctions ++ ")"
 
 type instance ModuleContent IdentifierBindingPhase = IBModuleContent
 
-type IBMainFunctionDefinition = MainFunctionDefinition IdentifierBindingPhase
+type IBMainFunction = MainFunction IdentifierBindingPhase
 
-type instance MainFunctionDefinitionData IdentifierBindingPhase = ()
+type instance MainFunctionData IdentifierBindingPhase = ()
 
-type IBFunctionDefinition = FunctionDefinition IdentifierBindingPhase
+type IBSubFunction = SubFunction IdentifierBindingPhase
 
-type instance FunctionDefinitionData IdentifierBindingPhase = Range
+type instance SubFunctionData IdentifierBindingPhase = Range
 
 -- Statement
 type IBStatement = Statement IdentifierBindingPhase

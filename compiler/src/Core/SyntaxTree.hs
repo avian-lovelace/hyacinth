@@ -6,10 +6,11 @@ module Core.SyntaxTree
   ( Module (Module),
     ModuleData,
     ModuleContent,
-    MainFunctionDefinition (MainFunctionDefinition),
-    MainFunctionDefinitionData,
+    MainFunction (MainFunction),
+    MainFunctionData,
+    SubFunction (SubFunction),
+    SubFunctionData,
     FunctionDefinition (FunctionDefinition),
-    FunctionDefinitionData,
     Statement
       ( PrintStatement,
         VariableDeclarationStatement,
@@ -94,41 +95,54 @@ instance
   where
   pretty (Module _ content) = "(Module " ++ pretty content ++ ")"
 
--- MainFunctionDefinition
-data MainFunctionDefinition phase = MainFunctionDefinition (MainFunctionDefinitionData phase) (Seq (Statement phase))
+-- MainFunction
+data MainFunction phase = MainFunction (MainFunctionData phase) (Seq (Statement phase))
 
-type family MainFunctionDefinitionData phase
+type family MainFunctionData phase
 
 instance
   ( Show (IdentifierContent phase),
     Pretty (FunctionExpressionContent phase),
-    Pretty (ModuleContent phase),
     Pretty (TypeAnnotation phase)
   ) =>
-  Pretty (MainFunctionDefinition phase)
+  Pretty (MainFunction phase)
   where
-  pretty (MainFunctionDefinition _ statements) = "(MainFunctionDefinition " ++ pretty statements ++ ")"
+  pretty (MainFunction _ statements) = "(MainFunction " ++ pretty statements ++ ")"
+
+-- SubFunction
+data SubFunction phase
+  = SubFunction
+      (SubFunctionData phase)
+      (Seq (Identifier phase)) -- Captured identifiers
+      (FunctionDefinition phase)
+
+type family SubFunctionData phase
+
+instance
+  ( Show (IdentifierContent phase),
+    Pretty (FunctionExpressionContent phase),
+    Pretty (TypeAnnotation phase),
+    Pretty (FunctionDefinition phase)
+  ) =>
+  Pretty (SubFunction phase)
+  where
+  pretty (SubFunction _ capturedIdentifiers functionDefinition) =
+    "(SubFunction (" ++ pretty capturedIdentifiers ++ ") " ++ pretty functionDefinition ++ ")"
 
 -- FunctionDefinition
 data FunctionDefinition phase
   = FunctionDefinition
-      (FunctionDefinitionData phase)
-      (Seq (WithTypeAnnotation phase (Identifier phase))) -- Parameters
-      (Seq (Identifier phase)) -- Captured identifiers
-      (WithTypeAnnotation phase (Expression phase)) -- body
-
-type family FunctionDefinitionData phase
+      (Seq (WithTypeAnnotation phase (Identifier phase)))
+      (WithTypeAnnotation phase (Expression phase))
 
 instance
   ( Show (IdentifierContent phase),
     Pretty (FunctionExpressionContent phase),
-    Pretty (ModuleContent phase),
     Pretty (TypeAnnotation phase)
   ) =>
   Pretty (FunctionDefinition phase)
   where
-  pretty (FunctionDefinition _ parameters capturedIdentifiers body) =
-    "(FunctionDefinition (" ++ pretty parameters ++ ") (" ++ pretty capturedIdentifiers ++ ") " ++ pretty body ++ ")"
+  pretty (FunctionDefinition parameters body) = "(FunctionDefinition (" ++ pretty parameters ++ ") " ++ pretty body ++ ")"
 
 -- Statement
 data Statement phase

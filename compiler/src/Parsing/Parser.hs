@@ -18,7 +18,7 @@ import Parsing.SyntaxTree
 import Sectioning.Sectioning
 
 parseFile :: ParseFunction PModule
-parseFile sections = Module () . MainFunctionDefinition () <$> parseStatements sections
+parseFile sections = Module () . MainFunction () <$> parseStatements sections
 
 parseStatements :: ParseFunction (Seq PStatement)
 parseStatements sections = consolidateErrors $ parseStatementsHelper sections
@@ -381,7 +381,7 @@ functionExpressionParser = do
             runParserToEnd expressionParser expressionSections
         )
     let functionExpressionRange = getRange (parameterListRange, expressionErrorRange)
-    return $ FunctionExpression functionExpressionRange $ PFunctionExpressionContent parameterList (WithTypeAnnotation body returnType)
+    return $ FunctionExpression functionExpressionRange $ FunctionDefinition parameterList (WithTypeAnnotation body returnType)
 
 parseParamterList :: Range -> ParseFunction (Seq (PWithTypeAnnotation PIdentifier))
 parseParamterList _ Empty = Success Empty

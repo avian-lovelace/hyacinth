@@ -30,15 +30,15 @@ encodeModule (Module _ (TCModuleContent mainFunction subFunctions)) = do
       let bytestring = BB.toLazyByteString builder
        in BB.word32BE (fromIntegral . LB.length $ bytestring) <> BB.lazyByteString bytestring
 
-encodeMainFunction :: TCMainFunctionDefinition -> BytecodeGenerator BB.Builder
-encodeMainFunction (MainFunctionDefinition _ statements) = do
+encodeMainFunction :: TCMainFunction -> BytecodeGenerator BB.Builder
+encodeMainFunction (MainFunction _ statements) = do
   body <- withNewScope $ do
     encodedStatements <- mapM encodeStatement statements
     return $ fold encodedStatements
   return $ body <> returnInstruction
 
-encodeFunction :: TCFunctionDefinition -> BytecodeGenerator BB.Builder
-encodeFunction (FunctionDefinition _ parameters capturedIdentifiers (WithTypeAnnotation body ())) = do
+encodeFunction :: TCSubFunction -> BytecodeGenerator BB.Builder
+encodeFunction (SubFunction _ capturedIdentifiers (FunctionDefinition parameters (WithTypeAnnotation body ()))) = do
   encodedBody <- withFunctionScope (getParameterName <$> parameters) (getIdentifier <$> capturedIdentifiers) $ encodeExpression body
   return $ encodedBody <> returnInstruction
   where

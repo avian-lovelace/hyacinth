@@ -7,8 +7,8 @@ module TypeChecking.SyntaxTree
     riOr,
     TCModule,
     TCModuleContent (TCModuleContent),
-    TCMainFunctionDefinition,
-    TCFunctionDefinition,
+    TCMainFunction,
+    TCSubFunction,
     TCStatement,
     TCStatementData (TCStatementData, statementRange, statementReturnInfo),
     TCIdentifier,
@@ -58,20 +58,20 @@ type TCModule = Module TypeCheckingPhase
 
 type instance ModuleData TypeCheckingPhase = ()
 
-data TCModuleContent = TCModuleContent TCMainFunctionDefinition (Seq TCFunctionDefinition)
+data TCModuleContent = TCModuleContent TCMainFunction (Seq TCSubFunction)
 
 instance Pretty TCModuleContent where
-  pretty (TCModuleContent mainFunctionDefinition subFunctionDefinitions) = pretty mainFunctionDefinition ++ "(" ++ pretty subFunctionDefinitions ++ ")"
+  pretty (TCModuleContent mainFunction subFunctions) = pretty mainFunction ++ "(" ++ pretty subFunctions ++ ")"
 
 type instance ModuleContent TypeCheckingPhase = TCModuleContent
 
-type TCMainFunctionDefinition = MainFunctionDefinition TypeCheckingPhase
+type TCMainFunction = MainFunction TypeCheckingPhase
 
-type instance MainFunctionDefinitionData TypeCheckingPhase = ()
+type instance MainFunctionData TypeCheckingPhase = ()
 
-type TCFunctionDefinition = FunctionDefinition TypeCheckingPhase
+type TCSubFunction = SubFunction TypeCheckingPhase
 
-type instance FunctionDefinitionData TypeCheckingPhase = Range
+type instance SubFunctionData TypeCheckingPhase = Range
 
 -- Statement
 type TCStatement = Statement TypeCheckingPhase

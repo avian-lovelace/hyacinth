@@ -38,7 +38,7 @@ module LexerSpec where
 
 --       it "lexes fn" $
 --         let input = "fn"
---             expected = fromList [Token FnToken (startRange 2)]
+--             expected = fromList [Token FuncToken (startRange 2)]
 --          in lexText input `shouldBe` (Success expected)
 
 --       it "lexes match" $

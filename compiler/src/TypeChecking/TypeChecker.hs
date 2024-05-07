@@ -18,18 +18,18 @@ runTypeChecking m = snd $ runErrorState (typeCheckModule m) initialTypeCheckingS
 
 typeCheckModule :: IBModule -> TypeChecker TCModule
 typeCheckModule (Module () (IBModuleContent mainFunction subFunctions)) = do
-  mapM_ (uncurry prepareFunctionDefinition) (Seq.zip (Seq.fromList [1 .. Seq.length subFunctions]) subFunctions)
-  checkedMainFunction <- typeCheckMainFunctionDefinition mainFunction
-  typeCheckFunctionDefinitions subFunctions
+  mapM_ (uncurry prepareSubFunction) (Seq.zip (Seq.fromList [1 .. Seq.length subFunctions]) subFunctions)
+  checkedMainFunction <- typeCheckMainFunction mainFunction
+  typeCheckSubFunctions subFunctions
   checkedSubFunctions <- getCheckedFunctions (Seq.length subFunctions)
   return $ Module () (TCModuleContent checkedMainFunction checkedSubFunctions)
 
-prepareFunctionDefinition :: FunctionIndex -> IBFunctionDefinition -> TypeChecker ()
-prepareFunctionDefinition functionIndex (FunctionDefinition functionDefinitionRange parameters _ (WithTypeAnnotation _ returnTypeAnnotation)) = do
+prepareSubFunction :: FunctionIndex -> IBSubFunction -> TypeChecker ()
+prepareSubFunction functionIndex (SubFunction subFunctionRange _ (FunctionDefinition parameters (WithTypeAnnotation _ returnTypeAnnotation))) = do
   parameterTypes <- mapM getParameterType parameters
   returnType <- case returnTypeAnnotation of
     Just returnType -> return $ fromTypeExpression returnType
-    Nothing -> throwError $ FunctionMissingReturnTypeAnnotation functionDefinitionRange
+    Nothing -> throwError $ FunctionMissingReturnTypeAnnotation subFunctionRange
   let functionType = FunctionType parameterTypes returnType
   setFunctionType functionIndex functionType
   where
@@ -41,25 +41,25 @@ prepareFunctionDefinition functionIndex (FunctionDefinition functionDefinitionRa
         return parameterType
       Nothing -> throwError $ FunctionMissingParameterTypeAnnotation (getRange parameter)
 
-typeCheckMainFunctionDefinition :: IBMainFunctionDefinition -> TypeChecker TCMainFunctionDefinition
-typeCheckMainFunctionDefinition (MainFunctionDefinition range statements) = do
+typeCheckMainFunction :: IBMainFunction -> TypeChecker TCMainFunction
+typeCheckMainFunction (MainFunction range statements) = do
   checkedStatements <- mapM typeCheckStatement statements
-  return $ MainFunctionDefinition range checkedStatements
+  return $ MainFunction range checkedStatements
 
-typeCheckFunctionDefinitions :: Seq IBFunctionDefinition -> TypeChecker ()
-typeCheckFunctionDefinitions functionDefinitions = do
+typeCheckSubFunctions :: Seq IBSubFunction -> TypeChecker ()
+typeCheckSubFunctions subFunctions = do
   popResult <- popCapturedIdentifierTypes
   case popResult of
     Nothing -> return ()
-    Just (functionIndex, capturedIdentifierTypes) -> case Seq.lookup (functionIndex - 1) functionDefinitions of
-      Nothing -> throwError $ ShouldNotGetHereError "Got out of range function index in typeCheckFunctionDefinitions"
-      Just functionDefinition -> do
-        checkedFunctionDefinition <- typeCheckFunctionDefinition capturedIdentifierTypes functionDefinition
-        addCheckedFunction functionIndex checkedFunctionDefinition
-        typeCheckFunctionDefinitions functionDefinitions
+    Just (functionIndex, capturedIdentifierTypes) -> case Seq.lookup (functionIndex - 1) subFunctions of
+      Nothing -> throwError $ ShouldNotGetHereError "Got out of range function index in typeCheckSubFunctions"
+      Just subFunction -> do
+        checkedSubFunction <- typeCheckSubFunction capturedIdentifierTypes subFunction
+        addCheckedFunction functionIndex checkedSubFunction
+        typeCheckSubFunctions subFunctions
 
-typeCheckFunctionDefinition :: Seq Type -> IBFunctionDefinition -> TypeChecker TCFunctionDefinition
-typeCheckFunctionDefinition capturedIdentifierTypes (FunctionDefinition functionDefinitionRange parameters capturedIdentifiers (WithTypeAnnotation body returnTypeAnnotation)) = do
+typeCheckSubFunction :: Seq Type -> IBSubFunction -> TypeChecker TCSubFunction
+typeCheckSubFunction capturedIdentifierTypes (SubFunction subFunctionRange capturedIdentifiers (FunctionDefinition parameters (WithTypeAnnotation body returnTypeAnnotation))) = do
   unless (Seq.length capturedIdentifierTypes == Seq.length capturedIdentifiers) $
     throwError (ShouldNotGetHereError "The number of captured identifier types did not match the number of captured identifiers when type checking function definition")
   checkedCapturedIdentifiers <- mapM (uncurry typeCheckCapturedIdentifier) (Seq.zip capturedIdentifiers capturedIdentifierTypes)
@@ -73,7 +73,7 @@ typeCheckFunctionDefinition capturedIdentifierTypes (FunctionDefinition function
             contextReturnTypeRange = getRange returnTypeExpression
           }
       return (returnType, getRange returnTypeExpression)
-    Nothing -> throwError $ FunctionMissingReturnTypeAnnotation functionDefinitionRange
+    Nothing -> throwError $ FunctionMissingReturnTypeAnnotation subFunctionRange
   checkedBody <- typeCheckExpression body
   {- If the body of a function always runs a return statement when evaluated, the type of the body itself doesn't need
     to match the function return type. This enables writing functions whose body is a scope expression, but with return
@@ -85,7 +85,7 @@ typeCheckFunctionDefinition capturedIdentifierTypes (FunctionDefinition function
   let bodyType = expressionType . getExpressionData $ checkedBody
   unless (bodyReturnInfo == AlwaysReturns || bodyType == returnType) $
     throwError (FunctionReturnTypeError returnTypeRange returnType (getRange body) bodyType)
-  return $ FunctionDefinition functionDefinitionRange checkedParameters checkedCapturedIdentifiers (WithTypeAnnotation checkedBody ())
+  return $ SubFunction subFunctionRange checkedCapturedIdentifiers (FunctionDefinition checkedParameters (WithTypeAnnotation checkedBody ()))
   where
     typeCheckCapturedIdentifier :: IBIdentifier -> Type -> TypeChecker TCIdentifier
     typeCheckCapturedIdentifier identifier identifierType = do

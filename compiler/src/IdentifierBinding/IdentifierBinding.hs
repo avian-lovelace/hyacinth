@@ -14,7 +14,7 @@ module IdentifierBinding.IdentifierBinding
     getIdentifierBinding,
     setVariableUsability,
     addParameter,
-    addBoundFunctionDefinition,
+    addBoundSubFunction,
     getCapturedIdentifiers,
     getBoundFunctions,
   )
@@ -36,7 +36,7 @@ type IdentifierBinder a = ErrorState IdentifierBindingState a
 data IdentifierBindingState = IdentifierBindingState
   { scopes :: [Scope],
     boundIdentifierCounter :: Int,
-    boundFunctions :: Seq IBFunctionDefinition
+    boundFunctions :: Seq IBSubFunction
   }
 
 data Scope
@@ -185,16 +185,16 @@ getNewBinding declarationRange = do
   setState $ IdentifierBindingState {boundIdentifierCounter = boundIdentifierCounter + 1, scopes, boundFunctions}
   return IdentifierInfo {boundIdentifier = boundIdentifierCounter, declarationRange}
 
-getBoundFunctions :: IdentifierBinder (Seq IBFunctionDefinition)
+getBoundFunctions :: IdentifierBinder (Seq IBSubFunction)
 getBoundFunctions = boundFunctions <$> getState
 
-setBoundFunctions :: Seq IBFunctionDefinition -> IdentifierBinder ()
+setBoundFunctions :: Seq IBSubFunction -> IdentifierBinder ()
 setBoundFunctions boundFunctions = do
   IdentifierBindingState {boundIdentifierCounter, scopes} <- getState
   setState $ IdentifierBindingState {boundFunctions, boundIdentifierCounter, scopes}
 
-addBoundFunctionDefinition :: IBFunctionDefinition -> IdentifierBinder FunctionIndex
-addBoundFunctionDefinition newFunction = do
+addBoundSubFunction :: IBSubFunction -> IdentifierBinder FunctionIndex
+addBoundSubFunction newFunction = do
   boundFunctions <- boundFunctions <$> getState
   let updatedBoundFunctions = boundFunctions |> newFunction
   setBoundFunctions updatedBoundFunctions

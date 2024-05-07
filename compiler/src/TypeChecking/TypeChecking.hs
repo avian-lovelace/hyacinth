@@ -31,7 +31,7 @@ data TypeCheckingState = TypeCheckingState
     functionTypes :: Map FunctionIndex Type,
     capturedIdentifierTypes :: Seq (FunctionIndex, Seq Type),
     functionContext :: FunctionContext,
-    checkedFunctions :: Map FunctionIndex TCFunctionDefinition
+    checkedFunctions :: Map FunctionIndex TCSubFunction
   }
 
 data FunctionContext
@@ -91,18 +91,18 @@ popCapturedIdentifierTypes = do
 getFunctionContext :: TypeChecker FunctionContext
 getFunctionContext = functionContext <$> getState
 
-addCheckedFunction :: FunctionIndex -> TCFunctionDefinition -> TypeChecker ()
+addCheckedFunction :: FunctionIndex -> TCSubFunction -> TypeChecker ()
 addCheckedFunction functionIndex checkedFunction = do
   checkedFunctions <- checkedFunctions <$> getState
   setCheckedFunctions $ Map.insert functionIndex checkedFunction checkedFunctions
 
-getCheckedFunctions :: Int -> TypeChecker (Seq TCFunctionDefinition)
+getCheckedFunctions :: Int -> TypeChecker (Seq TCSubFunction)
 getCheckedFunctions numFunctions = do
   checkedFunctions <- checkedFunctions <$> getState
   mapM
     ( \functionIndex -> case Map.lookup functionIndex checkedFunctions of
         Nothing -> throwError $ ShouldNotGetHereError "Failed to find checked function in getCheckedFunctions"
-        Just functionDefinition -> return functionDefinition
+        Just subFunction -> return subFunction
     )
     (Seq.fromList [1 .. numFunctions])
 
@@ -126,7 +126,7 @@ setFunctionContext functionContext = do
   TypeCheckingState {identifierTypes, functionTypes, capturedIdentifierTypes, checkedFunctions} <- getState
   setState TypeCheckingState {identifierTypes, functionTypes, capturedIdentifierTypes, functionContext, checkedFunctions}
 
-setCheckedFunctions :: Map FunctionIndex TCFunctionDefinition -> TypeChecker ()
+setCheckedFunctions :: Map FunctionIndex TCSubFunction -> TypeChecker ()
 setCheckedFunctions checkedFunctions = do
   TypeCheckingState {identifierTypes, functionTypes, capturedIdentifierTypes, functionContext} <- getState
   setState TypeCheckingState {identifierTypes, functionTypes, capturedIdentifierTypes, functionContext, checkedFunctions}

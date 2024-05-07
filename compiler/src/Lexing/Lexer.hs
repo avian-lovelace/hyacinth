@@ -193,7 +193,7 @@ lexKeywordOrIdentifier = do
                 "if" -> IfToken
                 "then" -> ThenToken
                 "else" -> ElseToken
-                "fn" -> FnToken
+                "func" -> FuncToken
                 "match" -> MatchToken
                 "of" -> OfToken
                 "print" -> PrintToken

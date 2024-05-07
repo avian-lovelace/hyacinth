@@ -15,10 +15,10 @@ runIdentifierBinding :: PModule -> WithErrors IBModule
 runIdentifierBinding m = snd $ runErrorState (moduleBinder m) initialBindingState
 
 moduleBinder :: PModule -> IdentifierBinder IBModule
-moduleBinder (Module _ (MainFunctionDefinition _ statements)) = withNewExpressionScope $ do
+moduleBinder (Module _ (MainFunction _ statements)) = withNewExpressionScope $ do
   boundStatements <- bindScope statements
-  boundFunctionDefinitions <- getBoundFunctions
-  return $ Module () $ IBModuleContent (MainFunctionDefinition () boundStatements) boundFunctionDefinitions
+  boundSubFunctions <- getBoundFunctions
+  return $ Module () $ IBModuleContent (MainFunction () boundStatements) boundSubFunctions
 
 {- We preemtively add declared variables to the current scope in a before declaration state. This lets us catch and throw
   errors in situations where a variable is used in a scope before it is later shadowed. This could be allowed, but it is
@@ -86,13 +86,14 @@ expressionBinder (VariableExpression expressionRange (Identifier identifierRange
 expressionBinder (ScopeExpression d statements) = withNewExpressionScope $ do
   boundStatements <- bindScope statements
   return $ ScopeExpression d boundStatements
-expressionBinder (FunctionExpression d (PFunctionExpressionContent parameters (WithTypeAnnotation body returnTypeAnnotation))) = withNewFunctionScope $ do
+expressionBinder (FunctionExpression d (FunctionDefinition parameters (WithTypeAnnotation body returnTypeAnnotation))) = withNewFunctionScope $ do
   boundParameters <- traverse' bindParameter parameters
   boundReturnTypeAnnotation <- mapM typeExpressionBinder returnTypeAnnotation
   boundBody <- expressionBinder body
   capturedVariables <- getCapturedIdentifiers
-  let functionDefinition = FunctionDefinition d boundParameters (toAstIdentifier . insideIdentifier <$> capturedVariables) (WithTypeAnnotation boundBody boundReturnTypeAnnotation)
-  functionIndex <- addBoundFunctionDefinition functionDefinition
+  let functionDefinition = FunctionDefinition boundParameters (WithTypeAnnotation boundBody boundReturnTypeAnnotation)
+  let subFunction = SubFunction d (toAstIdentifier . insideIdentifier <$> capturedVariables) functionDefinition
+  functionIndex <- addBoundSubFunction subFunction
   return $ FunctionExpression d $ IBFunctionExpressionContent functionIndex (toAstIdentifier . outsideIdentifier <$> capturedVariables)
 -- Standard cases
 expressionBinder (IntLiteralExpression d value) = return $ IntLiteralExpression d value

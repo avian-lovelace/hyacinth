@@ -8,7 +8,6 @@ module Parsing.SyntaxTree
     PIdentifier,
     PExpression,
     UnboundIdentifier,
-    PFunctionExpressionContent (PFunctionExpressionContent),
     PTypeExpression,
     PWithTypeAnnotation,
   )
@@ -16,8 +15,6 @@ where
 
 import Core.FilePositions
 import Core.SyntaxTree
-import Core.Utils
-import Data.Sequence (Seq)
 import Data.Text (Text)
 
 data ParsingPhase
@@ -27,11 +24,13 @@ type PModule = Module ParsingPhase
 
 type instance ModuleData ParsingPhase = ()
 
-type instance ModuleContent ParsingPhase = PMainFunctionDefinition
+type instance ModuleContent ParsingPhase = PMainFunction
 
-type PMainFunctionDefinition = MainFunctionDefinition ParsingPhase
+type PMainFunction = MainFunction ParsingPhase
 
-type instance MainFunctionDefinitionData ParsingPhase = ()
+type instance MainFunctionData ParsingPhase = ()
+
+type PFunctionDefinition = FunctionDefinition ParsingPhase
 
 -- Statement
 type PStatement = Statement ParsingPhase
@@ -52,12 +51,7 @@ type PExpression = Expression ParsingPhase
 
 type instance ExpressionData ParsingPhase = Range
 
-data PFunctionExpressionContent = PFunctionExpressionContent (Seq (PWithTypeAnnotation PIdentifier)) (PWithTypeAnnotation PExpression)
-
-instance Pretty PFunctionExpressionContent where
-  pretty (PFunctionExpressionContent parameters body) = "(" ++ pretty parameters ++ ") " ++ pretty body
-
-type instance FunctionExpressionContent ParsingPhase = PFunctionExpressionContent
+type instance FunctionExpressionContent ParsingPhase = PFunctionDefinition
 
 instance WithRange PExpression where
   getRange = getExpressionData
