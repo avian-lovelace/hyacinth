@@ -22,7 +22,7 @@ data BytecodeGeneratorState = BytecodeGeneratorState
     constants :: Seq Constant
   }
 
-newtype Scope = Scope {variables :: Seq BoundIdentifier}
+newtype Scope = Scope {variables :: Seq BoundValueIdentifier}
 
 newtype BytecodeGenerator a = BytecodeGenerator {runGenerator :: BytecodeGeneratorState -> (BytecodeGeneratorState, a)} deriving (Functor)
 
@@ -54,7 +54,7 @@ withNewScope generator = do
   let popLocalVariables = popMultipleInstruction $ fromIntegral . Seq.length . variables $ endedScope
   return $ result <> popLocalVariables <> nilInstruction
 
-withFunctionScope :: Seq BoundIdentifier -> Seq BoundIdentifier -> BytecodeGenerator BB.Builder -> BytecodeGenerator BB.Builder
+withFunctionScope :: Seq BoundValueIdentifier -> Seq BoundValueIdentifier -> BytecodeGenerator BB.Builder -> BytecodeGenerator BB.Builder
 withFunctionScope parameters capturedIdentifiers generator = do
   pushNewScope
   traverse_ addVariableToScope parameters
@@ -72,14 +72,14 @@ popScope = BytecodeGenerator $ \BytecodeGeneratorState {scopes, constants} -> ca
   initScopes :|> finalScope -> (BytecodeGeneratorState {scopes = initScopes, constants}, finalScope)
   Empty -> undefined -- Should not get here
 
-addVariableToScope :: BoundIdentifier -> BytecodeGenerator ()
+addVariableToScope :: BoundValueIdentifier -> BytecodeGenerator ()
 addVariableToScope newVariable = BytecodeGenerator run
   where
     run (BytecodeGeneratorState {scopes = initScopes :|> (Scope {variables}), constants}) =
       (BytecodeGeneratorState {scopes = initScopes |> Scope {variables = variables |> newVariable}, constants}, ())
     run _ = undefined
 
-getVariableIndex :: BoundIdentifier -> BytecodeGenerator Int
+getVariableIndex :: BoundValueIdentifier -> BytecodeGenerator Int
 getVariableIndex variable = BytecodeGenerator $ \state -> (state, fromIntegral $ getVariableIndexInScopes $ scopes state)
   where
     getVariableIndexInScopes ((Scope {variables}) :<| tailScopes) = case elemIndexL variable variables of

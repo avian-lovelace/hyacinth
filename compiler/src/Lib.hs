@@ -12,6 +12,7 @@ import Core.Utils
 import qualified Data.ByteString.Builder as BB
 import Data.Text (Text)
 import qualified Data.Text as Text
+import FunctionLifting.FunctionLifter
 import IdentifierBinding.IdentifierBinder
 import Lexing.Lexer
 import Parsing.Parser
@@ -22,13 +23,13 @@ import System.Process
 import TypeChecking.TypeChecker
 
 debug :: Bool
-debug = False
+debug = True
 
 standardBytecodeFilePath :: FilePath
 standardBytecodeFilePath = "../byte.code"
 
 standardCode :: Text
-standardCode = "let foo = [x: Int]: Nil -> { if x < 0 then { return; }; print x; }; print foo[-5]; print foo[3];"
+standardCode = "print fib[6]; func fib[x: Int]: Int -> if x <= 1 then x else fib[x - 1] + fib[x - 2];"
 
 run :: IO ()
 run = runAndOutputErrors $ do
@@ -54,13 +55,16 @@ compileCode logger code = do
   pAst <- liftWithErrors $ parseFile sections
   logger "Completed parsing"
   logger $ pretty pAst
-  ibAst <- liftWithErrors $ runIdentifierBinding pAst
+  (boundValueIdentifierCounter, boundFunctionIdentifierCounter, ibAst) <- liftWithErrors $ runIdentifierBinding pAst
   logger "Completed identifier binding"
   logger $ pretty ibAst
   tcAst <- liftWithErrors $ runTypeChecking ibAst
   logger "Completed type checking"
   logger $ pretty tcAst
-  let bytecode = encodeFile tcAst
+  flAst <- liftWithErrors $ runFunctionLifting boundValueIdentifierCounter boundFunctionIdentifierCounter tcAst
+  logger "Completed function lifting"
+  logger $ pretty flAst
+  let bytecode = encodeFile flAst
   logger "Completed bytecode generation"
   logger $ show $ BB.toLazyByteString bytecode
   return bytecode

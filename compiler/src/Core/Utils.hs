@@ -3,12 +3,15 @@ module Core.Utils
     seqHead,
     seqTail,
     seqSplitOn,
+    seqPartitionEither,
   )
 where
 
 import Data.Foldable
 import Data.Sequence (Seq (Empty, (:<|)), (<|))
 import qualified Data.Sequence as Seq
+import Data.Text (Text)
+import qualified Data.Text as Text
 
 -- Classes
 class Pretty t where
@@ -17,12 +20,28 @@ class Pretty t where
 instance (Pretty a) => Pretty (Seq a) where
   pretty xs = fold . Seq.intersperse " " $ pretty <$> xs
 
+instance (Pretty a) => Pretty [a] where
+  pretty = pretty . Seq.fromList
+
 instance (Pretty a) => Pretty (Maybe a) where
   pretty (Just x) = pretty x
   pretty Nothing = "()"
 
 instance Pretty () where
   pretty () = "()"
+
+instance Pretty Text where
+  pretty = Text.unpack
+
+instance Pretty Int where
+  pretty = show
+
+instance (Pretty a, Pretty b) => Pretty (Either a b) where
+  pretty (Left a) = pretty a
+  pretty (Right b) = pretty b
+
+instance (Pretty a, Pretty b) => Pretty (a, b) where
+  pretty (a, b) = pretty a ++ " " ++ pretty b
 
 -- Utility function
 seqHead :: Seq a -> a
@@ -36,3 +55,9 @@ seqSplitOn _ Empty = Empty
 seqSplitOn predicate xs = case Seq.breakl predicate xs of
   (initSeq, Empty) -> Seq.singleton initSeq
   (initSeq, _splitter :<| tailSeq) -> initSeq <| seqSplitOn predicate tailSeq
+
+seqPartitionEither :: Seq (Either a b) -> (Seq a, Seq b)
+seqPartitionEither = foldr collect (Empty, Empty)
+  where
+    collect (Left a) (lefts, rights) = (a <| lefts, rights)
+    collect (Right b) (lefts, rights) = (lefts, b <| rights)

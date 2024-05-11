@@ -37,15 +37,21 @@ module Core.Errors
         FunctionTypeEmptyParameterError,
         FunctionTypeMalformedParameterError,
         ExpectedTypeExpressionInParensError,
-        ConflictingVariableDeclarationsError,
-        VariableUndefinedAtReferenceError,
-        VariableDeclaredAfterReferenceError,
+        FunctionStatementMalformedError,
+        FunctionStatementEmptyBodyError,
+        FunctionStatementMalformedReturnTypeError,
+        FunctionStatementMalformedBodyError,
+        ConflictingIdentifierDefinitionsError,
+        IdentifierUndefinedAtReferenceError,
+        VariableDefinedAfterReferenceError,
         VariableReferencedInDeclarationError,
         VariableShadowedInDeclarationError,
         ConflictingParameterNamesError,
         MutatedImmutableVariableError,
         MutatedParameterError,
+        MutatedFunctionError,
         MutatedCapturedIdentifierError,
+        IdentifierUndefinedBeforeCaptureError,
         VariableDeclarationTypeError,
         VariableMutationTypeError,
         WhileLoopConditionTypeError,
@@ -134,16 +140,20 @@ data Error
   | FunctionTypeEmptyParameterError Range
   | FunctionTypeMalformedParameterError Range
   | ExpectedTypeExpressionInParensError Range
-  | -- Variable binding
-    ConflictingVariableDeclarationsError Text Range Range
-  | VariableUndefinedAtReferenceError Text Range
-  | VariableDeclaredAfterReferenceError Text Range Range
+  | FunctionStatementMalformedError Range
+  | FunctionStatementEmptyBodyError Range
+  | FunctionStatementMalformedReturnTypeError Range
+  | FunctionStatementMalformedBodyError Range
+  | -- Identifier binding
+    ConflictingIdentifierDefinitionsError Text Range Range
+  | IdentifierUndefinedAtReferenceError Text Range
+  | VariableDefinedAfterReferenceError Text Range Range
   | VariableReferencedInDeclarationError Text Range Range
   | VariableShadowedInDeclarationError Text Range Range
   | ConflictingParameterNamesError Text Range Range
   | MutatedImmutableVariableError Text Range Range
   | MutatedParameterError Text Range Range
-  | MutatedCapturedIdentifierError Text Range Range
+  | MutatedFunctionError Text Range Range
   | -- Type checking
     VariableDeclarationTypeError Range Type Type
   | VariableMutationTypeError Range Type Type
@@ -173,6 +183,9 @@ data Error
   | FunctionCallExpressionArgumentTypeError Range Type Type
   | FunctionMissingParameterTypeAnnotation Range
   | FunctionMissingReturnTypeAnnotation Range
+  | -- Function lifting
+    MutatedCapturedIdentifierError Text Range
+  | IdentifierUndefinedBeforeCaptureError Text Text Range
   | -- Runtime
     RuntimeError Int String
   deriving (Eq)
@@ -221,11 +234,15 @@ instance Pretty Error where
   pretty (FunctionTypeEmptyParameterError range) = "Function type had an empty parameter at " ++ pretty range
   pretty (FunctionTypeMalformedParameterError range) = "Failed to parse parameter of function type as a type at " ++ pretty range
   pretty (ExpectedTypeExpressionInParensError range) = "Failed to parse contents of parentheses as a type at " ++ pretty range
-  pretty (ConflictingVariableDeclarationsError variableName declarationRange1 declarationRange2) =
+  pretty (FunctionStatementMalformedError range) = "Failed to parse function statement at " ++ pretty range
+  pretty (FunctionStatementEmptyBodyError range) = "Function statement had an empty body at " ++ pretty range
+  pretty (FunctionStatementMalformedReturnTypeError range) = "Failed to parse function return type as type expression at " ++ pretty range
+  pretty (FunctionStatementMalformedBodyError range) = "Failed to parse function body as an expression at " ++ pretty range
+  pretty (ConflictingIdentifierDefinitionsError variableName declarationRange1 declarationRange2) =
     "Variable " ++ Text.unpack variableName ++ " has conflicting declarations at " ++ pretty declarationRange1 ++ " and " ++ pretty declarationRange2
-  pretty (VariableUndefinedAtReferenceError variableName range) =
-    "Variable " ++ Text.unpack variableName ++ " is not defined before it is referenced at " ++ pretty range
-  pretty (VariableDeclaredAfterReferenceError variableName referenceRange delcarationRange) =
+  pretty (IdentifierUndefinedAtReferenceError variableName range) =
+    "Identifier " ++ Text.unpack variableName ++ " is not defined before it is referenced at " ++ pretty range
+  pretty (VariableDefinedAfterReferenceError variableName referenceRange delcarationRange) =
     "Variable " ++ Text.unpack variableName ++ " is defined at " ++ pretty delcarationRange ++ " before it is referenced at " ++ pretty referenceRange
   pretty (VariableReferencedInDeclarationError variableName declarationRange usageRange) =
     "Variable " ++ Text.unpack variableName ++ " is referenced at " ++ pretty usageRange ++ " inside its declaration at " ++ pretty declarationRange
@@ -237,8 +254,10 @@ instance Pretty Error where
     "Variable " ++ Text.unpack variableName ++ " declared as immutable at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
   pretty (MutatedParameterError parameterName declarationRange mutationRange) =
     "Function parameter " ++ Text.unpack parameterName ++ " defined at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
-  pretty (MutatedCapturedIdentifierError identifierName declarationRange mutationRange) =
-    "Identifier " ++ Text.unpack identifierName ++ " defined at " ++ pretty declarationRange ++ " cannot be mutated at " ++ pretty mutationRange ++ " in a nested function"
+  pretty (MutatedFunctionError functionName declarationRange mutationRange) =
+    "Function " ++ Text.unpack functionName ++ " defined at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
+  pretty (IdentifierUndefinedBeforeCaptureError functionName identifier captureRange) =
+    "Function " ++ pretty functionName ++ " cannot be called at " ++ pretty captureRange ++ ", as it captured identifier " ++ pretty identifier ++ " which is not yet defined"
   pretty (VariableDeclarationTypeError range expectedType actualType) =
     "In variable declaration at " ++ pretty range ++ ", the variable has type " ++ pretty expectedType ++ ", but the value has type " ++ pretty actualType
   pretty (VariableMutationTypeError range expectedType actualType) =
@@ -293,6 +312,8 @@ instance Pretty Error where
     "Function parameter has no type annotation at " ++ pretty range
   pretty (FunctionMissingReturnTypeAnnotation range) =
     "Function has no return type annotation at " ++ pretty range
+  pretty (MutatedCapturedIdentifierError identifierName mutationRange) =
+    "Identifier " ++ Text.unpack identifierName ++ " cannot be mutated at " ++ pretty mutationRange ++ " in a nested function"
   pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
 
 instance Show Error where

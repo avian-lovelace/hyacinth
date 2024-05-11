@@ -7,7 +7,6 @@ import Core.FilePositions
 import Core.SyntaxTree
 import Core.Type
 import Data.Foldable (fold)
-import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import IdentifierBinding.SyntaxTree
 import TypeChecking.SyntaxTree
@@ -17,85 +16,136 @@ runTypeChecking :: IBModule -> WithErrors TCModule
 runTypeChecking m = snd $ runErrorState (typeCheckModule m) initialTypeCheckingState
 
 typeCheckModule :: IBModule -> TypeChecker TCModule
-typeCheckModule (Module () (IBModuleContent mainFunction subFunctions)) = do
-  mapM_ (uncurry prepareSubFunction) (Seq.zip (Seq.fromList [1 .. Seq.length subFunctions]) subFunctions)
+typeCheckModule (Module () mainFunction) = do
   checkedMainFunction <- typeCheckMainFunction mainFunction
-  typeCheckSubFunctions subFunctions
-  checkedSubFunctions <- getCheckedFunctions (Seq.length subFunctions)
-  return $ Module () (TCModuleContent checkedMainFunction checkedSubFunctions)
+  return $ Module () checkedMainFunction
 
-prepareSubFunction :: FunctionIndex -> IBSubFunction -> TypeChecker ()
-prepareSubFunction functionIndex (SubFunction subFunctionRange _ (FunctionDefinition parameters (WithTypeAnnotation _ returnTypeAnnotation))) = do
+-- prepareSubFunction :: FunctionIndex -> IBSubFunction -> TypeChecker ()
+-- prepareSubFunction functionIndex (SubFunction subFunctionRange _ (FunctionDefinition parameters (WithTypeAnnotation _ returnTypeAnnotation))) = do
+--   parameterTypes <- mapM getParameterType parameters
+--   returnType <- case returnTypeAnnotation of
+--     Just returnType -> return $ fromTypeExpression returnType
+--     Nothing -> throwError $ FunctionMissingReturnTypeAnnotation subFunctionRange
+--   let functionType = FunctionType parameterTypes returnType
+--   setFunctionType functionIndex functionType
+--   where
+--     getParameterType :: IBWithTypeAnnotation IBIdentifier -> TypeChecker Type
+--     getParameterType (WithTypeAnnotation parameter parameterTypeAnnotation) = case parameterTypeAnnotation of
+--       Just parameterTypeExpression -> do
+--         let parameterType = fromTypeExpression parameterTypeExpression
+--         setIdentifierType (getIdentifierName parameter) parameterType
+--         return parameterType
+--       Nothing -> throwError $ FunctionMissingParameterTypeAnnotation (getRange parameter)
+
+typeCheckMainFunction :: IBMainFunction -> TypeChecker TCMainFunction
+typeCheckMainFunction (MainFunction () scope) = do
+  checkedScope <- typeCheckScope scope
+  return $ MainFunction () checkedScope
+
+typeCheckScope :: IBScope -> TypeChecker TCScope
+typeCheckScope (Scope () nonPositionalStatements statements) = do
+  mapM_ initializeNonPositionalStatement nonPositionalStatements
+  checkedStatements <- mapM typeCheckStatement statements
+  checkedNonPositionalStatements <- mapM typeCheckNonPositionalStatement nonPositionalStatements
+  let returnInfo = fold $ statementReturnInfo . getStatementData <$> checkedStatements
+  return $ Scope returnInfo checkedNonPositionalStatements checkedStatements
+
+initializeNonPositionalStatement :: IBNonPositionalStatement -> TypeChecker ()
+initializeNonPositionalStatement (FunctionStatement statementRange functionName (FunctionDefinition _ parameters (WithTypeAnnotation _ returnTypeAnnotation))) = do
   parameterTypes <- mapM getParameterType parameters
   returnType <- case returnTypeAnnotation of
     Just returnType -> return $ fromTypeExpression returnType
-    Nothing -> throwError $ FunctionMissingReturnTypeAnnotation subFunctionRange
-  let functionType = FunctionType parameterTypes returnType
-  setFunctionType functionIndex functionType
+    Nothing -> throwError $ FunctionMissingReturnTypeAnnotation statementRange
+  setFunctionType functionName (FunctionType parameterTypes returnType)
   where
-    getParameterType :: IBWithTypeAnnotation IBIdentifier -> TypeChecker Type
-    getParameterType (WithTypeAnnotation parameter parameterTypeAnnotation) = case parameterTypeAnnotation of
-      Just parameterTypeExpression -> do
-        let parameterType = fromTypeExpression parameterTypeExpression
-        setIdentifierType (getIdentifierName parameter) parameterType
-        return parameterType
-      Nothing -> throwError $ FunctionMissingParameterTypeAnnotation (getRange parameter)
+    getParameterType :: IBWithTypeAnnotation IBValueIdentifier -> TypeChecker Type
+    getParameterType (WithTypeAnnotation _ parameterTypeAnnotation) = case parameterTypeAnnotation of
+      Just typeExpression -> return $ fromTypeExpression typeExpression
+      Nothing -> throwError $ FunctionMissingParameterTypeAnnotation statementRange
 
-typeCheckMainFunction :: IBMainFunction -> TypeChecker TCMainFunction
-typeCheckMainFunction (MainFunction range statements) = do
-  checkedStatements <- mapM typeCheckStatement statements
-  return $ MainFunction range checkedStatements
+typeCheckNonPositionalStatement :: IBNonPositionalStatement -> TypeChecker TCNonPositionalStatement
+typeCheckNonPositionalStatement (FunctionStatement statementRange functionName functionDefinition) = do
+  checkedFunctionDefinition <- typeCheckFunctionDefinition functionDefinition
+  return $ FunctionStatement statementRange functionName checkedFunctionDefinition
 
-typeCheckSubFunctions :: Seq IBSubFunction -> TypeChecker ()
-typeCheckSubFunctions subFunctions = do
-  popResult <- popCapturedIdentifierTypes
-  case popResult of
-    Nothing -> return ()
-    Just (functionIndex, capturedIdentifierTypes) -> case Seq.lookup (functionIndex - 1) subFunctions of
-      Nothing -> throwError $ ShouldNotGetHereError "Got out of range function index in typeCheckSubFunctions"
-      Just subFunction -> do
-        checkedSubFunction <- typeCheckSubFunction capturedIdentifierTypes subFunction
-        addCheckedFunction functionIndex checkedSubFunction
-        typeCheckSubFunctions subFunctions
+typeCheckFunctionDefinition :: IBFunctionDefinition -> TypeChecker TCFunctionDefinition
+typeCheckFunctionDefinition
+  ( FunctionDefinition
+      IBFunctionDefinitionData {ibFunctionDefinitionRange, ibFunctionDefinitionCapturedIdentifiers}
+      parameters
+      (WithTypeAnnotation body returnTypeAnnotation)
+    ) = do
+    (checkedParameters, parameterTypes) <- Seq.unzip <$> mapM initializeParameter parameters
+    (returnType, returnTypeRange) <- case returnTypeAnnotation of
+      Just returnType -> return $ (fromTypeExpression returnType, getRange returnType)
+      Nothing -> throwError $ FunctionMissingReturnTypeAnnotation ibFunctionDefinitionRange
+    let functionContext = FunctionContext {contextReturnType = returnType, contextReturnTypeRange = returnTypeRange}
+    checkedBody <- withFunctionContext functionContext $ typeCheckExpression body
+    --   {- If the body of a function always runs a return statement when evaluated, the type of the body itself doesn't need
+    --     to match the function return type. This enables writing functions whose body is a scope expression, but with return
+    --     type other than Nil.
 
-typeCheckSubFunction :: Seq Type -> IBSubFunction -> TypeChecker TCSubFunction
-typeCheckSubFunction capturedIdentifierTypes (SubFunction subFunctionRange capturedIdentifiers (FunctionDefinition parameters (WithTypeAnnotation body returnTypeAnnotation))) = do
-  unless (Seq.length capturedIdentifierTypes == Seq.length capturedIdentifiers) $
-    throwError (ShouldNotGetHereError "The number of captured identifier types did not match the number of captured identifiers when type checking function definition")
-  checkedCapturedIdentifiers <- mapM (uncurry typeCheckCapturedIdentifier) (Seq.zip capturedIdentifiers capturedIdentifierTypes)
-  checkedParameters <- mapM checkParameterType parameters
-  (returnType, returnTypeRange) <- case returnTypeAnnotation of
-    Just returnTypeExpression -> do
-      let returnType = fromTypeExpression returnTypeExpression
-      setFunctionContext
-        FunctionContext
-          { contextReturnType = returnType,
-            contextReturnTypeRange = getRange returnTypeExpression
-          }
-      return (returnType, getRange returnTypeExpression)
-    Nothing -> throwError $ FunctionMissingReturnTypeAnnotation subFunctionRange
-  checkedBody <- typeCheckExpression body
-  {- If the body of a function always runs a return statement when evaluated, the type of the body itself doesn't need
-    to match the function return type. This enables writing functions whose body is a scope expression, but with return
-    type other than Nil.
+    --     Ex: []: Int -> { return 5; }
+    --   -}
+    let bodyReturnInfo = expressionReturnInfo . getExpressionData $ checkedBody
+    let bodyType = expressionType . getExpressionData $ checkedBody
+    unless (bodyReturnInfo == AlwaysReturns || bodyType == returnType) $
+      throwError (FunctionReturnTypeError returnTypeRange returnType (getRange body) bodyType)
+    let functionDefinitionType = FunctionType parameterTypes returnType
+    let functionDefinitionData =
+          TCFunctionDefinitionData
+            { tcFunctionDefinitionRange = ibFunctionDefinitionRange,
+              tcFunctionDefinitionType = functionDefinitionType,
+              tcFunctionDefinitionCapturedIdentifiers = ibFunctionDefinitionCapturedIdentifiers
+            }
+    return $ FunctionDefinition functionDefinitionData checkedParameters (WithTypeAnnotation checkedBody ())
+    where
+      initializeParameter :: IBWithTypeAnnotation IBValueIdentifier -> TypeChecker (TCWithTypeAnnotation TCValueIdentifier, Type)
+      initializeParameter (WithTypeAnnotation parameter parameterTypeAnnotation) = do
+        parameterType <- case parameterTypeAnnotation of
+          Just typeExpression -> return $ fromTypeExpression typeExpression
+          Nothing -> throwError $ FunctionMissingParameterTypeAnnotation ibFunctionDefinitionRange
+        setValueIdentifierType parameter parameterType
+        return (WithTypeAnnotation parameter (), parameterType)
 
-    Ex: []: Int -> { return 5; }
-  -}
-  let bodyReturnInfo = expressionReturnInfo . getExpressionData $ checkedBody
-  let bodyType = expressionType . getExpressionData $ checkedBody
-  unless (bodyReturnInfo == AlwaysReturns || bodyType == returnType) $
-    throwError (FunctionReturnTypeError returnTypeRange returnType (getRange body) bodyType)
-  return $ SubFunction subFunctionRange checkedCapturedIdentifiers (FunctionDefinition checkedParameters (WithTypeAnnotation checkedBody ()))
-  where
-    typeCheckCapturedIdentifier :: IBIdentifier -> Type -> TypeChecker TCIdentifier
-    typeCheckCapturedIdentifier identifier identifierType = do
-      checkedIdentifier <- typeCheckIdentifier identifier
-      setIdentifierType (getIdentifierName checkedIdentifier) identifierType
-      return checkedIdentifier
-    checkParameterType :: IBWithTypeAnnotation IBIdentifier -> TypeChecker (TCWithTypeAnnotation TCIdentifier)
-    checkParameterType (WithTypeAnnotation parameter _) = do
-      checkedParameter <- typeCheckIdentifier parameter
-      return $ WithTypeAnnotation checkedParameter ()
+-- typeCheckSubFunction :: Seq Type -> IBSubFunction -> TypeChecker TCSubFunction
+-- typeCheckSubFunction capturedIdentifierTypes (SubFunction subFunctionRange capturedIdentifiers (FunctionDefinition parameters (WithTypeAnnotation body returnTypeAnnotation))) = do
+--   unless (Seq.length capturedIdentifierTypes == Seq.length capturedIdentifiers) $
+--     throwError (ShouldNotGetHereError "The number of captured identifier types did not match the number of captured identifiers when type checking function definition")
+--   checkedCapturedIdentifiers <- mapM (uncurry typeCheckCapturedIdentifier) (Seq.zip capturedIdentifiers capturedIdentifierTypes)
+--   checkedParameters <- mapM checkParameterType parameters
+--   (returnType, returnTypeRange) <- case returnTypeAnnotation of
+--     Just returnTypeExpression -> do
+--       let returnType = fromTypeExpression returnTypeExpression
+--       setFunctionContext
+--         FunctionContext
+--           { contextReturnType = returnType,
+--             contextReturnTypeRange = getRange returnTypeExpression
+--           }
+--       return (returnType, getRange returnTypeExpression)
+--     Nothing -> throwError $ FunctionMissingReturnTypeAnnotation subFunctionRange
+--   checkedBody <- typeCheckExpression body
+--   {- If the body of a function always runs a return statement when evaluated, the type of the body itself doesn't need
+--     to match the function return type. This enables writing functions whose body is a scope expression, but with return
+--     type other than Nil.
+
+--     Ex: []: Int -> { return 5; }
+--   -}
+--   let bodyReturnInfo = expressionReturnInfo . getExpressionData $ checkedBody
+--   let bodyType = expressionType . getExpressionData $ checkedBody
+--   unless (bodyReturnInfo == AlwaysReturns || bodyType == returnType) $
+--     throwError (FunctionReturnTypeError returnTypeRange returnType (getRange body) bodyType)
+--   return $ SubFunction subFunctionRange checkedCapturedIdentifiers (FunctionDefinition checkedParameters (WithTypeAnnotation checkedBody ()))
+--   where
+--     typeCheckCapturedIdentifier :: IBIdentifier -> Type -> TypeChecker TCIdentifier
+--     typeCheckCapturedIdentifier identifier identifierType = do
+--       checkedIdentifier <- typeCheckIdentifier identifier
+--       setIdentifierType (getIdentifierName checkedIdentifier) identifierType
+--       return checkedIdentifier
+--     checkParameterType :: IBWithTypeAnnotation IBIdentifier -> TypeChecker (TCWithTypeAnnotation TCIdentifier)
+--     checkParameterType (WithTypeAnnotation parameter _) = do
+--       checkedParameter <- typeCheckIdentifier parameter
+--       return $ WithTypeAnnotation checkedParameter ()
 
 typeCheckStatement :: IBStatement -> TypeChecker TCStatement
 typeCheckStatement (PrintStatement statementRange expression) = do
@@ -110,19 +160,17 @@ typeCheckStatement (VariableDeclarationStatement statementRange mutability (With
       unless (fromTypeExpression expectedType == valueType) $
         throwError (VariableDeclarationTypeError statementRange (fromTypeExpression expectedType) valueType)
     Nothing -> return ()
-  checkedVariableName <- typeCheckIdentifier variableName
-  setIdentifierType (getIdentifierName checkedVariableName) valueType
+  setValueIdentifierType variableName valueType
   let statementReturnInfo = expressionReturnInfo . getExpressionData $ checkedValue
-  return $ VariableDeclarationStatement (TCStatementData statementRange statementReturnInfo) mutability (WithTypeAnnotation checkedVariableName ()) checkedValue
+  return $ VariableDeclarationStatement (TCStatementData statementRange statementReturnInfo) mutability (WithTypeAnnotation variableName ()) checkedValue
 typeCheckStatement (VariableMutationStatement statementRange variableName value) = do
   checkedValue <- typeCheckExpression value
   let valueType = expressionType . getExpressionData $ checkedValue
-  variableType <- getIdentifierType (getIdentifierName variableName)
+  variableType <- getValueIdentifierType variableName
   unless (variableType == valueType) $
     throwError (VariableMutationTypeError statementRange variableType valueType)
-  checkedVariableName <- typeCheckIdentifier variableName
   let statementReturnInfo = expressionReturnInfo . getExpressionData $ checkedValue
-  return $ VariableMutationStatement (TCStatementData statementRange statementReturnInfo) checkedVariableName checkedValue
+  return $ VariableMutationStatement (TCStatementData statementRange statementReturnInfo) variableName checkedValue
 typeCheckStatement (ExpressionStatement statementRange expression) = do
   checkedExpression <- typeCheckExpression expression
   let statementReturnInfo = expressionReturnInfo . getExpressionData $ checkedExpression
@@ -142,10 +190,10 @@ typeCheckStatement (ReturnStatement statementRange returnValue) = do
         Nothing -> NilType
   functionContext <- getFunctionContext
   case functionContext of
-    MainFunctionContext ->
+    Nothing ->
       unless (returnValueType == NilType) $
         throwError (MainFunctionReturnTypeError statementRange returnValueType)
-    FunctionContext {contextReturnType, contextReturnTypeRange} ->
+    Just (FunctionContext {contextReturnType, contextReturnTypeRange}) ->
       unless (returnValueType == contextReturnType) $
         throwError (FunctionReturnTypeError contextReturnTypeRange contextReturnType statementRange returnValueType)
   return $ ReturnStatement (TCStatementData statementRange AlwaysReturns) checkedReturnValue
@@ -163,10 +211,11 @@ typeCheckExpression (BoolLiteralExpression expressionRange value) =
   return $ BoolLiteralExpression (TCExpresionData expressionRange BoolType NeverReturns) value
 typeCheckExpression (NilExpression expressionRange) =
   return $ NilExpression (TCExpresionData expressionRange NilType NeverReturns)
-typeCheckExpression (VariableExpression expressionRange identifier) = do
-  checkedIdentifier <- typeCheckIdentifier identifier
-  expressionType <- getIdentifierType (getIdentifierName checkedIdentifier)
-  return $ VariableExpression (TCExpresionData expressionRange expressionType NeverReturns) checkedIdentifier
+typeCheckExpression (IdentifierExpression expressionRange identifier) = do
+  expressionType <- case identifier of
+    Left valueIdentifier -> getValueIdentifierType valueIdentifier
+    Right functionIdentifier -> getFunctionType functionIdentifier
+  return $ IdentifierExpression (TCExpresionData expressionRange expressionType NeverReturns) identifier
 typeCheckExpression (NegateExpression expressionRange inner) = do
   checkedInner <- typeCheckExpression inner
   expressionType <- case expressionType . getExpressionData $ checkedInner of
@@ -333,16 +382,14 @@ typeCheckExpression (IfThenElseExpression expressionRange condition trueBranch f
         else throwError $ IfThenElseExpressionBranchesTypeError expressionRange trueBranchType falseBranchType
   let returnInfo = conditionReturnInfo `riAnd` (trueBranchReturnInfo `riOr` falseBranchReturnInfo)
   return $ IfThenElseExpression (TCExpresionData expressionRange expressionType returnInfo) checkedCondition checkedTrueBranch checkedFalseBranch
-typeCheckExpression (ScopeExpression expressionRange statements) = do
-  checkedStatements <- mapM typeCheckStatement statements
-  let returnInfo = fold $ statementReturnInfo . getStatementData <$> checkedStatements
-  return $ ScopeExpression (TCExpresionData expressionRange NilType returnInfo) checkedStatements
-typeCheckExpression (FunctionExpression expressionRange (IBFunctionExpressionContent functionIndex capturedIdentifiers)) = do
-  checkedCapturedIdentifiers <- mapM typeCheckIdentifier capturedIdentifiers
-  capturedIdentifierTypes <- mapM (getIdentifierType . getIdentifierName) checkedCapturedIdentifiers
-  pushCapturedIdentifierTypes functionIndex capturedIdentifierTypes
-  expressionType <- getFunctionType functionIndex
-  return $ FunctionExpression (TCExpresionData expressionRange expressionType NeverReturns) (TCFunctionExpressionContent functionIndex checkedCapturedIdentifiers)
+typeCheckExpression (ScopeExpression expressionRange scope) = do
+  checkedScope <- typeCheckScope scope
+  let returnInfo = getScopeData checkedScope
+  return $ ScopeExpression (TCExpresionData expressionRange NilType returnInfo) checkedScope
+typeCheckExpression (FunctionExpression expressionRange functionDefinition) = do
+  checkedFunctionDefinition <- typeCheckFunctionDefinition functionDefinition
+  let expressionType = tcFunctionDefinitionType . getFunctionDefinitionData $ checkedFunctionDefinition
+  return $ FunctionExpression (TCExpresionData expressionRange expressionType NeverReturns) checkedFunctionDefinition
 typeCheckExpression (FunctionCallExpression expressionRange function arguments) = do
   checkedFunction <- typeCheckExpression function
   checkedArguments <- mapM typeCheckExpression arguments
@@ -360,6 +407,3 @@ checkArgumentType (parameterType, argument) = do
   let argumentType = expressionType . getExpressionData $ argument
   unless (argumentType == parameterType) $
     throwError (FunctionCallExpressionArgumentTypeError (getRange argument) parameterType argumentType)
-
-typeCheckIdentifier :: IBIdentifier -> TypeChecker TCIdentifier
-typeCheckIdentifier (Identifier range identifier) = return $ Identifier range identifier

@@ -5,20 +5,22 @@ where
 
 import Core.ErrorState
 import Core.Errors
+import Core.FilePositions
 import Core.SyntaxTree
-import Data.Sequence (Seq)
 import IdentifierBinding.IdentifierBinding
 import IdentifierBinding.SyntaxTree
 import Parsing.SyntaxTree
 
-runIdentifierBinding :: PModule -> WithErrors IBModule
-runIdentifierBinding m = snd $ runErrorState (moduleBinder m) initialBindingState
+runIdentifierBinding :: PModule -> WithErrors (Int, Int, IBModule)
+runIdentifierBinding m = (boundValueIdentifierCounter,boundFunctionIdentifierCounter,) <$> bindingResult
+  where
+    (IdentifierBindingState {boundValueIdentifierCounter, boundFunctionIdentifierCounter}, bindingResult) =
+      runErrorState (moduleBinder m) initialBindingState
 
 moduleBinder :: PModule -> IdentifierBinder IBModule
-moduleBinder (Module _ (MainFunction _ statements)) = withNewExpressionScope $ do
-  boundStatements <- bindScope statements
-  boundSubFunctions <- getBoundFunctions
-  return $ Module () $ IBModuleContent (MainFunction () boundStatements) boundSubFunctions
+moduleBinder (Module _ (MainFunction _ scope)) = withNewExpressionScope $ do
+  boundScope <- bindScope scope
+  return $ Module () (MainFunction () boundScope)
 
 {- We preemtively add declared variables to the current scope in a before declaration state. This lets us catch and throw
   errors in situations where a variable is used in a scope before it is later shadowed. This could be allowed, but it is
@@ -31,70 +33,97 @@ moduleBinder (Module _ (MainFunction _ statements)) = withNewExpressionScope $ d
     let x = 2;
   };
 
-  BindingReadyStatement is just a wrapper around statement that shows that we've completed this pre-binding step.
+  BindingReady is just a wrapper that shows that we've completed this pre-binding step.
   -}
-newtype BindingReadyStatement = BindingReadyStatement PStatement
+newtype BindingReady a = BindingReady a
 
-prepareStatementForBinding :: PStatement -> IdentifierBinder BindingReadyStatement
+prepareNonPositionalStatementForBinding :: PNonPositionalStatement -> IdentifierBinder (BindingReady PNonPositionalStatement)
+prepareNonPositionalStatementForBinding statement = case statement of
+  (FunctionStatement statementRange unboundFunctionName _) -> do
+    addFunction statementRange unboundFunctionName
+    return $ BindingReady statement
+
+nonPositionalStatementBinder :: BindingReady PNonPositionalStatement -> IdentifierBinder IBNonPositionalStatement
+nonPositionalStatementBinder (BindingReady (FunctionStatement statementRange unboundFunctionName (FunctionDefinition definitionRange parameters (WithTypeAnnotation body returnTypeAnnotation)))) = do
+  boundFunctionName <- getFunctionNameBinding unboundFunctionName
+  withNewFunctionScope $ do
+    boundParameters <- traverse' (bindParameter statementRange) parameters
+    boundReturnTypeAnnotation <- mapM typeExpressionBinder returnTypeAnnotation
+    boundBody <- expressionBinder body
+    capturedIdentifiers <- getCapturedIdentifiers
+    let functionDefinitionData = IBFunctionDefinitionData {ibFunctionDefinitionRange = definitionRange, ibFunctionDefinitionCapturedIdentifiers = capturedIdentifiers}
+    let functionDefinition = FunctionDefinition functionDefinitionData boundParameters (WithTypeAnnotation boundBody boundReturnTypeAnnotation)
+    return $ FunctionStatement statementRange boundFunctionName functionDefinition
+
+prepareStatementForBinding :: PStatement -> IdentifierBinder (BindingReady PStatement)
 prepareStatementForBinding statement = case statement of
-  (VariableDeclarationStatement range mutability (WithTypeAnnotation (Identifier _ variableName) _) _) -> do
-    _ <- addVariable range mutability variableName
-    return $ BindingReadyStatement statement
-  _ -> return $ BindingReadyStatement statement
+  (VariableDeclarationStatement statementRange mutability (WithTypeAnnotation unboundVariableName _) _) -> do
+    addVariable statementRange mutability unboundVariableName
+    return $ BindingReady statement
+  _ -> return $ BindingReady statement
 
-statementBinder :: BindingReadyStatement -> IdentifierBinder IBStatement
-statementBinder
-  ( BindingReadyStatement
-      ( VariableDeclarationStatement
-          declarationRange
-          mutability
-          (WithTypeAnnotation (Identifier identifierRange identifier) typeAnnotation)
-          expression
-        )
-    ) =
-    do
-      IdentifierInfo {boundIdentifier} <- setVariableUsability identifier InDeclaration
-      boundExpression <- expressionBinder expression
-      boundTypeAnnotation <- mapM typeExpressionBinder typeAnnotation
-      return $ VariableDeclarationStatement declarationRange mutability (WithTypeAnnotation (Identifier identifierRange boundIdentifier) boundTypeAnnotation) boundExpression
-      `andFinally` setVariableUsability identifier Usable
-statementBinder (BindingReadyStatement (VariableMutationStatement statementRange (Identifier identifierRange identifier) expression)) = do
-  IdentifierInfo {boundIdentifier} <- getIdentifierBinding identifierRange True identifier
+statementBinder :: BindingReady PStatement -> IdentifierBinder IBStatement
+statementBinder (BindingReady (VariableDeclarationStatement declarationRange mutability (WithTypeAnnotation unboundVariableName typeAnnotation) expression)) =
+  do
+    boundVariableName <- setVariableUsability unboundVariableName InDeclaration
+    boundExpression <- expressionBinder expression
+    boundTypeAnnotation <- mapM typeExpressionBinder typeAnnotation
+    return $ VariableDeclarationStatement declarationRange mutability (WithTypeAnnotation boundVariableName boundTypeAnnotation) boundExpression
+    `andFinally` setVariableUsability unboundVariableName Usable
+statementBinder (BindingReady (VariableMutationStatement statementRange unboundVariableName expression)) = do
+  identifierInfo <- getIdentifierBinding statementRange unboundVariableName
+  boundValueIdentifier <- case identifierInfo of
+    ParameterIdentifierInfo declarationRange _ -> throwError $ MutatedParameterError unboundVariableName declarationRange statementRange
+    FunctionIdentifierInfo declarationRange _ -> throwError $ MutatedFunctionError unboundVariableName declarationRange statementRange
+    VariableIdentifierInfo declarationRange boundValueIdentifier mutability usability -> do
+      case usability of
+        BeforeDeclaration -> throwError $ VariableDefinedAfterReferenceError unboundVariableName statementRange declarationRange
+        InDeclaration -> throwError $ VariableReferencedInDeclarationError unboundVariableName declarationRange statementRange
+        Usable -> return ()
+      case mutability of
+        Immutable -> throwError $ MutatedImmutableVariableError unboundVariableName declarationRange statementRange
+        Mutable -> return ()
+      return boundValueIdentifier
   boundExpression <- expressionBinder expression
-  return $ VariableMutationStatement statementRange (Identifier identifierRange boundIdentifier) boundExpression
+  return $ VariableMutationStatement statementRange boundValueIdentifier boundExpression
 -- Standard cases
-statementBinder (BindingReadyStatement (PrintStatement range expression)) = do
+statementBinder (BindingReady (PrintStatement range expression)) = do
   boundExpression <- expressionBinder expression
   return $ PrintStatement range boundExpression
-statementBinder (BindingReadyStatement (ExpressionStatement range expression)) = do
+statementBinder (BindingReady (ExpressionStatement range expression)) = do
   boundExpression <- expressionBinder expression
   return $ ExpressionStatement range boundExpression
-statementBinder (BindingReadyStatement (WhileLoopStatement range condition body)) = do
+statementBinder (BindingReady (WhileLoopStatement range condition body)) = do
   boundCondition <- expressionBinder condition
   boundBody <- expressionBinder body
   return $ WhileLoopStatement range boundCondition boundBody
-statementBinder (BindingReadyStatement (ReturnStatement range (Just expression))) = do
+statementBinder (BindingReady (ReturnStatement range (Just expression))) = do
   boundExpression <- expressionBinder expression
   return $ ReturnStatement range (Just boundExpression)
-statementBinder (BindingReadyStatement (ReturnStatement range Nothing)) =
+statementBinder (BindingReady (ReturnStatement range Nothing)) =
   return $ ReturnStatement range Nothing
 
 expressionBinder :: PExpression -> IdentifierBinder IBExpression
-expressionBinder (VariableExpression expressionRange (Identifier identifierRange identifier)) = do
-  IdentifierInfo {boundIdentifier} <- getIdentifierBinding expressionRange False identifier
-  return $ VariableExpression expressionRange (Identifier identifierRange boundIdentifier)
-expressionBinder (ScopeExpression d statements) = withNewExpressionScope $ do
-  boundStatements <- bindScope statements
-  return $ ScopeExpression d boundStatements
-expressionBinder (FunctionExpression d (FunctionDefinition parameters (WithTypeAnnotation body returnTypeAnnotation))) = withNewFunctionScope $ do
-  boundParameters <- traverse' bindParameter parameters
+expressionBinder (IdentifierExpression expressionRange unboundIdentifier) = do
+  identifierInfo <- getIdentifierBinding expressionRange unboundIdentifier
+  case identifierInfo of
+    ParameterIdentifierInfo _ boundValueIdentifier -> return $ IdentifierExpression expressionRange $ Left boundValueIdentifier
+    FunctionIdentifierInfo _ boundFunctionIdentifier -> return $ IdentifierExpression expressionRange $ Right boundFunctionIdentifier
+    VariableIdentifierInfo declarationRange boundValueIdentifier _ usability -> case usability of
+      BeforeDeclaration -> throwError $ VariableDefinedAfterReferenceError unboundIdentifier expressionRange declarationRange
+      InDeclaration -> throwError $ VariableReferencedInDeclarationError unboundIdentifier declarationRange expressionRange
+      Usable -> return $ IdentifierExpression expressionRange $ Left boundValueIdentifier
+expressionBinder (ScopeExpression d scope) = withNewExpressionScope $ do
+  boundScope <- bindScope scope
+  return $ ScopeExpression d boundScope
+expressionBinder (FunctionExpression expressionRange (FunctionDefinition definitionRange parameters (WithTypeAnnotation body returnTypeAnnotation))) = withNewFunctionScope $ do
+  boundParameters <- traverse' (bindParameter expressionRange) parameters
   boundReturnTypeAnnotation <- mapM typeExpressionBinder returnTypeAnnotation
   boundBody <- expressionBinder body
-  capturedVariables <- getCapturedIdentifiers
-  let functionDefinition = FunctionDefinition boundParameters (WithTypeAnnotation boundBody boundReturnTypeAnnotation)
-  let subFunction = SubFunction d (toAstIdentifier . insideIdentifier <$> capturedVariables) functionDefinition
-  functionIndex <- addBoundSubFunction subFunction
-  return $ FunctionExpression d $ IBFunctionExpressionContent functionIndex (toAstIdentifier . outsideIdentifier <$> capturedVariables)
+  capturedIdentifiers <- getCapturedIdentifiers
+  let functionDefinitionData = IBFunctionDefinitionData {ibFunctionDefinitionRange = definitionRange, ibFunctionDefinitionCapturedIdentifiers = capturedIdentifiers}
+  let functionDefinition = FunctionDefinition functionDefinitionData boundParameters (WithTypeAnnotation boundBody boundReturnTypeAnnotation)
+  return $ FunctionExpression expressionRange functionDefinition
 -- Standard cases
 expressionBinder (IntLiteralExpression d value) = return $ IntLiteralExpression d value
 expressionBinder (FloatLiteralExpression d value) = return $ FloatLiteralExpression d value
@@ -174,20 +203,23 @@ expressionBinder (FunctionCallExpression d function arguments) = do
   boundArguments <- traverse' expressionBinder arguments
   return $ FunctionCallExpression d boundFunction boundArguments
 
-bindScope :: Seq PStatement -> IdentifierBinder (Seq IBStatement)
-bindScope statements = do
-  readyStatements <- traverse' prepareStatementForBinding statements
-  traverse' statementBinder readyStatements
+bindScope :: PScope -> IdentifierBinder IBScope
+bindScope (Scope () nonPositionalStatements statements) = do
+  readyNonPositionalStatements <- traverse prepareNonPositionalStatementForBinding nonPositionalStatements
+  readyStatements <- traverse prepareStatementForBinding statements
+  boundStatements <- traverse statementBinder readyStatements
+  boundNonPositionalStatements <- traverse nonPositionalStatementBinder readyNonPositionalStatements
+  return $ Scope () boundNonPositionalStatements boundStatements
 
-bindParameter :: PWithTypeAnnotation PIdentifier -> IdentifierBinder (IBWithTypeAnnotation IBIdentifier)
-bindParameter (WithTypeAnnotation (Identifier identifierRange identifier) typeAnnotation) = do
-  IdentifierInfo {boundIdentifier} <- addParameter identifierRange identifier
+bindParameter :: Range -> PWithTypeAnnotation PIdentifier -> IdentifierBinder (IBWithTypeAnnotation IBValueIdentifier)
+bindParameter definitionRange (WithTypeAnnotation unboundParameter typeAnnotation) = do
+  boundParameter <- addParameter definitionRange unboundParameter
   boundTypeAnnotation <- mapM typeExpressionBinder typeAnnotation
-  return $ WithTypeAnnotation (Identifier identifierRange boundIdentifier) boundTypeAnnotation
+  return $ WithTypeAnnotation boundParameter boundTypeAnnotation
 
 -- Note that this function uses the identifier declaration range as its range, so this should not be used for most identifier uses
-toAstIdentifier :: IdentifierInfo -> IBIdentifier
-toAstIdentifier (IdentifierInfo {boundIdentifier, declarationRange}) = Identifier declarationRange boundIdentifier
+-- toAstIdentifier :: IdentifierInfo -> IBIdentifier
+-- toAstIdentifier (IdentifierInfo {boundIdentifier, declarationRange}) = Identifier declarationRange boundIdentifier
 
 typeExpressionBinder :: PTypeExpression -> IdentifierBinder IBTypeExpression
 typeExpressionBinder (IntTypeExpression range) = return $ IntTypeExpression range

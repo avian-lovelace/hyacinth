@@ -31,15 +31,15 @@ testVariables = do
       "{ let foo = 3; print foo; }; let foo = 5; print foo;" `runsSuccessfullyWithOutput` "3\n5\n"
   describe "Variable errors" $ do
     it "Multiple variables with the same name cannot be declared in the same scope" $
-      "let foo = 3; let foo = 5;" `failsToCompileWithError` conflictingVariableDeclarationsError
+      "let foo = 3; let foo = 5;" `failsToCompileWithError` conflictingIdentifierDefinitionsError
     it "Variables cannot be mutated without being declared" $
-      "mut foo = 5;" `failsToCompileWithError` variableUndefinedAtReferenceError
+      "mut foo = 5;" `failsToCompileWithError` identifierUndefinedAtReferenceError
     it "Variables cannot be mutated before being declared" $
-      "mut foo = 5; let foo = 3;" `failsToCompileWithError` variableDeclaredAfterReferenceError
+      "mut foo = 5; let foo = 3;" `failsToCompileWithError` variableDefinedAfterReferenceError
     it "Variables cannot be used without being declared" $
-      "print foo;" `failsToCompileWithError` variableUndefinedAtReferenceError
+      "print foo;" `failsToCompileWithError` identifierUndefinedAtReferenceError
     it "Variables cannot be used before being declared" $
-      "print foo; let foo = 3;" `failsToCompileWithError` variableDeclaredAfterReferenceError
+      "print foo; let foo = 3;" `failsToCompileWithError` variableDefinedAfterReferenceError
     it "Variables cannot be used in the value of their declaration" $
       "let foo = 1 + foo;" `failsToCompileWithError` variableReferencedInDeclarationError
     it "Variables cannot be used in nested scopes in the value of their declaration" $
@@ -55,17 +55,17 @@ testVariables = do
     it "Variable mutation values must match the variable type when inferred" $
       "let mut foo = true; mut foo = 7;" `failsToCompileWithError` variableMutationTypeError
 
-conflictingVariableDeclarationsError :: Error -> Bool
-conflictingVariableDeclarationsError (ConflictingVariableDeclarationsError _ _ _) = True
-conflictingVariableDeclarationsError _ = False
+conflictingIdentifierDefinitionsError :: Error -> Bool
+conflictingIdentifierDefinitionsError (ConflictingIdentifierDefinitionsError _ _ _) = True
+conflictingIdentifierDefinitionsError _ = False
 
-variableUndefinedAtReferenceError :: Error -> Bool
-variableUndefinedAtReferenceError (VariableUndefinedAtReferenceError _ _) = True
-variableUndefinedAtReferenceError _ = False
+identifierUndefinedAtReferenceError :: Error -> Bool
+identifierUndefinedAtReferenceError (IdentifierUndefinedAtReferenceError _ _) = True
+identifierUndefinedAtReferenceError _ = False
 
-variableDeclaredAfterReferenceError :: Error -> Bool
-variableDeclaredAfterReferenceError (VariableDeclaredAfterReferenceError _ _ _) = True
-variableDeclaredAfterReferenceError _ = False
+variableDefinedAfterReferenceError :: Error -> Bool
+variableDefinedAfterReferenceError (VariableDefinedAfterReferenceError _ _ _) = True
+variableDefinedAfterReferenceError _ = False
 
 variableReferencedInDeclarationError :: Error -> Bool
 variableReferencedInDeclarationError (VariableReferencedInDeclarationError _ _ _) = True

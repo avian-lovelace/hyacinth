@@ -28,7 +28,7 @@ data Range = Range
   { start :: Position,
     end :: Position
   }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 instance Semigroup Range where
   -- Get the smallest range containing both ranges

@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module TypeChecking.SyntaxTree
   ( TypeCheckingPhase,
@@ -6,26 +7,33 @@ module TypeChecking.SyntaxTree
     riAnd,
     riOr,
     TCModule,
-    TCModuleContent (TCModuleContent),
     TCMainFunction,
-    TCSubFunction,
     TCStatement,
     TCStatementData (TCStatementData, statementRange, statementReturnInfo),
     TCIdentifier,
+    TCValueIdentifier,
+    TCFunctionIdentifier,
     TCExpression,
     TCExpresionData (TCExpresionData, expressionRange, expressionType, expressionReturnInfo),
-    TCFunctionExpressionContent (TCFunctionExpressionContent),
     TCWithTypeAnnotation,
     TCTypeExpression,
+    TCScope,
+    TCNonPositionalStatement,
+    TCFunctionDefinition,
+    TCFunctionDefinitionData
+      ( TCFunctionDefinitionData,
+        tcFunctionDefinitionRange,
+        tcFunctionDefinitionType,
+        tcFunctionDefinitionCapturedIdentifiers
+      ),
   )
 where
 
 import Core.FilePositions
 import Core.SyntaxTree
 import Core.Type (Type)
-import Core.Utils
-import Data.Sequence (Seq)
-import IdentifierBinding.SyntaxTree (BoundIdentifier, FunctionIndex)
+import Data.Set (Set)
+import IdentifierBinding.SyntaxTree
 
 data TypeCheckingPhase
 
@@ -58,20 +66,19 @@ type TCModule = Module TypeCheckingPhase
 
 type instance ModuleData TypeCheckingPhase = ()
 
-data TCModuleContent = TCModuleContent TCMainFunction (Seq TCSubFunction)
+-- instance Pretty TCModuleContent where
+--   pretty (TCModuleContent mainFunction subFunctions) = pretty mainFunction ++ "(" ++ pretty subFunctions ++ ")"
 
-instance Pretty TCModuleContent where
-  pretty (TCModuleContent mainFunction subFunctions) = pretty mainFunction ++ "(" ++ pretty subFunctions ++ ")"
-
-type instance ModuleContent TypeCheckingPhase = TCModuleContent
+type instance ModuleContent TypeCheckingPhase = TCMainFunction
 
 type TCMainFunction = MainFunction TypeCheckingPhase
 
 type instance MainFunctionData TypeCheckingPhase = ()
 
-type TCSubFunction = SubFunction TypeCheckingPhase
+-- Scope
+type TCScope = Scope TypeCheckingPhase
 
-type instance SubFunctionData TypeCheckingPhase = Range
+type instance ScopeData TypeCheckingPhase = ReturnInfo
 
 -- Statement
 type TCStatement = Statement TypeCheckingPhase
@@ -83,15 +90,36 @@ data TCStatementData = TCStatementData
 
 type instance StatementData TypeCheckingPhase = TCStatementData
 
+-- Non-positional statement
+
+type TCNonPositionalStatement = NonPositionalStatement TypeCheckingPhase
+
+type instance NonPositionalStatementData TypeCheckingPhase = Range
+
+type instance FunctionStatementContent TypeCheckingPhase = TCFunctionDefinition
+
+type TCFunctionDefinition = FunctionDefinition TypeCheckingPhase
+
+type instance FunctionDefinitionData TypeCheckingPhase = TCFunctionDefinitionData
+
+data TCFunctionDefinitionData = TCFunctionDefinitionData
+  { tcFunctionDefinitionRange :: Range,
+    tcFunctionDefinitionType :: Type,
+    tcFunctionDefinitionCapturedIdentifiers :: Set TCIdentifier
+  }
+
 -- Identifier
 type TCIdentifier = Identifier TypeCheckingPhase
 
-type instance IdentifierData TypeCheckingPhase = Range
+type instance Identifier TypeCheckingPhase = Either TCValueIdentifier TCFunctionIdentifier
 
-type instance IdentifierContent TypeCheckingPhase = BoundIdentifier
+type TCValueIdentifier = ValueIdentifier TypeCheckingPhase
 
-instance WithRange TCIdentifier where
-  getRange (Identifier d _) = d
+type instance ValueIdentifier TypeCheckingPhase = BoundValueIdentifier
+
+type TCFunctionIdentifier = FunctionIdentifier TypeCheckingPhase
+
+type instance FunctionIdentifier TypeCheckingPhase = BoundFunctionIdentifier
 
 -- Expression
 type TCExpression = Expression TypeCheckingPhase
@@ -107,12 +135,10 @@ type instance ExpressionData TypeCheckingPhase = TCExpresionData
 instance WithRange TCExpression where
   getRange = expressionRange . getExpressionData
 
-data TCFunctionExpressionContent = TCFunctionExpressionContent FunctionIndex (Seq TCIdentifier)
+-- instance Pretty TCFunctionExpressionContent where
+--   pretty (TCFunctionExpressionContent functionIndex capturedIdentifiers) = show functionIndex ++ "(" ++ pretty capturedIdentifiers ++ ")"
 
-instance Pretty TCFunctionExpressionContent where
-  pretty (TCFunctionExpressionContent functionIndex capturedIdentifiers) = show functionIndex ++ "(" ++ pretty capturedIdentifiers ++ ")"
-
-type instance FunctionExpressionContent TypeCheckingPhase = TCFunctionExpressionContent
+type instance FunctionExpressionContent TypeCheckingPhase = TCFunctionDefinition
 
 -- Type annotation
 type TCWithTypeAnnotation = WithTypeAnnotation TypeCheckingPhase

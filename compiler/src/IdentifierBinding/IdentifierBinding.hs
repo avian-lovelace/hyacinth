@@ -1,11 +1,8 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TupleSections #-}
-
 module IdentifierBinding.IdentifierBinding
   ( IdentifierBinder,
-    IdentifierInfo (IdentifierInfo, boundIdentifier, declarationRange),
+    IdentifierBindingState (IdentifierBindingState, boundValueIdentifierCounter, boundFunctionIdentifierCounter),
+    IdentifierInfo (VariableIdentifierInfo, ParameterIdentifierInfo, FunctionIdentifierInfo),
     VariableUsability (BeforeDeclaration, InDeclaration, Usable),
-    CapturedIdentifierInfo (CapturedIdentifierInfo, outsideIdentifier, insideIdentifier),
     addVariable,
     initialBindingState,
     andFinally,
@@ -14,9 +11,9 @@ module IdentifierBinding.IdentifierBinding
     getIdentifierBinding,
     setVariableUsability,
     addParameter,
-    addBoundSubFunction,
     getCapturedIdentifiers,
-    getBoundFunctions,
+    addFunction,
+    getFunctionNameBinding,
   )
 where
 
@@ -26,230 +23,232 @@ import Core.FilePositions
 import Core.SyntaxTree
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Sequence (Seq (Empty), (|>))
-import qualified Data.Sequence as Seq
+import Data.Set (Set)
+import qualified Data.Set as Set
 import IdentifierBinding.SyntaxTree
 import Parsing.SyntaxTree
 
 type IdentifierBinder a = ErrorState IdentifierBindingState a
 
 data IdentifierBindingState = IdentifierBindingState
-  { scopes :: [Scope],
-    boundIdentifierCounter :: Int,
-    boundFunctions :: Seq IBSubFunction
+  { scopes :: [ScopeInfo],
+    boundValueIdentifierCounter :: Int,
+    boundFunctionIdentifierCounter :: Int
   }
 
-data Scope
-  = ExpressionScope {variables :: Map UnboundIdentifier VariableInfo}
-  | FunctionScope {parameters :: Map UnboundIdentifier IdentifierInfo, capturedIdentifiers :: Map UnboundIdentifier CapturedIdentifierInfo}
+data ScopeInfo
+  = ExpressionScope {scopeIdentifiers :: Map UnboundIdentifier IdentifierInfo}
+  | FunctionScope {parameters :: Map UnboundIdentifier IdentifierInfo, capturedIdentifiers :: Set IdentifierInfo}
 
-data VariableInfo = VariableInfo IdentifierInfo VariableUsability Mutability
+data IdentifierInfo
+  = VariableIdentifierInfo Range BoundValueIdentifier Mutability VariableUsability
+  | ParameterIdentifierInfo Range BoundValueIdentifier
+  | FunctionIdentifierInfo Range BoundFunctionIdentifier
+  deriving (Eq, Ord)
 
-data CapturedIdentifierInfo = CapturedIdentifierInfo {outsideIdentifier :: IdentifierInfo, insideIdentifier :: IdentifierInfo}
+getIdentifier :: IdentifierInfo -> IBIdentifier
+getIdentifier (VariableIdentifierInfo _ boundValueIdentifier _ _) = Left boundValueIdentifier
+getIdentifier (ParameterIdentifierInfo _ boundValueIdentifier) = Left boundValueIdentifier
+getIdentifier (FunctionIdentifierInfo _ boundFunctionIdentifier) = Right boundFunctionIdentifier
 
-data IdentifierInfo = IdentifierInfo {boundIdentifier :: BoundIdentifier, declarationRange :: Range}
+instance WithRange IdentifierInfo where
+  getRange (VariableIdentifierInfo range _ _ _) = range
+  getRange (ParameterIdentifierInfo range _) = range
+  getRange (FunctionIdentifierInfo range _) = range
 
-data VariableUsability = BeforeDeclaration | InDeclaration | Usable
+data VariableUsability = BeforeDeclaration | InDeclaration | Usable deriving (Eq, Ord)
 
 initialBindingState :: IdentifierBindingState
 initialBindingState =
   IdentifierBindingState
     { scopes = [],
-      boundIdentifierCounter = 0,
-      boundFunctions = Empty
+      boundValueIdentifierCounter = 0,
+      boundFunctionIdentifierCounter = 1
     }
 
 withNewExpressionScope :: IdentifierBinder a -> IdentifierBinder a
 withNewExpressionScope binder =
   do
-    pushScope ExpressionScope {variables = Map.empty}
+    pushScope ExpressionScope {scopeIdentifiers = Map.empty}
     binder
     `andFinally` popScope
 
 withNewFunctionScope :: IdentifierBinder a -> IdentifierBinder a
 withNewFunctionScope binder =
   do
-    pushScope FunctionScope {parameters = Map.empty, capturedIdentifiers = Map.empty}
+    pushScope FunctionScope {parameters = Map.empty, capturedIdentifiers = Set.empty}
     binder
     `andFinally` popScope
 
-addVariable :: Range -> Mutability -> UnboundIdentifier -> IdentifierBinder IdentifierInfo
-addVariable dRange mutability identifier = do
+addVariable :: Range -> Mutability -> UnboundIdentifier -> IdentifierBinder ()
+addVariable declarationRange mutability unboundIdentifier = do
   currentScope <- getCurrentScope
-  variables <- liftWithErrors $ expectExpressionScope currentScope
-  case Map.lookup identifier variables of
-    Just (VariableInfo conflictingInfo _ _) ->
+  scopeIdentifiers <- liftWithErrors $ expectExpressionScope currentScope
+  case Map.lookup unboundIdentifier scopeIdentifiers of
+    Just conflictingInfo ->
       throwError $
-        ConflictingVariableDeclarationsError identifier (declarationRange conflictingInfo) dRange
+        ConflictingIdentifierDefinitionsError unboundIdentifier (getRange conflictingInfo) declarationRange
     Nothing -> do
-      checkForInvalidShadow dRange identifier
-      identifierInfo <- getNewBinding dRange
-      let variableInfo = VariableInfo identifierInfo BeforeDeclaration mutability
-      setCurrentScope $ ExpressionScope {variables = Map.insert identifier variableInfo variables}
-      return identifierInfo
+      checkForInvalidShadow declarationRange unboundIdentifier
+      boundValueIdentifier <- getNewValueBinding unboundIdentifier
+      let variableIdentifierInfo = VariableIdentifierInfo declarationRange boundValueIdentifier mutability BeforeDeclaration
+      setCurrentScope $ ExpressionScope {scopeIdentifiers = Map.insert unboundIdentifier variableIdentifierInfo scopeIdentifiers}
 
-setVariableUsability :: UnboundIdentifier -> VariableUsability -> IdentifierBinder IdentifierInfo
-setVariableUsability identifier usability = do
+setVariableUsability :: UnboundIdentifier -> VariableUsability -> IdentifierBinder BoundValueIdentifier
+setVariableUsability unboundIdentifier usability = do
   currentScope <- getCurrentScope
-  variables <- liftWithErrors $ expectExpressionScope currentScope
-  case Map.lookup identifier variables of
-    Just (VariableInfo info _ isMutable) -> do
-      let updatedVariables = Map.insert identifier (VariableInfo info usability isMutable) variables
-      setCurrentScope $ ExpressionScope {variables = updatedVariables}
-      return info
+  scopeIdentifiers <- liftWithErrors $ expectExpressionScope currentScope
+  case Map.lookup unboundIdentifier scopeIdentifiers of
+    Just (VariableIdentifierInfo range boundIdentifier mutability _) -> do
+      let updatedVariables = Map.insert unboundIdentifier (VariableIdentifierInfo range boundIdentifier mutability usability) scopeIdentifiers
+      setCurrentScope $ ExpressionScope {scopeIdentifiers = updatedVariables}
+      return boundIdentifier
+    Just _ -> throwError $ ShouldNotGetHereError "Set variable usability of non-variable identifier"
     Nothing -> throwError $ ShouldNotGetHereError "Set variable usability of identifier not in scope"
 
-addParameter :: Range -> UnboundIdentifier -> IdentifierBinder IdentifierInfo
-addParameter dRange identifier = do
+addFunction :: Range -> UnboundIdentifier -> IdentifierBinder ()
+addFunction definitionRange unboundFunctionName = do
+  currentScope <- getCurrentScope
+  scopeIdentifiers <- liftWithErrors $ expectExpressionScope currentScope
+  case Map.lookup unboundFunctionName scopeIdentifiers of
+    Just conflictingInfo ->
+      throwError $
+        ConflictingIdentifierDefinitionsError unboundFunctionName (getRange conflictingInfo) definitionRange
+    Nothing -> do
+      checkForInvalidShadow definitionRange unboundFunctionName
+      boundFunctionIdentifier <- getNewFunctionBinding unboundFunctionName
+      let functionIdentifierInfo = FunctionIdentifierInfo definitionRange boundFunctionIdentifier
+      setCurrentScope $ ExpressionScope {scopeIdentifiers = Map.insert unboundFunctionName functionIdentifierInfo scopeIdentifiers}
+
+addParameter :: Range -> UnboundIdentifier -> IdentifierBinder BoundValueIdentifier
+addParameter parameterRange unboundParameter = do
   currentScope <- getCurrentScope
   (parameters, capturedIdentifiers) <- liftWithErrors $ expectFunctionScope currentScope
-  case Map.lookup identifier parameters of
-    Just conflictingInfo -> throwError $ ConflictingParameterNamesError identifier (declarationRange conflictingInfo) dRange
+  case Map.lookup unboundParameter parameters of
+    Just conflictingInfo -> throwError $ ConflictingParameterNamesError unboundParameter (getRange conflictingInfo) parameterRange
     Nothing -> do
-      checkForInvalidShadow dRange identifier
-      variableInfo <- getNewBinding dRange
-      setCurrentScope $ FunctionScope {parameters = Map.insert identifier variableInfo parameters, capturedIdentifiers}
-      return variableInfo
+      checkForInvalidShadow parameterRange unboundParameter
+      boundValueIdentifier <- getNewValueBinding unboundParameter
+      let parameterInfo = ParameterIdentifierInfo parameterRange boundValueIdentifier
+      setCurrentScope $ FunctionScope {parameters = Map.insert unboundParameter parameterInfo parameters, capturedIdentifiers}
+      return boundValueIdentifier
 
 checkForInvalidShadow :: Range -> UnboundIdentifier -> IdentifierBinder ()
-checkForInvalidShadow shadowRange identifier = do
-  scopes <- getScopes
-  checkForInvalidShadowHelper shadowRange identifier scopes
+checkForInvalidShadow shadowRange unboundIdentifier = do
+  scopes <- scopes <$> getState
+  checkForInvalidShadowInScopes shadowRange unboundIdentifier scopes
 
-checkForInvalidShadowHelper :: Range -> UnboundIdentifier -> [Scope] -> IdentifierBinder ()
-checkForInvalidShadowHelper _ _ [] = return ()
-checkForInvalidShadowHelper shadowRange identifier (FunctionScope {parameters, capturedIdentifiers} : restScopes) =
-  if Map.member identifier parameters || Map.member identifier capturedIdentifiers
+checkForInvalidShadowInScopes :: Range -> UnboundIdentifier -> [ScopeInfo] -> IdentifierBinder ()
+checkForInvalidShadowInScopes _ _ [] = return ()
+checkForInvalidShadowInScopes shadowRange unboundIdentifier (FunctionScope {parameters} : restScopes) =
+  if Map.member unboundIdentifier parameters
     -- Parameters are always usable if they are in scope, and if a variable is captured, we have already confirmed it is usable
     then return ()
-    else checkForInvalidShadowHelper shadowRange identifier restScopes
-checkForInvalidShadowHelper shadowRange identifier (ExpressionScope {variables} : restScopes) =
-  case Map.lookup identifier variables of
-    Just (VariableInfo IdentifierInfo {declarationRange} InDeclaration _) -> throwError $ VariableShadowedInDeclarationError identifier declarationRange shadowRange
+    else checkForInvalidShadowInScopes shadowRange unboundIdentifier restScopes
+checkForInvalidShadowInScopes shadowRange unboundIdentifier (ExpressionScope {scopeIdentifiers} : restScopes) =
+  case Map.lookup unboundIdentifier scopeIdentifiers of
+    Just (VariableIdentifierInfo declarationRange _ _ InDeclaration) -> throwError $ VariableShadowedInDeclarationError unboundIdentifier declarationRange shadowRange
     Just _ -> return ()
-    Nothing -> checkForInvalidShadowHelper shadowRange identifier restScopes
+    Nothing -> checkForInvalidShadowInScopes shadowRange unboundIdentifier restScopes
 
 {- Get the bound identifier corresponding to the input unbound identifier. If there are any function scopes above the
 found binding, their variable capture maps are updated to include this identifier. If the identifier is not usable, an
 error is thrown.
 -}
-getIdentifierBinding :: Range -> Bool -> UnboundIdentifier -> IdentifierBinder IdentifierInfo
-getIdentifierBinding usageRange requireMutable identifier = do
-  scopes <- getScopes
-  (info, updatedScopes) <- getIdentifierBindingHelper usageRange requireMutable identifier scopes
+getIdentifierBinding :: Range -> UnboundIdentifier -> IdentifierBinder IdentifierInfo
+getIdentifierBinding usageRange unboundIdentifier = do
+  scopes <- scopes <$> getState
+  (info, updatedScopes) <- getIdentifierBindingInScopes usageRange unboundIdentifier scopes
   setScopes updatedScopes
   return info
 
-getIdentifierBindingHelper :: Range -> Bool -> UnboundIdentifier -> [Scope] -> IdentifierBinder (IdentifierInfo, [Scope])
-getIdentifierBindingHelper usageRange requireMutable identifier scopes = case scopes of
-  [] -> throwError $ VariableUndefinedAtReferenceError identifier usageRange
-  ExpressionScope {variables} : restScopes -> case Map.lookup identifier variables of
-    Just (VariableInfo info usability mutability) -> do
-      assertVariableIsUsable info usability
-      if requireMutable && not (mutability == Mutable)
-        then throwError $ MutatedImmutableVariableError identifier (declarationRange info) usageRange
-        else return ()
-      return (info, scopes)
+getIdentifierBindingInScopes :: Range -> UnboundIdentifier -> [ScopeInfo] -> IdentifierBinder (IdentifierInfo, [ScopeInfo])
+getIdentifierBindingInScopes usageRange unboundIdentifier scopes = case scopes of
+  [] -> throwError $ IdentifierUndefinedAtReferenceError unboundIdentifier usageRange
+  ExpressionScope {scopeIdentifiers} : restScopes -> case Map.lookup unboundIdentifier scopeIdentifiers of
+    Just info -> return (info, scopes)
     Nothing -> do
-      (info, updatedRestScopes) <- getIdentifierBindingHelper usageRange requireMutable identifier restScopes
-      return (info, ExpressionScope {variables} : updatedRestScopes)
-  FunctionScope {parameters, capturedIdentifiers} : restScopes -> case Map.lookup identifier parameters of
-    Just info -> do
-      if requireMutable
-        then throwError $ MutatedParameterError identifier (declarationRange info) usageRange
-        else return (info, scopes)
-    Nothing -> case Map.lookup identifier capturedIdentifiers of
-      Just (CapturedIdentifierInfo {insideIdentifier}) -> do
-        if requireMutable
-          then throwError $ MutatedCapturedIdentifierError identifier (declarationRange insideIdentifier) usageRange
-          else return (insideIdentifier, scopes)
-      Nothing -> do
-        (outsideIdentifier, updatedRestScopes) <- getIdentifierBindingHelper usageRange requireMutable identifier restScopes
-        if requireMutable
-          then throwError $ MutatedCapturedIdentifierError identifier (declarationRange outsideIdentifier) usageRange
-          else return ()
-        insideIdentifier <- getNewBinding (declarationRange outsideIdentifier)
-        let updatedCapturedVariables = Map.insert identifier (CapturedIdentifierInfo {outsideIdentifier, insideIdentifier}) capturedIdentifiers
-        return (insideIdentifier, FunctionScope {parameters, capturedIdentifiers = updatedCapturedVariables} : updatedRestScopes)
-  where
-    assertVariableIsUsable :: IdentifierInfo -> VariableUsability -> IdentifierBinder ()
-    assertVariableIsUsable _ Usable = return ()
-    assertVariableIsUsable info BeforeDeclaration =
-      throwError $ VariableDeclaredAfterReferenceError identifier usageRange (declarationRange info)
-    assertVariableIsUsable info InDeclaration =
-      throwError $ VariableReferencedInDeclarationError identifier usageRange (declarationRange info)
+      (info, updatedRestScopes) <- getIdentifierBindingInScopes usageRange unboundIdentifier restScopes
+      return (info, ExpressionScope {scopeIdentifiers} : updatedRestScopes)
+  FunctionScope {parameters, capturedIdentifiers} : restScopes -> case Map.lookup unboundIdentifier parameters of
+    Just info -> return (info, scopes)
+    Nothing -> do
+      (info, updatedRestScopes) <- getIdentifierBindingInScopes usageRange unboundIdentifier restScopes
+      let updatedCapturedIdentifiers = Set.insert info capturedIdentifiers
+      return (info, FunctionScope {parameters, capturedIdentifiers = updatedCapturedIdentifiers} : updatedRestScopes)
 
-getNewBinding :: Range -> IdentifierBinder IdentifierInfo
-getNewBinding declarationRange = do
-  IdentifierBindingState {boundIdentifierCounter, scopes, boundFunctions} <- getState
-  setState $ IdentifierBindingState {boundIdentifierCounter = boundIdentifierCounter + 1, scopes, boundFunctions}
-  return IdentifierInfo {boundIdentifier = boundIdentifierCounter, declarationRange}
+--   where
+--     assertVariableIsUsable :: IdentifierInfo -> VariableUsability -> IdentifierBinder ()
+--     assertVariableIsUsable _ Usable = return ()
+--     assertVariableIsUsable info BeforeDeclaration =
+--       throwError $ VariableDeclaredAfterReferenceError identifier usageRange (declarationRange info)
+--     assertVariableIsUsable info InDeclaration =
+--       throwError $ VariableReferencedInDeclarationError identifier usageRange (declarationRange info)
 
-getBoundFunctions :: IdentifierBinder (Seq IBSubFunction)
-getBoundFunctions = boundFunctions <$> getState
+getNewValueBinding :: UnboundIdentifier -> IdentifierBinder BoundValueIdentifier
+getNewValueBinding unboundIdentifier = do
+  IdentifierBindingState {boundValueIdentifierCounter, scopes, boundFunctionIdentifierCounter} <- getState
+  setState $ IdentifierBindingState {boundValueIdentifierCounter = boundValueIdentifierCounter + 1, scopes, boundFunctionIdentifierCounter}
+  return $ BoundValueIdentifier boundValueIdentifierCounter unboundIdentifier
 
-setBoundFunctions :: Seq IBSubFunction -> IdentifierBinder ()
-setBoundFunctions boundFunctions = do
-  IdentifierBindingState {boundIdentifierCounter, scopes} <- getState
-  setState $ IdentifierBindingState {boundFunctions, boundIdentifierCounter, scopes}
+getNewFunctionBinding :: UnboundIdentifier -> IdentifierBinder BoundFunctionIdentifier
+getNewFunctionBinding unboundIdentifier = do
+  IdentifierBindingState {boundFunctionIdentifierCounter, boundValueIdentifierCounter, scopes} <- getState
+  setState $ IdentifierBindingState {boundFunctionIdentifierCounter = boundFunctionIdentifierCounter + 1, boundValueIdentifierCounter, scopes}
+  return $ BoundFunctionIdentifier boundFunctionIdentifierCounter unboundIdentifier
 
-addBoundSubFunction :: IBSubFunction -> IdentifierBinder FunctionIndex
-addBoundSubFunction newFunction = do
-  boundFunctions <- boundFunctions <$> getState
-  let updatedBoundFunctions = boundFunctions |> newFunction
-  setBoundFunctions updatedBoundFunctions
-  -- The functions are 1-indexed here because function 0 will be the main function, which is not yet included
-  return $ length updatedBoundFunctions
-
-getScopes :: IdentifierBinder [Scope]
-getScopes = do
-  IdentifierBindingState {scopes} <- getState
-  return scopes
-
-setScopes :: [Scope] -> IdentifierBinder ()
+setScopes :: [ScopeInfo] -> IdentifierBinder ()
 setScopes scopes = do
-  IdentifierBindingState {boundIdentifierCounter, boundFunctions} <- getState
-  setState IdentifierBindingState {scopes, boundIdentifierCounter, boundFunctions}
+  IdentifierBindingState {boundValueIdentifierCounter, boundFunctionIdentifierCounter} <- getState
+  setState IdentifierBindingState {scopes, boundValueIdentifierCounter, boundFunctionIdentifierCounter}
 
-popScope :: IdentifierBinder Scope
+popScope :: IdentifierBinder ScopeInfo
 popScope = do
-  scopes <- getScopes
+  scopes <- scopes <$> getState
   case scopes of
     [] -> throwError $ ShouldNotGetHereError "Called popScope while no scopes were active"
     currentScope : restScopes -> do
       setScopes restScopes
       return currentScope
 
-pushScope :: Scope -> IdentifierBinder ()
+pushScope :: ScopeInfo -> IdentifierBinder ()
 pushScope scope = do
-  scopes <- getScopes
+  scopes <- scopes <$> getState
   setScopes $ scope : scopes
 
-getCurrentScope :: IdentifierBinder Scope
+getCurrentScope :: IdentifierBinder ScopeInfo
 getCurrentScope = do
-  scopes <- getScopes
+  scopes <- scopes <$> getState
   case scopes of
     [] -> throwError $ ShouldNotGetHereError "Called getCurrentScope while no scopes were active"
     currentScope : _ -> do
       return currentScope
 
-setCurrentScope :: Scope -> IdentifierBinder ()
+setCurrentScope :: ScopeInfo -> IdentifierBinder ()
 setCurrentScope scope = do
-  scopes <- getScopes
+  scopes <- scopes <$> getState
   case scopes of
     [] -> throwError $ ShouldNotGetHereError "Called getCurrentScope while no scopes were active"
     _ : restScopes -> setScopes $ scope : restScopes
 
-expectExpressionScope :: Scope -> WithErrors (Map UnboundIdentifier VariableInfo)
-expectExpressionScope (ExpressionScope {variables}) = Success variables
+expectExpressionScope :: ScopeInfo -> WithErrors (Map UnboundIdentifier IdentifierInfo)
+expectExpressionScope (ExpressionScope {scopeIdentifiers}) = Success scopeIdentifiers
 expectExpressionScope _ = singleError $ ShouldNotGetHereError "Expected expression scope"
 
-expectFunctionScope :: Scope -> WithErrors (Map UnboundIdentifier IdentifierInfo, Map UnboundIdentifier CapturedIdentifierInfo)
+expectFunctionScope :: ScopeInfo -> WithErrors (Map UnboundIdentifier IdentifierInfo, Set IdentifierInfo)
 expectFunctionScope (FunctionScope {parameters, capturedIdentifiers}) = Success (parameters, capturedIdentifiers)
 expectFunctionScope _ = singleError $ ShouldNotGetHereError "Expected function scope"
 
-getCapturedIdentifiers :: IdentifierBinder (Seq CapturedIdentifierInfo)
+getCapturedIdentifiers :: IdentifierBinder (Set IBIdentifier)
 getCapturedIdentifiers = do
   currentScope <- getCurrentScope
-  (_, capturedIdentifiersMap) <- liftWithErrors $ expectFunctionScope currentScope
-  return $ Seq.fromList $ Map.elems capturedIdentifiersMap
+  (_, capturedIdentifiers) <- liftWithErrors $ expectFunctionScope currentScope
+  return $ Set.map getIdentifier capturedIdentifiers
+
+getFunctionNameBinding :: UnboundIdentifier -> IdentifierBinder IBFunctionIdentifier
+getFunctionNameBinding unboundFunctionName = do
+  currentScope <- getCurrentScope
+  identifierMap <- liftWithErrors $ expectExpressionScope currentScope
+  case Map.lookup unboundFunctionName identifierMap of
+    Just (FunctionIdentifierInfo _ boundFunctionName) -> return boundFunctionName
+    _ -> throwError $ ShouldNotGetHereError "Failed to find function name binding"

@@ -1,17 +1,13 @@
 module TypeChecking.TypeChecking
   ( TypeChecker,
-    FunctionContext (MainFunctionContext, FunctionContext, contextReturnType, contextReturnTypeRange),
-    setIdentifierType,
-    getIdentifierType,
+    FunctionContext (FunctionContext, contextReturnType, contextReturnTypeRange),
+    setValueIdentifierType,
+    getValueIdentifierType,
     getFunctionContext,
-    setFunctionContext,
-    getFunctionType,
-    setFunctionType,
-    pushCapturedIdentifierTypes,
-    popCapturedIdentifierTypes,
-    addCheckedFunction,
-    getCheckedFunctions,
     initialTypeCheckingState,
+    setFunctionType,
+    getFunctionType,
+    withFunctionContext,
   )
 where
 
@@ -21,112 +17,84 @@ import Core.FilePositions
 import Core.Type
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Sequence (Seq (Empty, (:<|)), (|>))
-import qualified Data.Sequence as Seq
+import Data.Maybe (listToMaybe)
 import IdentifierBinding.SyntaxTree
-import TypeChecking.SyntaxTree
 
 data TypeCheckingState = TypeCheckingState
-  { identifierTypes :: Map BoundIdentifier Type,
-    functionTypes :: Map FunctionIndex Type,
-    capturedIdentifierTypes :: Seq (FunctionIndex, Seq Type),
-    functionContext :: FunctionContext,
-    checkedFunctions :: Map FunctionIndex TCSubFunction
+  { valueIdentifierTypes :: Map BoundValueIdentifier Type,
+    functionTypes :: Map BoundFunctionIdentifier Type,
+    functionContextStack :: [FunctionContext]
   }
 
-data FunctionContext
-  = MainFunctionContext
-  | FunctionContext {contextReturnType :: Type, contextReturnTypeRange :: Range}
+data FunctionContext = FunctionContext {contextReturnType :: Type, contextReturnTypeRange :: Range}
 
 type TypeChecker = ErrorState TypeCheckingState
 
 initialTypeCheckingState :: TypeCheckingState
 initialTypeCheckingState =
   TypeCheckingState
-    { identifierTypes = Map.empty,
+    { valueIdentifierTypes = Map.empty,
       functionTypes = Map.empty,
-      capturedIdentifierTypes = Seq.Empty,
-      functionContext = MainFunctionContext,
-      checkedFunctions = Map.empty
+      functionContextStack = []
     }
 
-setIdentifierType :: BoundIdentifier -> Type -> TypeChecker ()
-setIdentifierType identifier identifierType = do
-  identifierTypes <- identifierTypes <$> getState
-  setIdentifierTypes $ Map.insert identifier identifierType identifierTypes
+setValueIdentifierType :: BoundValueIdentifier -> Type -> TypeChecker ()
+setValueIdentifierType identifier identifierType = do
+  valueIdentifierTypes <- valueIdentifierTypes <$> getState
+  setValueIdentifierTypes $ Map.insert identifier identifierType valueIdentifierTypes
 
-getIdentifierType :: BoundIdentifier -> TypeChecker Type
-getIdentifierType identifier = do
-  identifierTypes <- identifierTypes <$> getState
-  case Map.lookup identifier identifierTypes of
+getValueIdentifierType :: BoundValueIdentifier -> TypeChecker Type
+getValueIdentifierType identifier = do
+  valueIdentifierTypes <- valueIdentifierTypes <$> getState
+  case Map.lookup identifier valueIdentifierTypes of
     Just identifierType -> return identifierType
-    Nothing -> throwError $ ShouldNotGetHereError "Called getIdentifierType before identifier type was set"
+    Nothing -> do
+      throwError $ ShouldNotGetHereError "Called getValueIdentifierType before identifier was initialized"
 
-setFunctionType :: FunctionIndex -> Type -> TypeChecker ()
-setFunctionType functionIndex functionType = do
+setFunctionType :: BoundFunctionIdentifier -> Type -> TypeChecker ()
+setFunctionType functionName functionType = do
   functionTypes <- functionTypes <$> getState
-  setFunctionTypes $ Map.insert functionIndex functionType functionTypes
+  let updatedFunctionTypes = Map.insert functionName functionType functionTypes
+  setFunctionTypes updatedFunctionTypes
 
-getFunctionType :: FunctionIndex -> TypeChecker Type
-getFunctionType functionIndex = do
+getFunctionType :: BoundFunctionIdentifier -> TypeChecker Type
+getFunctionType functionName = do
   functionTypes <- functionTypes <$> getState
-  case Map.lookup functionIndex functionTypes of
+  case Map.lookup functionName functionTypes of
     Just functionType -> return functionType
-    Nothing -> throwError $ ShouldNotGetHereError "Failed to find function type with getFunctionType"
+    Nothing -> throwError $ ShouldNotGetHereError "Called getFunctionType before function was initialized"
 
-pushCapturedIdentifierTypes :: FunctionIndex -> Seq Type -> TypeChecker ()
-pushCapturedIdentifierTypes functionIndex types = do
-  capturedIdentifierTypes <- capturedIdentifierTypes <$> getState
-  setCapturedIdentifierTypes $ capturedIdentifierTypes |> (functionIndex, types)
+getFunctionContext :: TypeChecker (Maybe FunctionContext)
+getFunctionContext = listToMaybe . functionContextStack <$> getState
 
-popCapturedIdentifierTypes :: TypeChecker (Maybe (FunctionIndex, Seq Type))
-popCapturedIdentifierTypes = do
-  capturedIdentifierTypes <- capturedIdentifierTypes <$> getState
-  case capturedIdentifierTypes of
-    (firstTypes :<| restTypes) -> do
-      setCapturedIdentifierTypes restTypes
-      return $ Just firstTypes
-    Empty -> return Nothing
+pushFunctionContext :: FunctionContext -> TypeChecker ()
+pushFunctionContext functionContext = do
+  functionContextStack <- functionContextStack <$> getState
+  setFunctionContextStack (functionContext : functionContextStack)
 
-getFunctionContext :: TypeChecker FunctionContext
-getFunctionContext = functionContext <$> getState
+popFunctionContext :: TypeChecker ()
+popFunctionContext = do
+  functionContextStack <- functionContextStack <$> getState
+  setFunctionContextStack $ tail functionContextStack
 
-addCheckedFunction :: FunctionIndex -> TCSubFunction -> TypeChecker ()
-addCheckedFunction functionIndex checkedFunction = do
-  checkedFunctions <- checkedFunctions <$> getState
-  setCheckedFunctions $ Map.insert functionIndex checkedFunction checkedFunctions
+withFunctionContext :: FunctionContext -> TypeChecker a -> TypeChecker a
+withFunctionContext functionContext checker =
+  do
+    pushFunctionContext functionContext
+    checker
+    `andFinally` popFunctionContext
 
-getCheckedFunctions :: Int -> TypeChecker (Seq TCSubFunction)
-getCheckedFunctions numFunctions = do
-  checkedFunctions <- checkedFunctions <$> getState
-  mapM
-    ( \functionIndex -> case Map.lookup functionIndex checkedFunctions of
-        Nothing -> throwError $ ShouldNotGetHereError "Failed to find checked function in getCheckedFunctions"
-        Just subFunction -> return subFunction
-    )
-    (Seq.fromList [1 .. numFunctions])
+setValueIdentifierTypes :: Map BoundValueIdentifier Type -> TypeChecker ()
+setValueIdentifierTypes valueIdentifierTypes = do
+  TypeCheckingState {functionTypes, functionContextStack} <- getState
+  setState TypeCheckingState {valueIdentifierTypes, functionTypes, functionContextStack}
 
-setIdentifierTypes :: Map BoundIdentifier Type -> TypeChecker ()
-setIdentifierTypes identifierTypes = do
-  TypeCheckingState {functionTypes, capturedIdentifierTypes, functionContext, checkedFunctions} <- getState
-  setState TypeCheckingState {identifierTypes, functionTypes, capturedIdentifierTypes, functionContext, checkedFunctions}
-
-setFunctionTypes :: Map FunctionIndex Type -> TypeChecker ()
+setFunctionTypes :: Map BoundFunctionIdentifier Type -> TypeChecker ()
 setFunctionTypes functionTypes = do
-  TypeCheckingState {identifierTypes, capturedIdentifierTypes, functionContext, checkedFunctions} <- getState
-  setState TypeCheckingState {identifierTypes, functionTypes, capturedIdentifierTypes, functionContext, checkedFunctions}
+  TypeCheckingState {valueIdentifierTypes, functionContextStack} <- getState
+  setState TypeCheckingState {valueIdentifierTypes, functionTypes, functionContextStack}
 
-setCapturedIdentifierTypes :: Seq (FunctionIndex, Seq Type) -> TypeChecker ()
-setCapturedIdentifierTypes capturedIdentifierTypes = do
-  TypeCheckingState {identifierTypes, functionTypes, functionContext, checkedFunctions} <- getState
-  setState TypeCheckingState {identifierTypes, functionTypes, capturedIdentifierTypes, functionContext, checkedFunctions}
-
-setFunctionContext :: FunctionContext -> TypeChecker ()
-setFunctionContext functionContext = do
-  TypeCheckingState {identifierTypes, functionTypes, capturedIdentifierTypes, checkedFunctions} <- getState
-  setState TypeCheckingState {identifierTypes, functionTypes, capturedIdentifierTypes, functionContext, checkedFunctions}
-
-setCheckedFunctions :: Map FunctionIndex TCSubFunction -> TypeChecker ()
-setCheckedFunctions checkedFunctions = do
-  TypeCheckingState {identifierTypes, functionTypes, capturedIdentifierTypes, functionContext} <- getState
-  setState TypeCheckingState {identifierTypes, functionTypes, capturedIdentifierTypes, functionContext, checkedFunctions}
+setFunctionContextStack :: [FunctionContext] -> TypeChecker ()
+setFunctionContextStack functionContextStack = do
+  TypeCheckingState {valueIdentifierTypes, functionTypes} <- getState
+  setState TypeCheckingState {valueIdentifierTypes, functionTypes, functionContextStack}

@@ -4,7 +4,9 @@
 module Parsing.SyntaxTree
   ( ParsingPhase,
     PModule,
+    PScope,
     PStatement,
+    PNonPositionalStatement,
     PIdentifier,
     PExpression,
     UnboundIdentifier,
@@ -32,19 +34,40 @@ type instance MainFunctionData ParsingPhase = ()
 
 type PFunctionDefinition = FunctionDefinition ParsingPhase
 
+type instance FunctionDefinitionData ParsingPhase = Range
+
+-- Scope
+type PScope = Scope ParsingPhase
+
+type instance ScopeData ParsingPhase = ()
+
 -- Statement
 type PStatement = Statement ParsingPhase
 
 type instance StatementData ParsingPhase = Range
 
+-- Non-positional statement
+
+type PNonPositionalStatement = NonPositionalStatement ParsingPhase
+
+type instance NonPositionalStatementData ParsingPhase = Range
+
+type instance FunctionStatementContent ParsingPhase = PFunctionDefinition
+
 -- Identifier
-type PIdentifier = Identifier ParsingPhase
-
-type instance IdentifierData ParsingPhase = Range
-
 type UnboundIdentifier = Text
 
-type instance IdentifierContent ParsingPhase = UnboundIdentifier
+type PIdentifier = Identifier ParsingPhase
+
+type instance Identifier ParsingPhase = UnboundIdentifier
+
+type PValueIdentifier = ValueIdentifier ParsingPhase
+
+type instance ValueIdentifier ParsingPhase = UnboundIdentifier
+
+type PFunctionIdentifier = FunctionIdentifier ParsingPhase
+
+type instance FunctionIdentifier ParsingPhase = UnboundIdentifier
 
 -- Expression
 type PExpression = Expression ParsingPhase
