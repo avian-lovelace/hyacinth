@@ -325,8 +325,10 @@ impl VM {
                     value => panic!("Attempted to access a field of non-record value {}", value),
                 },
             };
+            if self.heap.should_garbage_collect {
+                self.garbage_collect()
+            }
         }
-        self.garbage_collect();
     }
 
     fn read_byte(&mut self) -> u8 {

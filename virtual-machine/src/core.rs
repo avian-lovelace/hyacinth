@@ -72,9 +72,14 @@ impl fmt::Display for Object {
 
 pub type ObjectKey = u32;
 
+const INITIAL_GC_THRESHOLD: usize = 1024;
+const GC_THRESHOLD_MULTIPLIER: usize = 2;
+
 pub struct Heap {
     objects: HashMap<ObjectKey, Object>,
     next_key: ObjectKey,
+    pub should_garbage_collect: bool,
+    garbage_collection_threshold: usize,
 }
 
 impl Heap {
@@ -82,6 +87,8 @@ impl Heap {
         Heap {
             objects: HashMap::new(),
             next_key: 0,
+            should_garbage_collect: false,
+            garbage_collection_threshold: INITIAL_GC_THRESHOLD,
         }
     }
 
@@ -93,6 +100,7 @@ impl Heap {
         let key = self.next_key;
         self.objects.insert(key, obj);
         self.next_key += 1;
+        self.should_garbage_collect = self.objects.len() > self.garbage_collection_threshold;
         return Value::Object(key);
     }
 
@@ -103,7 +111,9 @@ impl Heap {
     }
 
     pub fn garbage_collect(&mut self, reachable_keys: &HashSet<ObjectKey>) {
-        self.objects.retain(|k, _| reachable_keys.contains(k))
+        self.objects.retain(|k, _| reachable_keys.contains(k));
+        self.garbage_collection_threshold *= GC_THRESHOLD_MULTIPLIER;
+        self.should_garbage_collect = false;
     }
 }
 

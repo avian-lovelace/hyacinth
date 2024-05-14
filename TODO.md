@@ -4,7 +4,6 @@
  - Record union types/switch expressions
  - Type synonyms
  - Lists
- - Garbage collection at runtime
  - Add more debugging support to compiler/vm
  - Compilation warnings
  - Short-circuiting for && and || operators
