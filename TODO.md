@@ -10,6 +10,7 @@
  - Short-circuiting for && and || operators
  - Effects
  - Add compile-time optimizations
+ - Importing and exporting from modules
 
 ## Technical debt
  - Improve error reporting in parts of the parser that use parser combinators
