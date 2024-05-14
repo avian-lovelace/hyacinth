@@ -18,4 +18,4 @@
 
 ## Bugs
  - [ ] [BUG-1] Parsing errors in record expression fields get eaten
- - [ ] [BUG-2] Garbage collector doesn't look at object fields
+ - [X] [BUG-2] Garbage collector doesn't look at object fields

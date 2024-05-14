@@ -102,7 +102,7 @@ impl Heap {
             .expect("Attempted to get invalid object")
     }
 
-    pub fn garbage_collect(&mut self, reachable_keys: HashSet<ObjectKey>) {
+    pub fn garbage_collect(&mut self, reachable_keys: &HashSet<ObjectKey>) {
         self.objects.retain(|k, _| reachable_keys.contains(k))
     }
 }

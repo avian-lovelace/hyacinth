@@ -480,24 +480,56 @@ impl VM {
     }
 
     fn garbage_collect(&mut self) {
-        let mut reachable_objects = HashSet::<ObjectKey>::new();
-        for value in &self.stack {
-            match value {
-                Value::Object(key) => {
-                    reachable_objects.insert(*key);
-                }
-                _ => {}
-            }
-        }
-        for value in &self.constants {
-            match value {
-                Value::Object(key) => {
-                    reachable_objects.insert(*key);
-                }
-                _ => {}
-            }
-        }
+        let mut garbage_collector = GarbageCollector {
+            reachable_objects: HashSet::<ObjectKey>::new(),
+            objects_to_expand: Vec::<ObjectKey>::new(),
+        };
+        let reachable_objects = garbage_collector.get_reachable_objects(&self);
         self.heap.garbage_collect(reachable_objects);
+    }
+}
+
+struct GarbageCollector {
+    reachable_objects: HashSet<ObjectKey>,
+    objects_to_expand: Vec<ObjectKey>,
+}
+
+impl GarbageCollector {
+    fn get_reachable_objects(&mut self, vm: &VM) -> &HashSet<ObjectKey> {
+        for value in &vm.constants {
+            self.process_value(&value)
+        }
+        for value in &vm.stack {
+            self.process_value(&value)
+        }
+        loop {
+            match self.objects_to_expand.pop() {
+                None => break,
+                Some(object_key) => match vm.heap.get(object_key) {
+                    Object::RecordObj {
+                        record_id: _,
+                        fields,
+                    } => {
+                        for field in fields {
+                            self.process_value(field)
+                        }
+                    }
+                    _ => {}
+                },
+            }
+        }
+        return &self.reachable_objects;
+    }
+    fn process_value(&mut self, value: &Value) {
+        match value {
+            Value::Object(key) => {
+                let first_time_reached = self.reachable_objects.insert(*key);
+                if first_time_reached {
+                    self.objects_to_expand.push(*key)
+                }
+            }
+            _ => {}
+        }
     }
 }
 
