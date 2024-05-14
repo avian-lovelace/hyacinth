@@ -81,6 +81,7 @@ lexers =
     lexSymbol '!' BangToken,
     lexSymbol '>' GreaterToken,
     lexSymbol '<' LessToken,
+    lexSymbol '.' DotToken,
     -- Alphanumeric
     lexNumericLiteral,
     lexStringLiteral,
@@ -200,6 +201,7 @@ lexKeywordOrIdentifier = do
                 "while" -> WhileToken
                 "loop" -> LoopToken
                 "return" -> ReturnToken
+                "rec" -> RecToken
                 "Int" -> IntToken
                 "Float" -> FloatToken
                 "Char" -> CharToken

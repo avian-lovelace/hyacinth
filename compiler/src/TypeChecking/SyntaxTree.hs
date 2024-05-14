@@ -13,6 +13,8 @@ module TypeChecking.SyntaxTree
     TCIdentifier,
     TCValueIdentifier,
     TCFunctionIdentifier,
+    TCRecordIdentifier,
+    TCFieldIdentifier,
     TCExpression,
     TCExpresionData (TCExpresionData, expressionRange, expressionType, expressionReturnInfo),
     TCWithTypeAnnotation,
@@ -32,8 +34,10 @@ where
 import Core.FilePositions
 import Core.SyntaxTree
 import Core.Type (Type)
+import Data.Map (Map)
 import Data.Set (Set)
 import IdentifierBinding.SyntaxTree
+import Parsing.SyntaxTree (UnboundIdentifier)
 
 data TypeCheckingPhase
 
@@ -121,6 +125,14 @@ type TCFunctionIdentifier = FunctionIdentifier TypeCheckingPhase
 
 type instance FunctionIdentifier TypeCheckingPhase = BoundFunctionIdentifier
 
+type TCRecordIdentifier = RecordIdentifier TypeCheckingPhase
+
+type instance RecordIdentifier TypeCheckingPhase = BoundRecordIdentifier
+
+type TCFieldIdentifier = FieldIdentifier TypeCheckingPhase
+
+type instance FieldIdentifier TypeCheckingPhase = UnboundIdentifier
+
 -- Expression
 type TCExpression = Expression TypeCheckingPhase
 
@@ -131,6 +143,8 @@ data TCExpresionData = TCExpresionData
   }
 
 type instance ExpressionData TypeCheckingPhase = TCExpresionData
+
+type instance RecordFieldValues TypeCheckingPhase = Map TCFieldIdentifier TCExpression
 
 instance WithRange TCExpression where
   getRange = expressionRange . getExpressionData

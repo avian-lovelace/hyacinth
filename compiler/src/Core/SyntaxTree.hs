@@ -29,7 +29,8 @@ module Core.SyntaxTree
     StatementData,
     getStatementData,
     NonPositionalStatement
-      ( FunctionStatement
+      ( FunctionStatement,
+        RecordStatement
       ),
     NonPositionalStatementData,
     Mutability (Mutable, Immutable),
@@ -37,6 +38,8 @@ module Core.SyntaxTree
     Identifier,
     ValueIdentifier,
     FunctionIdentifier,
+    RecordIdentifier,
+    FieldIdentifier,
     Expression
       ( IntLiteralExpression,
         FloatLiteralExpression,
@@ -63,11 +66,14 @@ module Core.SyntaxTree
         IfThenElseExpression,
         ScopeExpression,
         FunctionExpression,
-        FunctionCallExpression
+        FunctionCallExpression,
+        RecordExpression,
+        FieldAccessExpression
       ),
     ExpressionData,
     getExpressionData,
     FunctionExpressionContent,
+    RecordFieldValues,
     WithTypeAnnotation (WithTypeAnnotation),
     TypeAnnotation,
     TypeExpression
@@ -77,15 +83,14 @@ module Core.SyntaxTree
         StringTypeExpression,
         BoolTypeExpression,
         NilTypeExpression,
-        FunctionTypeExpression
+        FunctionTypeExpression,
+        RecordTypeExpression
       ),
     TypeExpressionData,
     getTypeExpressionData,
-    fromTypeExpression,
   )
 where
 
-import Core.Type
 import Core.Utils
 import Data.Sequence (Seq)
 import Data.Text (Text)
@@ -226,6 +231,7 @@ getStatementData (ReturnStatement d _) = d
 -- NonPositionalStatement
 data NonPositionalStatement phase
   = FunctionStatement (NonPositionalStatementData phase) (FunctionIdentifier phase) (FunctionStatementContent phase)
+  | RecordStatement (NonPositionalStatementData phase) (RecordIdentifier phase) (Seq (FieldIdentifier phase, TypeExpression phase))
 
 type family NonPositionalStatementData phase
 
@@ -233,11 +239,14 @@ type family FunctionStatementContent phase
 
 instance
   ( Pretty (FunctionIdentifier phase),
-    Pretty (FunctionStatementContent phase)
+    Pretty (FunctionStatementContent phase),
+    Pretty (RecordIdentifier phase),
+    Pretty (FieldIdentifier phase)
   ) =>
   Pretty (NonPositionalStatement phase)
   where
   pretty (FunctionStatement _ functionName content) = "(FunctionStatement " ++ pretty functionName ++ " " ++ pretty content ++ ")"
+  pretty (RecordStatement _ recordName fieldTypes) = "(RecordStatement " ++ pretty recordName ++ " " ++ pretty fieldTypes ++ ")"
 
 -- Identifier
 type family Identifier phase
@@ -245,6 +254,10 @@ type family Identifier phase
 type family ValueIdentifier phase
 
 type family FunctionIdentifier phase
+
+type family FieldIdentifier phase
+
+type family RecordIdentifier phase
 
 -- Expression
 data Expression phase
@@ -274,16 +287,23 @@ data Expression phase
   | ScopeExpression (ExpressionData phase) (Scope phase)
   | FunctionExpression (ExpressionData phase) (FunctionExpressionContent phase)
   | FunctionCallExpression (ExpressionData phase) (Expression phase) (Seq (Expression phase))
+  | RecordExpression (ExpressionData phase) (RecordIdentifier phase) (RecordFieldValues phase)
+  | FieldAccessExpression (ExpressionData phase) (Expression phase) (FieldIdentifier phase)
 
 type family ExpressionData phase
 
 type family FunctionExpressionContent phase
 
+type family RecordFieldValues phase
+
 instance
   ( Pretty (FunctionExpressionContent phase),
     Pretty (TypeAnnotation phase),
     Pretty (Identifier phase),
-    Pretty (Scope phase)
+    Pretty (Scope phase),
+    Pretty (RecordIdentifier phase),
+    Pretty (FieldIdentifier phase),
+    Pretty (RecordFieldValues phase)
   ) =>
   Pretty (Expression phase)
   where
@@ -316,6 +336,8 @@ instance
   pretty (ScopeExpression _ scope) = "(ScopeExpression " ++ pretty scope ++ ")"
   pretty (FunctionExpression _ content) = "(FunctionExpression" ++ pretty content ++ ")"
   pretty (FunctionCallExpression _ function arguments) = "(FunctionCallExpression " ++ pretty function ++ " (" ++ pretty arguments ++ "))"
+  pretty (RecordExpression _ recordName fields) = "(RecordExpression " ++ pretty recordName ++ " " ++ pretty fields ++ ")"
+  pretty (FieldAccessExpression _ inner field) = "(FieldAccessExpression " ++ pretty inner ++ " " ++ pretty field ++ ")"
 
 getExpressionData :: Expression phase -> ExpressionData phase
 getExpressionData (IntLiteralExpression d _) = d
@@ -344,6 +366,8 @@ getExpressionData (IfThenElseExpression d _ _ _) = d
 getExpressionData (ScopeExpression d _) = d
 getExpressionData (FunctionExpression d _) = d
 getExpressionData (FunctionCallExpression d _ _) = d
+getExpressionData (RecordExpression d _ _) = d
+getExpressionData (FieldAccessExpression d _ _) = d
 
 -- Type annotation
 data WithTypeAnnotation phase a = WithTypeAnnotation a (TypeAnnotation phase)
@@ -362,10 +386,11 @@ data TypeExpression phase
   | BoolTypeExpression (TypeExpressionData phase)
   | NilTypeExpression (TypeExpressionData phase)
   | FunctionTypeExpression (TypeExpressionData phase) (Seq (TypeExpression phase)) (TypeExpression phase)
+  | RecordTypeExpression (TypeExpressionData phase) (RecordIdentifier phase)
 
 type family TypeExpressionData phase
 
-instance Pretty (TypeExpression phase) where
+instance (Pretty (RecordIdentifier phase)) => Pretty (TypeExpression phase) where
   pretty (IntTypeExpression _) = "IntTypeExpression"
   pretty (FloatTypeExpression _) = "FloatTypeExpression"
   pretty (CharTypeExpression _) = "CharTypeExpression"
@@ -373,6 +398,7 @@ instance Pretty (TypeExpression phase) where
   pretty (BoolTypeExpression _) = "BoolTypeExpression"
   pretty (NilTypeExpression _) = "NilTypeExpression"
   pretty (FunctionTypeExpression _ argumentTypes returnType) = "(FunctionTypeExpression (" ++ pretty argumentTypes ++ ") " ++ pretty returnType ++ ")"
+  pretty (RecordTypeExpression _ recordName) = "(RecordTypeExpression " ++ pretty recordName ++ ")"
 
 getTypeExpressionData :: TypeExpression phase -> TypeExpressionData phase
 getTypeExpressionData (IntTypeExpression d) = d
@@ -382,12 +408,4 @@ getTypeExpressionData (StringTypeExpression d) = d
 getTypeExpressionData (BoolTypeExpression d) = d
 getTypeExpressionData (NilTypeExpression d) = d
 getTypeExpressionData (FunctionTypeExpression d _ _) = d
-
-fromTypeExpression :: TypeExpression phase -> Type
-fromTypeExpression (IntTypeExpression _) = IntType
-fromTypeExpression (FloatTypeExpression _) = FloatType
-fromTypeExpression (CharTypeExpression _) = CharType
-fromTypeExpression (StringTypeExpression _) = StringType
-fromTypeExpression (BoolTypeExpression _) = BoolType
-fromTypeExpression (NilTypeExpression _) = NilType
-fromTypeExpression (FunctionTypeExpression _ parameterTypes returnType) = FunctionType (fromTypeExpression <$> parameterTypes) (fromTypeExpression returnType)
+getTypeExpressionData (RecordTypeExpression d _) = d

@@ -41,6 +41,16 @@ module Core.Errors
         FunctionStatementEmptyBodyError,
         FunctionStatementMalformedReturnTypeError,
         FunctionStatementMalformedBodyError,
+        RecordExpressionEmptyFieldError,
+        RecordExpressionMalformedFieldError,
+        RecordExpressionEmptyFieldValueError,
+        RecordExpressionMalformedFieldValueError,
+        RecordExpressionConflictingFieldsError,
+        RecordStatementMalformedError,
+        RecordStatementEmptyFieldError,
+        RecordStatementMalformedFieldError,
+        RecordStatementEmptyFieldTypeError,
+        RecordStatementMalformedFieldValueError,
         ConflictingIdentifierDefinitionsError,
         IdentifierUndefinedAtReferenceError,
         VariableDefinedAfterReferenceError,
@@ -50,6 +60,10 @@ module Core.Errors
         MutatedImmutableVariableError,
         MutatedParameterError,
         MutatedFunctionError,
+        MutatedRecordError,
+        IdentifierConflictsWithRecordError,
+        ValueIdentifierUsedAsTypeError,
+        ValueIdentifierUsedAsRecordNameError,
         MutatedCapturedIdentifierError,
         IdentifierUndefinedBeforeCaptureError,
         VariableDeclarationTypeError,
@@ -80,6 +94,12 @@ module Core.Errors
         FunctionCallExpressionArgumentTypeError,
         FunctionMissingParameterTypeAnnotation,
         FunctionMissingReturnTypeAnnotation,
+        RecordStatementConflictingFieldsError,
+        RecordExpressionExtraFieldError,
+        RecordExpressionMissingFieldError,
+        RecordExpressionFieldTypeError,
+        AccessedFieldOfNonRecordValueError,
+        AccessedFieldNotInRecordError,
         RuntimeError
       ),
     WithErrors (Error, Success),
@@ -144,6 +164,16 @@ data Error
   | FunctionStatementEmptyBodyError Range
   | FunctionStatementMalformedReturnTypeError Range
   | FunctionStatementMalformedBodyError Range
+  | RecordExpressionEmptyFieldError Range
+  | RecordExpressionMalformedFieldError Range
+  | RecordExpressionEmptyFieldValueError Text Range
+  | RecordExpressionMalformedFieldValueError Text Range
+  | RecordExpressionConflictingFieldsError Text Range Range
+  | RecordStatementMalformedError Range
+  | RecordStatementEmptyFieldError Range
+  | RecordStatementMalformedFieldError Range
+  | RecordStatementEmptyFieldTypeError Text Range
+  | RecordStatementMalformedFieldValueError Text Range
   | -- Identifier binding
     ConflictingIdentifierDefinitionsError Text Range Range
   | IdentifierUndefinedAtReferenceError Text Range
@@ -154,6 +184,10 @@ data Error
   | MutatedImmutableVariableError Text Range Range
   | MutatedParameterError Text Range Range
   | MutatedFunctionError Text Range Range
+  | MutatedRecordError Text Range Range
+  | IdentifierConflictsWithRecordError Text Range Range
+  | ValueIdentifierUsedAsTypeError Text Range Range
+  | ValueIdentifierUsedAsRecordNameError Text Range Range
   | -- Type checking
     VariableDeclarationTypeError Range Type Type
   | VariableMutationTypeError Range Type Type
@@ -183,6 +217,12 @@ data Error
   | FunctionCallExpressionArgumentTypeError Range Type Type
   | FunctionMissingParameterTypeAnnotation Range
   | FunctionMissingReturnTypeAnnotation Range
+  | RecordStatementConflictingFieldsError Text Text Range Range
+  | RecordExpressionExtraFieldError Text Text Range
+  | RecordExpressionMissingFieldError Text Text Range
+  | RecordExpressionFieldTypeError Text Text Type Type Range
+  | AccessedFieldOfNonRecordValueError Type Range
+  | AccessedFieldNotInRecordError Text Text Range
   | -- Function lifting
     MutatedCapturedIdentifierError Text Range
   | IdentifierUndefinedBeforeCaptureError Text Text Range
@@ -238,8 +278,20 @@ instance Pretty Error where
   pretty (FunctionStatementEmptyBodyError range) = "Function statement had an empty body at " ++ pretty range
   pretty (FunctionStatementMalformedReturnTypeError range) = "Failed to parse function return type as type expression at " ++ pretty range
   pretty (FunctionStatementMalformedBodyError range) = "Failed to parse function body as an expression at " ++ pretty range
+  pretty (RecordExpressionEmptyFieldError range) = "Record expresison had an empty field at " ++ pretty range
+  pretty (RecordExpressionMalformedFieldError range) = "Failed to parse record field at " ++ pretty range
+  pretty (RecordExpressionEmptyFieldValueError fieldName range) = "Field " ++ pretty fieldName ++ " of record expression had no value at " ++ pretty range
+  pretty (RecordExpressionMalformedFieldValueError fieldName range) = "Failed to parse value of field " ++ pretty fieldName ++ " of record expression at " ++ pretty range
+  pretty (RecordExpressionConflictingFieldsError fieldName range1 range2) =
+    "Field expression included duplicate value assignments for field " ++ pretty fieldName ++ " at " ++ pretty range1 ++ " and " ++ pretty range2
+  pretty (RecordStatementMalformedError range) = "Failed to parse record definition at " ++ pretty range
+  pretty (RecordStatementEmptyFieldError range) = "Record definition had an empty field at " ++ pretty range
+  pretty (RecordStatementMalformedFieldError range) = "Failed to parse record field type definition at " ++ pretty range
+  pretty (RecordStatementEmptyFieldTypeError fieldName range) = "Field " ++ pretty fieldName ++ " of record definition had not type annotation at " ++ pretty range
+  pretty (RecordStatementMalformedFieldValueError fieldName range) =
+    "Failed to parse type annotation of field " ++ pretty fieldName ++ " in record definition at " ++ pretty range
   pretty (ConflictingIdentifierDefinitionsError variableName declarationRange1 declarationRange2) =
-    "Variable " ++ Text.unpack variableName ++ " has conflicting declarations at " ++ pretty declarationRange1 ++ " and " ++ pretty declarationRange2
+    "Identifier " ++ Text.unpack variableName ++ " has conflicting definitions at " ++ pretty declarationRange1 ++ " and " ++ pretty declarationRange2
   pretty (IdentifierUndefinedAtReferenceError variableName range) =
     "Identifier " ++ Text.unpack variableName ++ " is not defined before it is referenced at " ++ pretty range
   pretty (VariableDefinedAfterReferenceError variableName referenceRange delcarationRange) =
@@ -256,6 +308,14 @@ instance Pretty Error where
     "Function parameter " ++ Text.unpack parameterName ++ " defined at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
   pretty (MutatedFunctionError functionName declarationRange mutationRange) =
     "Function " ++ Text.unpack functionName ++ " defined at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
+  pretty (MutatedRecordError recordName definitionRange mutationRange) =
+    "Record " ++ Text.unpack recordName ++ " defined at " ++ pretty definitionRange ++ " is mutated at " ++ pretty mutationRange
+  pretty (IdentifierConflictsWithRecordError recordName definitionRange shadowRange) =
+    "Record " ++ Text.unpack recordName ++ " defined at " ++ pretty definitionRange ++ " cannot be shadowed " ++ pretty shadowRange
+  pretty (ValueIdentifierUsedAsTypeError identifier definitionRange usageRange) =
+    "Value identifier " ++ Text.unpack identifier ++ " defined at " ++ pretty definitionRange ++ " cannot be used as a type at " ++ pretty usageRange
+  pretty (ValueIdentifierUsedAsRecordNameError identifier definitionRange usageRange) =
+    "Value identifier " ++ Text.unpack identifier ++ " defined at " ++ pretty definitionRange ++ " cannot be used as a record name at " ++ pretty usageRange
   pretty (IdentifierUndefinedBeforeCaptureError functionName identifier captureRange) =
     "Function " ++ pretty functionName ++ " cannot be called at " ++ pretty captureRange ++ ", as it captured identifier " ++ pretty identifier ++ " which is not yet defined"
   pretty (VariableDeclarationTypeError range expectedType actualType) =
@@ -312,6 +372,18 @@ instance Pretty Error where
     "Function parameter has no type annotation at " ++ pretty range
   pretty (FunctionMissingReturnTypeAnnotation range) =
     "Function has no return type annotation at " ++ pretty range
+  pretty (RecordStatementConflictingFieldsError recordName fieldName range1 range2) =
+    "Definition of record " ++ pretty recordName ++ " has multiple type annotations for field " ++ pretty fieldName ++ " at " ++ pretty range1 ++ " and " ++ pretty range2
+  pretty (RecordExpressionExtraFieldError recordName fieldName range) =
+    "Record expression at " ++ pretty range ++ " includes field " ++ pretty fieldName ++ " which does not exist on record " ++ pretty recordName
+  pretty (RecordExpressionMissingFieldError recordName fieldName range) =
+    "Record expression at " ++ pretty range ++ " does not include field " ++ pretty fieldName ++ " which exists on record " ++ pretty recordName
+  pretty (RecordExpressionFieldTypeError recordName fieldName exectedType actualType range) =
+    "In record expression of type " ++ pretty recordName ++ " field " ++ pretty fieldName ++ " should have type " ++ pretty exectedType ++ " but the assigned value has type " ++ pretty actualType ++ " at " ++ pretty range
+  pretty (AccessedFieldOfNonRecordValueError actualType range) =
+    "Attempted to access a field of non-record type " ++ pretty actualType ++ " at " ++ pretty range
+  pretty (AccessedFieldNotInRecordError recordName fieldName range) =
+    "Attempted to access non-existent field " ++ pretty fieldName ++ " of value with type " ++ pretty recordName ++ " at " ++ pretty range
   pretty (MutatedCapturedIdentifierError identifierName mutationRange) =
     "Identifier " ++ Text.unpack identifierName ++ " cannot be mutated at " ++ pretty mutationRange ++ " in a nested function"
   pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr

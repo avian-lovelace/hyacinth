@@ -1,7 +1,7 @@
 module IdentifierBinding.IdentifierBinding
   ( IdentifierBinder,
     IdentifierBindingState (IdentifierBindingState, boundValueIdentifierCounter, boundFunctionIdentifierCounter),
-    IdentifierInfo (VariableIdentifierInfo, ParameterIdentifierInfo, FunctionIdentifierInfo),
+    IdentifierInfo (VariableIdentifierInfo, ParameterIdentifierInfo, FunctionIdentifierInfo, RecordIdentifierInfo),
     VariableUsability (BeforeDeclaration, InDeclaration, Usable),
     addVariable,
     initialBindingState,
@@ -14,6 +14,8 @@ module IdentifierBinding.IdentifierBinding
     getCapturedIdentifiers,
     addFunction,
     getFunctionNameBinding,
+    addRecord,
+    getRecordNameBinding,
   )
 where
 
@@ -21,6 +23,7 @@ import Core.ErrorState
 import Core.Errors
 import Core.FilePositions
 import Core.SyntaxTree
+import Core.Utils
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -33,7 +36,8 @@ type IdentifierBinder a = ErrorState IdentifierBindingState a
 data IdentifierBindingState = IdentifierBindingState
   { scopes :: [ScopeInfo],
     boundValueIdentifierCounter :: Int,
-    boundFunctionIdentifierCounter :: Int
+    boundFunctionIdentifierCounter :: Int,
+    boundRecordIdentifierCounter :: Int
   }
 
 data ScopeInfo
@@ -44,17 +48,20 @@ data IdentifierInfo
   = VariableIdentifierInfo Range BoundValueIdentifier Mutability VariableUsability
   | ParameterIdentifierInfo Range BoundValueIdentifier
   | FunctionIdentifierInfo Range BoundFunctionIdentifier
+  | RecordIdentifierInfo Range BoundRecordIdentifier
   deriving (Eq, Ord)
 
-getIdentifier :: IdentifierInfo -> IBIdentifier
-getIdentifier (VariableIdentifierInfo _ boundValueIdentifier _ _) = Left boundValueIdentifier
-getIdentifier (ParameterIdentifierInfo _ boundValueIdentifier) = Left boundValueIdentifier
-getIdentifier (FunctionIdentifierInfo _ boundFunctionIdentifier) = Right boundFunctionIdentifier
+asBoundIdentifier :: IdentifierInfo -> Maybe IBIdentifier
+asBoundIdentifier (VariableIdentifierInfo _ boundValueIdentifier _ _) = Just . Left $ boundValueIdentifier
+asBoundIdentifier (ParameterIdentifierInfo _ boundValueIdentifier) = Just . Left $ boundValueIdentifier
+asBoundIdentifier (FunctionIdentifierInfo _ boundFunctionIdentifier) = Just . Right $ boundFunctionIdentifier
+asBoundIdentifier (RecordIdentifierInfo _ _) = Nothing
 
 instance WithRange IdentifierInfo where
   getRange (VariableIdentifierInfo range _ _ _) = range
   getRange (ParameterIdentifierInfo range _) = range
   getRange (FunctionIdentifierInfo range _) = range
+  getRange (RecordIdentifierInfo range _) = range
 
 data VariableUsability = BeforeDeclaration | InDeclaration | Usable deriving (Eq, Ord)
 
@@ -63,7 +70,8 @@ initialBindingState =
   IdentifierBindingState
     { scopes = [],
       boundValueIdentifierCounter = 0,
-      boundFunctionIdentifierCounter = 1
+      boundFunctionIdentifierCounter = 1,
+      boundRecordIdentifierCounter = 0
     }
 
 withNewExpressionScope :: IdentifierBinder a -> IdentifierBinder a
@@ -120,6 +128,20 @@ addFunction definitionRange unboundFunctionName = do
       let functionIdentifierInfo = FunctionIdentifierInfo definitionRange boundFunctionIdentifier
       setCurrentScope $ ExpressionScope {scopeIdentifiers = Map.insert unboundFunctionName functionIdentifierInfo scopeIdentifiers}
 
+addRecord :: Range -> UnboundIdentifier -> IdentifierBinder ()
+addRecord definitionRange unboundRecordName = do
+  currentScope <- getCurrentScope
+  scopeIdentifiers <- liftWithErrors $ expectExpressionScope currentScope
+  case Map.lookup unboundRecordName scopeIdentifiers of
+    Just conflictingInfo ->
+      throwError $
+        ConflictingIdentifierDefinitionsError unboundRecordName (getRange conflictingInfo) definitionRange
+    Nothing -> do
+      checkForInvalidShadow definitionRange unboundRecordName
+      boundRecordIdentifier <- getNewRecordBinding unboundRecordName
+      let recordIdentifierInfo = RecordIdentifierInfo definitionRange boundRecordIdentifier
+      setCurrentScope $ ExpressionScope {scopeIdentifiers = Map.insert unboundRecordName recordIdentifierInfo scopeIdentifiers}
+
 addParameter :: Range -> UnboundIdentifier -> IdentifierBinder BoundValueIdentifier
 addParameter parameterRange unboundParameter = do
   currentScope <- getCurrentScope
@@ -148,6 +170,7 @@ checkForInvalidShadowInScopes shadowRange unboundIdentifier (FunctionScope {para
 checkForInvalidShadowInScopes shadowRange unboundIdentifier (ExpressionScope {scopeIdentifiers} : restScopes) =
   case Map.lookup unboundIdentifier scopeIdentifiers of
     Just (VariableIdentifierInfo declarationRange _ _ InDeclaration) -> throwError $ VariableShadowedInDeclarationError unboundIdentifier declarationRange shadowRange
+    Just (RecordIdentifierInfo definitionRange _) -> throwError $ IdentifierConflictsWithRecordError unboundIdentifier definitionRange shadowRange
     Just _ -> return ()
     Nothing -> checkForInvalidShadowInScopes shadowRange unboundIdentifier restScopes
 
@@ -177,30 +200,28 @@ getIdentifierBindingInScopes usageRange unboundIdentifier scopes = case scopes o
       let updatedCapturedIdentifiers = Set.insert info capturedIdentifiers
       return (info, FunctionScope {parameters, capturedIdentifiers = updatedCapturedIdentifiers} : updatedRestScopes)
 
---   where
---     assertVariableIsUsable :: IdentifierInfo -> VariableUsability -> IdentifierBinder ()
---     assertVariableIsUsable _ Usable = return ()
---     assertVariableIsUsable info BeforeDeclaration =
---       throwError $ VariableDeclaredAfterReferenceError identifier usageRange (declarationRange info)
---     assertVariableIsUsable info InDeclaration =
---       throwError $ VariableReferencedInDeclarationError identifier usageRange (declarationRange info)
-
 getNewValueBinding :: UnboundIdentifier -> IdentifierBinder BoundValueIdentifier
 getNewValueBinding unboundIdentifier = do
-  IdentifierBindingState {boundValueIdentifierCounter, scopes, boundFunctionIdentifierCounter} <- getState
-  setState $ IdentifierBindingState {boundValueIdentifierCounter = boundValueIdentifierCounter + 1, scopes, boundFunctionIdentifierCounter}
+  IdentifierBindingState {boundValueIdentifierCounter, scopes, boundFunctionIdentifierCounter, boundRecordIdentifierCounter} <- getState
+  setState $ IdentifierBindingState {boundValueIdentifierCounter = boundValueIdentifierCounter + 1, scopes, boundFunctionIdentifierCounter, boundRecordIdentifierCounter}
   return $ BoundValueIdentifier boundValueIdentifierCounter unboundIdentifier
 
 getNewFunctionBinding :: UnboundIdentifier -> IdentifierBinder BoundFunctionIdentifier
 getNewFunctionBinding unboundIdentifier = do
-  IdentifierBindingState {boundFunctionIdentifierCounter, boundValueIdentifierCounter, scopes} <- getState
-  setState $ IdentifierBindingState {boundFunctionIdentifierCounter = boundFunctionIdentifierCounter + 1, boundValueIdentifierCounter, scopes}
+  IdentifierBindingState {boundFunctionIdentifierCounter, boundValueIdentifierCounter, scopes, boundRecordIdentifierCounter} <- getState
+  setState $ IdentifierBindingState {boundFunctionIdentifierCounter = boundFunctionIdentifierCounter + 1, boundValueIdentifierCounter, scopes, boundRecordIdentifierCounter}
   return $ BoundFunctionIdentifier boundFunctionIdentifierCounter unboundIdentifier
+
+getNewRecordBinding :: UnboundIdentifier -> IdentifierBinder BoundRecordIdentifier
+getNewRecordBinding unboundIdentifier = do
+  IdentifierBindingState {boundFunctionIdentifierCounter, boundValueIdentifierCounter, scopes, boundRecordIdentifierCounter} <- getState
+  setState $ IdentifierBindingState {boundRecordIdentifierCounter = boundRecordIdentifierCounter + 1, boundFunctionIdentifierCounter, boundValueIdentifierCounter, scopes}
+  return $ BoundRecordIdentifier boundRecordIdentifierCounter unboundIdentifier
 
 setScopes :: [ScopeInfo] -> IdentifierBinder ()
 setScopes scopes = do
-  IdentifierBindingState {boundValueIdentifierCounter, boundFunctionIdentifierCounter} <- getState
-  setState IdentifierBindingState {scopes, boundValueIdentifierCounter, boundFunctionIdentifierCounter}
+  IdentifierBindingState {boundValueIdentifierCounter, boundFunctionIdentifierCounter, boundRecordIdentifierCounter} <- getState
+  setState IdentifierBindingState {scopes, boundValueIdentifierCounter, boundFunctionIdentifierCounter, boundRecordIdentifierCounter}
 
 popScope :: IdentifierBinder ScopeInfo
 popScope = do
@@ -243,7 +264,7 @@ getCapturedIdentifiers :: IdentifierBinder (Set IBIdentifier)
 getCapturedIdentifiers = do
   currentScope <- getCurrentScope
   (_, capturedIdentifiers) <- liftWithErrors $ expectFunctionScope currentScope
-  return $ Set.map getIdentifier capturedIdentifiers
+  return $ setFilterMap asBoundIdentifier capturedIdentifiers
 
 getFunctionNameBinding :: UnboundIdentifier -> IdentifierBinder IBFunctionIdentifier
 getFunctionNameBinding unboundFunctionName = do
@@ -251,4 +272,12 @@ getFunctionNameBinding unboundFunctionName = do
   identifierMap <- liftWithErrors $ expectExpressionScope currentScope
   case Map.lookup unboundFunctionName identifierMap of
     Just (FunctionIdentifierInfo _ boundFunctionName) -> return boundFunctionName
+    _ -> throwError $ ShouldNotGetHereError "Failed to find function name binding"
+
+getRecordNameBinding :: UnboundIdentifier -> IdentifierBinder IBRecordIdentifier
+getRecordNameBinding unboundRecordName = do
+  currentScope <- getCurrentScope
+  identifierMap <- liftWithErrors $ expectExpressionScope currentScope
+  case Map.lookup unboundRecordName identifierMap of
+    Just (RecordIdentifierInfo _ boundRecordName) -> return boundRecordName
     _ -> throwError $ ShouldNotGetHereError "Failed to find function name binding"

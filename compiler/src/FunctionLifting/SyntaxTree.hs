@@ -13,6 +13,7 @@ module FunctionLifting.SyntaxTree
     FLScope,
     FLNonPositionalStatement,
     FLFunctionDefinition,
+    FieldIndex,
   )
 where
 
@@ -27,9 +28,6 @@ data FunctionLiftingPhase
 type FLModule = Module FunctionLiftingPhase
 
 type instance ModuleData FunctionLiftingPhase = ()
-
--- instance Pretty FLModuleContent where
---   pretty (FLModuleContent mainFunction subFunctions) = pretty mainFunction ++ "(" ++ pretty subFunctions ++ ")"
 
 type instance ModuleContent FunctionLiftingPhase = (FLMainFunction, Seq FLSubFunction)
 
@@ -72,6 +70,12 @@ type instance ValueIdentifier FunctionLiftingPhase = BoundValueIdentifier
 
 type instance FunctionIdentifier FunctionLiftingPhase = BoundFunctionIdentifier
 
+type instance RecordIdentifier FunctionLiftingPhase = BoundRecordIdentifier
+
+type instance FieldIdentifier FunctionLiftingPhase = FieldIndex
+
+type FieldIndex = Int
+
 -- Expression
 type FLExpression = Expression FunctionLiftingPhase
 
@@ -80,10 +84,9 @@ type instance ExpressionData FunctionLiftingPhase = Range
 instance WithRange FLExpression where
   getRange = getExpressionData
 
--- instance Pretty FLFunctionExpressionContent where
---   pretty (FLFunctionExpressionContent functionIndex capturedIdentifiers) = show functionIndex ++ "(" ++ pretty capturedIdentifiers ++ ")"
-
 type instance FunctionExpressionContent FunctionLiftingPhase = TCFunctionReference
+
+type instance RecordFieldValues FunctionLiftingPhase = Seq FLExpression
 
 type TCFunctionReference = FunctionReference FunctionLiftingPhase
 

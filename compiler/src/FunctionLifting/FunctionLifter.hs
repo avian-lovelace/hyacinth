@@ -5,8 +5,11 @@ import Core.ErrorState
 import Core.Errors
 import Core.Graph
 import Core.SyntaxTree
+import Core.Type
 import Data.Foldable (toList)
+import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Maybe (fromJust)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
@@ -14,12 +17,13 @@ import qualified Data.Set as Set
 import FunctionLifting.FunctionLifting
 import FunctionLifting.SyntaxTree
 import IdentifierBinding.SyntaxTree
+import Parsing.SyntaxTree
 import TypeChecking.SyntaxTree
 
-runFunctionLifting :: Int -> Int -> TCModule -> WithErrors FLModule
-runFunctionLifting boundValueIdentifierCounter boundFunctionIdentifierCounter tcModule = liftingResult
+runFunctionLifting :: Int -> Int -> Map BoundRecordIdentifier (Seq UnboundIdentifier) -> TCModule -> WithErrors FLModule
+runFunctionLifting boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders tcModule = liftingResult
   where
-    initialState = initialFunctionLiftingState boundValueIdentifierCounter boundFunctionIdentifierCounter
+    initialState = initialFunctionLiftingState boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders
     (_, liftingResult) = runErrorState (moduleLifter tcModule) initialState
 
 moduleLifter :: TCModule -> FunctionLifter FLModule
@@ -42,6 +46,7 @@ scopeLifter (Scope _ nonPositionalStatements statements) = do
     initializeFunction graph (FunctionStatement _ functionName _) = do
       let capturedIdentifiers = getCapturedIdentifiers graph functionName
       addFunctionCapturedIdentifiers functionName capturedIdentifiers
+    initializeFunction _ (RecordStatement {}) = throwError $ ShouldNotGetHereError "Got record statement in initializeFunction"
 
 makeScopeFunctionGraph :: Seq TCNonPositionalStatement -> FunctionLifter (Graph BoundFunctionIdentifier (Set BoundValueIdentifier))
 makeScopeFunctionGraph nonPositionalStatements = do
@@ -52,6 +57,7 @@ makeScopeFunctionGraph nonPositionalStatements = do
     toNamedGraphNode (FunctionStatement _ functionName functionDefinition) = do
       graphNode <- toGraphNode functionDefinition
       return (functionName, graphNode)
+    toNamedGraphNode (RecordStatement {}) = throwError $ ShouldNotGetHereError "Got record statement in toNamedGraphNode"
     toGraphNode :: TCFunctionDefinition -> FunctionLifter (GraphNode BoundFunctionIdentifier (Set BoundValueIdentifier))
     toGraphNode (FunctionDefinition TCFunctionDefinitionData {tcFunctionDefinitionCapturedIdentifiers} _ _) = do
       (capturedValueIdentifiers, capturedFunctionIdentifiers) <- consolidateCapturedIdentifiers tcFunctionDefinitionCapturedIdentifiers
@@ -79,6 +85,7 @@ nonPositionalStatementLifter (FunctionStatement statementRange functionName func
   let (BoundFunctionIdentifier functionIndex _) = functionName
   let subFunction = SubFunction statementRange capturedIdentifierInnerValues liftedFunctionDefinition
   addLiftedFunction functionIndex subFunction
+nonPositionalStatementLifter (RecordStatement {}) = throwError $ ShouldNotGetHereError "Got record statement in nonPositionalStatementLifter"
 
 statementLifter :: TCStatement -> FunctionLifter FLStatement
 statementLifter (VariableDeclarationStatement TCStatementData {statementRange} mutability (WithTypeAnnotation variableName ()) variableValue) = do
@@ -140,6 +147,19 @@ expressionLifter (FunctionExpression TCExpresionData {expressionRange} functionD
   let subFunction = SubFunction expressionRange capturedIdentifierInnerValues liftedFunctionDefinition
   addLiftedFunction functionIndex subFunction
   return $ FunctionExpression expressionRange (FunctionReference functionIndex (Seq.fromList capturedFunctionIdentifierContextValues))
+expressionLifter (RecordExpression TCExpresionData {expressionRange} recordName fieldValueMap) = do
+  recordFieldOrder <- getRecordFieldOrder recordName
+  let recordFields = (\fieldName -> fromJust $ Map.lookup fieldName fieldValueMap) <$> recordFieldOrder
+  liftedRecordFields <- mapM expressionLifter recordFields
+  return $ RecordExpression expressionRange recordName liftedRecordFields
+expressionLifter (FieldAccessExpression TCExpresionData {expressionRange} inner fieldName) = do
+  liftedInner <- expressionLifter inner
+  let innerType = expressionType . getExpressionData $ inner
+  recordName <- case innerType of
+    RecordType recordName -> return recordName
+    _ -> throwError $ ShouldNotGetHereError "Inner expression of FieldAccessExpression was not a record in expressionLifter"
+  fieldIndex <- getRecordFieldIndex recordName fieldName
+  return $ FieldAccessExpression expressionRange liftedInner fieldIndex
 -- Standard cases
 expressionLifter (IntLiteralExpression TCExpresionData {expressionRange} value) = return $ IntLiteralExpression expressionRange value
 expressionLifter (FloatLiteralExpression TCExpresionData {expressionRange} value) = return $ FloatLiteralExpression expressionRange value

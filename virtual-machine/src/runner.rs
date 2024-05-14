@@ -4,7 +4,7 @@ use std::str;
 
 use crate::core::{
     ConstIndex, FloatValue, Frame, FunctionIndex, InstructionOffset, IntValue, Object, ObjectKey,
-    StackIndex, Value, VM,
+    RecordId, StackIndex, Value, VM,
 };
 
 impl VM {
@@ -308,6 +308,22 @@ impl VM {
                         value => panic!("Attempted to call non-function value {}", value),
                     }
                 }
+                Instruction::Record(record_id, num_fields) => {
+                    let fields = self.pop_slice(num_fields as usize);
+                    let record_object = Object::RecordObj { record_id, fields };
+                    let record_object_value = self.heap.add(record_object);
+                    self.push(record_object_value)
+                }
+                Instruction::Field(field_index) => match self.pop() {
+                    Value::Object(object_index) => match self.heap.get(object_index) {
+                        Object::RecordObj {
+                            record_id: _,
+                            fields,
+                        } => self.push(fields[field_index as usize]),
+                        obj => panic!("Attempted to access a field of non-record object {}", obj),
+                    },
+                    value => panic!("Attempted to access a field of non-record value {}", value),
+                },
             };
         }
         self.garbage_collect();
@@ -410,6 +426,8 @@ impl VM {
             30 => Instruction::Char(self.read_char()),
             31 => Instruction::Function(self.read_u16(), self.read_byte()),
             32 => Instruction::Call(self.read_byte()),
+            33 => Instruction::Record(self.read_u16(), self.read_byte()),
+            34 => Instruction::Field(self.read_byte()),
             op => panic!("Got invalid op code {}", op),
         }
     }
@@ -516,6 +534,8 @@ enum Instruction {
     Char(char),
     Function(FunctionIndex, u8),
     Call(u8),
+    Record(RecordId, u8),
+    Field(u8),
 }
 
 impl fmt::Display for Instruction {
@@ -559,6 +579,10 @@ impl fmt::Display for Instruction {
                 write!(f, "Function {} {}", function_index, num_closed)
             }
             Instruction::Call(num_arguments) => write!(f, "Call {}", num_arguments),
+            Instruction::Record(record_id, num_fields) => {
+                write!(f, "Record {} {}", record_id, num_fields)
+            }
+            Instruction::Field(field_index) => write!(f, "Field {}", field_index),
         }
     }
 }

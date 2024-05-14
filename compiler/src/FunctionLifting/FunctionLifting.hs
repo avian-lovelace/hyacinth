@@ -12,6 +12,8 @@ module FunctionLifting.FunctionLifting
     getNewFunctionIndex,
     assertIdentifierIsNotCaptured,
     setIdentifierIsUsable,
+    getRecordFieldOrder,
+    getRecordFieldIndex,
   )
 where
 
@@ -27,6 +29,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import FunctionLifting.SyntaxTree
 import IdentifierBinding.SyntaxTree
+import Parsing.SyntaxTree
 
 type FunctionLifter a = ErrorState FunctionLiftingState a
 
@@ -36,18 +39,20 @@ data FunctionLiftingState = FunctionLiftingState
     usableValueIdentifiers :: Set BoundValueIdentifier,
     liftedFunctions :: Map FunctionIndex FLSubFunction,
     boundValueIdentifierCounter :: Int,
-    boundFunctionIdentifierCounter :: Int
+    boundFunctionIdentifierCounter :: Int,
+    recordFieldOrders :: Map BoundRecordIdentifier (Seq UnboundIdentifier)
   }
 
-initialFunctionLiftingState :: Int -> Int -> FunctionLiftingState
-initialFunctionLiftingState boundValueIdentifierCounter boundFunctionIdentifierCounter =
+initialFunctionLiftingState :: Int -> Int -> Map BoundRecordIdentifier (Seq UnboundIdentifier) -> FunctionLiftingState
+initialFunctionLiftingState boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders =
   FunctionLiftingState
     { capturedIdentifierStack = [],
       functionCapturedIdentifiers = Map.empty,
       usableValueIdentifiers = Set.empty,
       liftedFunctions = Map.empty,
       boundValueIdentifierCounter,
-      boundFunctionIdentifierCounter
+      boundFunctionIdentifierCounter,
+      recordFieldOrders
     }
 
 getIdentifierInContext :: Error -> BoundValueIdentifier -> FunctionLifter BoundValueIdentifier
@@ -161,32 +166,46 @@ getNewFunctionIndex = do
   setBoundFunctionIdentifierCounter $ functionIndex + 1
   return functionIndex
 
+getRecordFieldOrder :: BoundRecordIdentifier -> FunctionLifter (Seq UnboundIdentifier)
+getRecordFieldOrder recordName = do
+  recordFieldOrders <- recordFieldOrders <$> getState
+  case Map.lookup recordName recordFieldOrders of
+    Nothing -> throwError $ ShouldNotGetHereError "Failed to find record in getRecordFieldOrder"
+    Just fieldOrder -> return fieldOrder
+
+getRecordFieldIndex :: BoundRecordIdentifier -> UnboundIdentifier -> FunctionLifter FieldIndex
+getRecordFieldIndex recordName fieldName = do
+  fieldOrder <- getRecordFieldOrder recordName
+  case Seq.elemIndexL fieldName fieldOrder of
+    Nothing -> throwError $ ShouldNotGetHereError "Failed to find field in getRecordFieldIndex"
+    Just index -> return index
+
 setCapturedIdentifierStack :: [Map BoundValueIdentifier BoundValueIdentifier] -> ErrorState FunctionLiftingState ()
 setCapturedIdentifierStack capturedIdentifierStack = do
-  FunctionLiftingState {functionCapturedIdentifiers, usableValueIdentifiers, liftedFunctions, boundValueIdentifierCounter, boundFunctionIdentifierCounter} <- getState
-  setState FunctionLiftingState {capturedIdentifierStack, functionCapturedIdentifiers, usableValueIdentifiers, liftedFunctions, boundValueIdentifierCounter, boundFunctionIdentifierCounter}
+  state <- getState
+  setState state {capturedIdentifierStack}
 
 setFunctionCapturedIdentifiers :: Map BoundFunctionIdentifier (Set BoundValueIdentifier) -> ErrorState FunctionLiftingState ()
 setFunctionCapturedIdentifiers functionCapturedIdentifiers = do
-  FunctionLiftingState {capturedIdentifierStack, usableValueIdentifiers, liftedFunctions, boundValueIdentifierCounter, boundFunctionIdentifierCounter} <- getState
-  setState FunctionLiftingState {capturedIdentifierStack, functionCapturedIdentifiers, usableValueIdentifiers, liftedFunctions, boundValueIdentifierCounter, boundFunctionIdentifierCounter}
+  state <- getState
+  setState state {functionCapturedIdentifiers}
 
 setUsableValueIdentifiers :: Set BoundValueIdentifier -> ErrorState FunctionLiftingState ()
 setUsableValueIdentifiers usableValueIdentifiers = do
-  FunctionLiftingState {capturedIdentifierStack, functionCapturedIdentifiers, liftedFunctions, boundValueIdentifierCounter, boundFunctionIdentifierCounter} <- getState
-  setState FunctionLiftingState {capturedIdentifierStack, functionCapturedIdentifiers, usableValueIdentifiers, liftedFunctions, boundValueIdentifierCounter, boundFunctionIdentifierCounter}
+  state <- getState
+  setState state {usableValueIdentifiers}
 
 setLiftedFunctions :: Map FunctionIndex FLSubFunction -> ErrorState FunctionLiftingState ()
 setLiftedFunctions liftedFunctions = do
-  FunctionLiftingState {capturedIdentifierStack, functionCapturedIdentifiers, usableValueIdentifiers, boundValueIdentifierCounter, boundFunctionIdentifierCounter} <- getState
-  setState FunctionLiftingState {capturedIdentifierStack, functionCapturedIdentifiers, usableValueIdentifiers, liftedFunctions, boundValueIdentifierCounter, boundFunctionIdentifierCounter}
+  state <- getState
+  setState state {liftedFunctions}
 
 setBoundValueIdentifierCounter :: Int -> ErrorState FunctionLiftingState ()
 setBoundValueIdentifierCounter boundValueIdentifierCounter = do
-  FunctionLiftingState {capturedIdentifierStack, functionCapturedIdentifiers, usableValueIdentifiers, liftedFunctions, boundFunctionIdentifierCounter} <- getState
-  setState FunctionLiftingState {capturedIdentifierStack, functionCapturedIdentifiers, usableValueIdentifiers, liftedFunctions, boundValueIdentifierCounter, boundFunctionIdentifierCounter}
+  state <- getState
+  setState state {boundValueIdentifierCounter}
 
 setBoundFunctionIdentifierCounter :: Int -> ErrorState FunctionLiftingState ()
 setBoundFunctionIdentifierCounter boundFunctionIdentifierCounter = do
-  FunctionLiftingState {capturedIdentifierStack, functionCapturedIdentifiers, usableValueIdentifiers, liftedFunctions, boundValueIdentifierCounter} <- getState
-  setState FunctionLiftingState {capturedIdentifierStack, functionCapturedIdentifiers, usableValueIdentifiers, liftedFunctions, boundValueIdentifierCounter, boundFunctionIdentifierCounter}
+  state <- getState
+  setState state {boundFunctionIdentifierCounter}

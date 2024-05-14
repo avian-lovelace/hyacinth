@@ -30,11 +30,13 @@ module BytecodeGeneration.Bytecode
     jumpIfFalseInstructionNumBytes,
     intInstruction,
     floatInstruction,
+    charInstruction,
     functionInstruction,
     callInstruction,
+    recordInstruction,
+    fieldInstruction,
     Constant (StringConstant),
     encodeConstant,
-    charInstruction,
   )
 where
 
@@ -53,6 +55,8 @@ type StackIndex = Word16
 type InstructionOffset = Int16
 
 type FunctionIndex = Word16
+
+type RecordId = Word16
 
 -- Instructions
 returnInstruction :: BB.Builder
@@ -160,6 +164,12 @@ functionInstruction functionIndex numCapturedIdentifiers = BB.word8 31 <> BB.wor
 
 callInstruction :: Word8 -> BB.Builder
 callInstruction numArguments = BB.word8 32 <> BB.word8 numArguments
+
+recordInstruction :: RecordId -> Word8 -> BB.Builder
+recordInstruction recordId numFields = BB.word8 33 <> BB.word16BE recordId <> BB.word8 numFields
+
+fieldInstruction :: Word8 -> BB.Builder
+fieldInstruction fieldIndex = BB.word8 34 <> BB.word8 fieldIndex
 
 -- Constants
 data Constant

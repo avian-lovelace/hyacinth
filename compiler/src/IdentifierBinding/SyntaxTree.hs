@@ -10,6 +10,9 @@ module IdentifierBinding.SyntaxTree
     IBFunctionIdentifier,
     BoundValueIdentifier (BoundValueIdentifier),
     BoundFunctionIdentifier (BoundFunctionIdentifier),
+    BoundRecordIdentifier (BoundRecordIdentifier),
+    IBRecordIdentifier,
+    IBFieldIdentifier,
     IBExpression,
     IBMainFunction,
     IBSubFunction,
@@ -19,13 +22,16 @@ module IdentifierBinding.SyntaxTree
     IBNonPositionalStatement,
     IBFunctionDefinition,
     IBFunctionDefinitionData (IBFunctionDefinitionData, ibFunctionDefinitionCapturedIdentifiers, ibFunctionDefinitionRange),
+    WithTextName (getTextName),
   )
 where
 
 import Core.FilePositions
 import Core.SyntaxTree
 import Core.Utils
+import Data.Map (Map)
 import Data.Set (Set)
+import Data.Text (Text)
 import Parsing.SyntaxTree
 
 data IdentifierBindingPhase
@@ -90,6 +96,12 @@ data BoundValueIdentifier = BoundValueIdentifier ValueIdentifierIndex UnboundIde
 instance Pretty BoundValueIdentifier where
   pretty (BoundValueIdentifier index name) = "(BoundValueIdentifier " ++ show index ++ " " ++ pretty name ++ ")"
 
+class WithTextName i where
+  getTextName :: i -> Text
+
+instance WithTextName BoundValueIdentifier where
+  getTextName (BoundValueIdentifier _ name) = name
+
 type ValueIdentifierIndex = Int
 
 type IBFunctionIdentifier = FunctionIdentifier IdentifierBindingPhase
@@ -102,12 +114,36 @@ data BoundFunctionIdentifier = BoundFunctionIdentifier FunctionIndex UnboundIden
 instance Pretty BoundFunctionIdentifier where
   pretty (BoundFunctionIdentifier index name) = "(BoundFunctionIdentifier " ++ show index ++ " " ++ pretty name ++ ")"
 
+instance WithTextName BoundFunctionIdentifier where
+  getTextName (BoundFunctionIdentifier _ name) = name
+
+type IBRecordIdentifier = RecordIdentifier IdentifierBindingPhase
+
+type instance RecordIdentifier IdentifierBindingPhase = BoundRecordIdentifier
+
+type RecordIndex = Int
+
+data BoundRecordIdentifier = BoundRecordIdentifier RecordIndex UnboundIdentifier
+  deriving (Eq, Ord)
+
+instance Pretty BoundRecordIdentifier where
+  pretty (BoundRecordIdentifier index name) = "(BoundRecordIdentifier " ++ show index ++ " " ++ pretty name ++ ")"
+
+instance WithTextName BoundRecordIdentifier where
+  getTextName (BoundRecordIdentifier _ name) = name
+
+type IBFieldIdentifier = FieldIdentifier IdentifierBindingPhase
+
+type instance FieldIdentifier IdentifierBindingPhase = UnboundIdentifier
+
 -- Expression
 type IBExpression = Expression IdentifierBindingPhase
 
 type instance ExpressionData IdentifierBindingPhase = Range
 
 type instance FunctionExpressionContent IdentifierBindingPhase = IBFunctionDefinition
+
+type instance RecordFieldValues IdentifierBindingPhase = Map IBFieldIdentifier IBExpression
 
 instance WithRange IBExpression where
   getRange = getExpressionData

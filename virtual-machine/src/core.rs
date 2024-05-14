@@ -45,6 +45,10 @@ pub enum Object {
         function_index: FunctionIndex,
         closed_variables: Vec<Value>,
     },
+    RecordObj {
+        record_id: RecordId,
+        fields: Vec<Value>,
+    },
 }
 
 impl fmt::Display for Object {
@@ -55,6 +59,13 @@ impl fmt::Display for Object {
                 function_index,
                 closed_variables: _,
             } => write!(f, "FunctionObj {}", function_index),
+            Object::RecordObj { record_id, fields } => {
+                write!(f, "RecordObj {} [", record_id)?;
+                for field in fields {
+                    write!(f, "{} ", field)?
+                }
+                write!(f, "]")
+            }
         }
     }
 }
@@ -107,3 +118,4 @@ pub type StackIndex = u16;
 pub type InstructionOffset = i16;
 pub type InstructionIndex = usize;
 pub type FunctionIndex = u16;
+pub type RecordId = u16;

@@ -4,11 +4,15 @@ module Parsing.Parser
 where
 
 import Control.Applicative
+import Control.Monad (foldM)
 import Core.Errors
 import Core.FilePositions
 import Core.SyntaxTree
 import Core.Utils
 import Data.Foldable
+import Data.Function ((&))
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe (isJust)
 import Data.Sequence (Seq (Empty, (:<|)), (<|))
 import qualified Data.Sequence as Seq
@@ -47,6 +51,7 @@ parseStatement (currentSection :<| tailSections) = case currentSection of
   TokenSection (WhileToken _) -> Left <$> parseWhileLoopStatement currentSection tailSections
   TokenSection (ReturnToken _) -> Left <$> parseReturnStatement currentSection tailSections
   TokenSection (FuncToken _) -> Right <$> parseFunctionStatement currentSection tailSections
+  TokenSection (RecToken _) -> Right <$> parseRecordStatement currentSection tailSections
   _ -> Left <$> parseExpressionStatement (currentSection <| tailSections)
 
 parsePrintStatement :: Section -> ParseFunction PStatement
@@ -176,6 +181,30 @@ isSingleRightArrowSection :: Section -> Bool
 isSingleRightArrowSection (TokenSection (SingleRightArrowToken _)) = True
 isSingleRightArrowSection _ = False
 
+parseRecordStatement :: Section -> ParseFunction PNonPositionalStatement
+parseRecordStatement
+  recTokenSection
+  ( (TokenSection (IdentifierToken _ recordName))
+      :<| (SquareBracketSection fieldTypeListRange fieldTypeListSections)
+      :<| Empty
+    ) = do
+    let fieldSectionLists = seqSplitOn isCommaSection fieldTypeListSections
+    fieldTypePairs <- consolidateErrors $ parseFieldType <$> fieldSectionLists
+    return $ RecordStatement (getRange recTokenSection <> fieldTypeListRange) recordName fieldTypePairs
+    where
+      parseFieldType :: ParseFunction (PFieldIdentifier, PTypeExpression)
+      parseFieldType Empty = singleError $ RecordStatementEmptyFieldError fieldTypeListRange
+      parseFieldType ((TokenSection (IdentifierToken fieldNameRange fieldName)) :<| (TokenSection (ColonToken colonRange)) :<| Empty) =
+        singleError $ RecordStatementEmptyFieldTypeError fieldName (fieldNameRange <> colonRange)
+      parseFieldType ((TokenSection (IdentifierToken _ fieldName)) :<| (TokenSection (ColonToken _)) :<| typeSections) = do
+        fieldType <-
+          catchUnboundError (RecordStatementMalformedFieldValueError fieldName (getRange typeSections)) $
+            runParserToEnd typeExpressionParser typeSections
+        return (fieldName, fieldType)
+      parseFieldType sections = singleError $ RecordStatementMalformedFieldError (getRange sections)
+parseRecordStatement recTokenSection Empty = singleError $ RecordStatementMalformedError (getRange recTokenSection)
+parseRecordStatement recTokenSection restSections = singleError $ RecordStatementMalformedError (getRange recTokenSection <> getRange restSections)
+
 -- Expressions
 
 expressionParser :: Parser PExpression
@@ -259,10 +288,10 @@ toAddSubtractExpression _ = Nothing
 
 multiplicationLevelExpressionParser :: Parser PExpression
 multiplicationLevelExpressionParser = do
-  leftExpression <- unaryExpressionParser
+  leftExpression <- prefixExpressionParser
   rightExpressions <- pZeroOrMore $ do
     operator <- pNext <&&> toMultiplyDivideExpression
-    rightExpression <- unaryExpressionParser
+    rightExpression <- prefixExpressionParser
     return (operator, rightExpression)
   return $ foldl' makeExpression leftExpression rightExpressions
   where
@@ -274,13 +303,12 @@ toMultiplyDivideExpression (TokenSection (SlashToken _)) = Just DivideExpression
 toMultiplyDivideExpression (TokenSection (PercentToken _)) = Just ModuloExpression
 toMultiplyDivideExpression _ = Nothing
 
--- Unary level
+-- Unary prefix level
 
--- unaryExpressionParser :: Parser Expression
-unaryExpressionParser :: Parser PExpression
-unaryExpressionParser = do
+prefixExpressionParser :: Parser PExpression
+prefixExpressionParser = do
   operators <- pZeroOrMore $ pNext <&&> toUnaryExpressionAndRange
-  innerExpression <- functionCallParser
+  innerExpression <- postfixExpressionParser
   return $ foldr makeExpression innerExpression operators
   where
     makeExpression (operator, range) innerExpression = operator (range <> getRange innerExpression) innerExpression
@@ -290,25 +318,42 @@ toUnaryExpressionAndRange (TokenSection (MinusToken range)) = Just (NegateExpres
 toUnaryExpressionAndRange (TokenSection (BangToken range)) = Just (NotExpression, range)
 toUnaryExpressionAndRange _ = Nothing
 
--- Function call level
+-- Unary postfix level
 
-functionCallParser :: Parser PExpression
-functionCallParser = do
+postfixExpressionParser :: Parser PExpression
+postfixExpressionParser = do
   innerExpression <- primaryExpressionParser
-  argumentListSections <- pZeroOrMore $ pNext <&&> matchSquareBracketSection
-  returnWithErrors $ do
-    argumentLists <- consolidateErrors $ uncurry parseArguments <$> argumentListSections
-    return $ foldl' makeFunctionCallExpression innerExpression argumentLists
-  where
-    makeFunctionCallExpression :: PExpression -> (Range, Seq PExpression) -> PExpression
-    makeFunctionCallExpression func (argumentsRange, argumentSet) =
-      FunctionCallExpression (getRange (func, argumentsRange)) func argumentSet
+  operators <- pZeroOrMore $ postfixOperatorParser
+  return $ foldl' (&) innerExpression operators
 
-parseArguments :: Range -> ParseFunction (Range, Seq PExpression)
+postfixOperatorParser :: Parser (PExpression -> PExpression)
+postfixOperatorParser = fieldAccessParser <|> functionCallParser
+
+fieldAccessParser :: Parser (PExpression -> PExpression)
+fieldAccessParser = do
+  pNext <&&> matchDotSection
+  (fieldRange, fieldName) <- pNext <&&> matchIdentifierSection
+  return $ \innerExpression -> FieldAccessExpression (getRange innerExpression <> fieldRange) innerExpression fieldName
+
+matchDotSection :: Section -> Maybe ()
+matchDotSection (TokenSection (DotToken _)) = Just ()
+matchDotSection _ = Nothing
+
+matchIdentifierSection :: Section -> Maybe (Range, UnboundIdentifier)
+matchIdentifierSection (TokenSection (IdentifierToken range identifier)) = Just (range, identifier)
+matchIdentifierSection _ = Nothing
+
+functionCallParser :: Parser (PExpression -> PExpression)
+functionCallParser = do
+  (argumentListRange, argumentListSections) <- pNext <&&> matchSquareBracketSection
+  arguments <- returnWithErrors $ parseArguments argumentListRange argumentListSections
+  return $ \innerExpression -> FunctionCallExpression (getRange innerExpression <> argumentListRange) innerExpression arguments
+
+parseArguments :: Range -> ParseFunction (Seq PExpression)
 parseArguments argumentsRange sections = do
   let argumentSectionLists = seqSplitOn isCommaSection sections
   arguments <- consolidateErrors $ parseArgument <$> argumentSectionLists
-  return (argumentsRange, arguments)
+  return arguments
   where
     parseArgument :: Seq Section -> WithErrors PExpression
     parseArgument Empty = singleError $ FunctionCallEmptyArgumentError argumentsRange
@@ -328,11 +373,12 @@ matchSquareBracketSection _ = Nothing
 
 primaryExpressionParser :: Parser PExpression
 primaryExpressionParser =
-  literalOrVariableExpressionParser
-    <|> parenthesesExpressionParser
+  parenthesesExpressionParser
+    <|> functionExpressionParser
     <|> scopeExpressionParser
     <|> ifExpressionParser
-    <|> functionExpressionParser
+    <|> recordExpressionParser
+    <|> literalOrVariableExpressionParser
 
 literalOrVariableExpressionParser :: Parser PExpression
 literalOrVariableExpressionParser = pNext <&&> toLiteralExpression
@@ -453,6 +499,47 @@ matchColonSection :: Section -> Maybe ()
 matchColonSection (TokenSection (ColonToken _)) = Just ()
 matchColonSection _ = Nothing
 
+recordExpressionParser :: Parser PExpression
+recordExpressionParser = do
+  (recordNameRange, recordName) <- pNext <&&> matchIdentifierSection
+  (fieldsRange, fieldsSections) <- pNext <&&> matchSquareBracketSection
+  -- If there is a set of empty brackets, we want to parse it as a function call, not a record
+  pExpect $ isNonEmpty fieldsSections
+  fieldsMap <- returnWithErrors $ parseFieldValueList fieldsRange fieldsSections
+  return $ RecordExpression (recordNameRange <> fieldsRange) recordName fieldsMap
+  where
+    isNonEmpty Empty = False
+    isNonEmpty _ = True
+
+parseFieldValueList :: Range -> ParseFunction (Map PFieldIdentifier PExpression)
+parseFieldValueList _ Empty = Success Map.empty
+parseFieldValueList fieldValueListRange sections = do
+  let fieldSectionLists = seqSplitOn isCommaSection sections
+  fieldValuePairs <- consolidateErrors $ parseFieldValue <$> fieldSectionLists
+  foldM addFieldValue Map.empty fieldValuePairs
+  where
+    parseFieldValue :: ParseFunction (PFieldIdentifier, PExpression)
+    parseFieldValue Empty = singleError $ RecordExpressionEmptyFieldError fieldValueListRange
+    parseFieldValue (TokenSection (IdentifierToken _ fieldName) :<| TokenSection (EqualsToken _) :<| Empty) =
+      singleError $ RecordExpressionEmptyFieldValueError fieldName fieldValueListRange
+    parseFieldValue
+      ( TokenSection (IdentifierToken _ fieldName)
+          :<| TokenSection (EqualsToken _)
+          :<| valueSections
+        ) = do
+        fieldValue <-
+          catchUnboundError (RecordExpressionMalformedFieldValueError fieldName (getRange valueSections)) $
+            runParserToEnd expressionParser valueSections
+        return (fieldName, fieldValue)
+    parseFieldValue fieldSections = singleError $ RecordExpressionMalformedFieldError (getRange fieldSections)
+    addFieldValue :: Map PFieldIdentifier PExpression -> (PFieldIdentifier, PExpression) -> WithErrors (Map PFieldIdentifier PExpression)
+    addFieldValue recordMap (fieldName, fieldValue) = do
+      let (maybeConflictingValue, updatedRecordMap) = Map.insertLookupWithKey (\_ a _ -> a) fieldName fieldValue recordMap
+      case maybeConflictingValue of
+        Just conflictingValue ->
+          singleError $ RecordExpressionConflictingFieldsError fieldName (getRange fieldValue) (getRange conflictingValue)
+        Nothing -> return updatedRecordMap
+
 -- Types
 
 typeExpressionParser :: Parser PTypeExpression
@@ -488,6 +575,7 @@ asPrimaryType (TokenSection (CharToken range)) = Just $ CharTypeExpression range
 asPrimaryType (TokenSection (StringToken range)) = Just $ StringTypeExpression range
 asPrimaryType (TokenSection (BoolToken range)) = Just $ BoolTypeExpression range
 asPrimaryType (TokenSection (NilToken range)) = Just $ NilTypeExpression range
+asPrimaryType (TokenSection (IdentifierToken range identifier)) = Just $ RecordTypeExpression range identifier
 asPrimaryType _ = Nothing
 
 parenthesesTypeExpressionParser :: Parser PTypeExpression

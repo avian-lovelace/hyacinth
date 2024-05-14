@@ -58,10 +58,10 @@ compileCode logger code = do
   (boundValueIdentifierCounter, boundFunctionIdentifierCounter, ibAst) <- liftWithErrors $ runIdentifierBinding pAst
   logger "Completed identifier binding"
   logger $ pretty ibAst
-  tcAst <- liftWithErrors $ runTypeChecking ibAst
+  (recordFieldOrders, tcAst) <- liftWithErrors $ runTypeChecking ibAst
   logger "Completed type checking"
   logger $ pretty tcAst
-  flAst <- liftWithErrors $ runFunctionLifting boundValueIdentifierCounter boundFunctionIdentifierCounter tcAst
+  flAst <- liftWithErrors $ runFunctionLifting boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders tcAst
   logger "Completed function lifting"
   logger $ pretty flAst
   let bytecode = encodeFile flAst

@@ -7,6 +7,8 @@ import Core.ErrorState
 import Core.Errors
 import Core.FilePositions
 import Core.SyntaxTree
+import Core.Utils (secondM)
+import qualified Data.Map as Map
 import IdentifierBinding.IdentifierBinding
 import IdentifierBinding.SyntaxTree
 import Parsing.SyntaxTree
@@ -42,6 +44,9 @@ prepareNonPositionalStatementForBinding statement = case statement of
   (FunctionStatement statementRange unboundFunctionName _) -> do
     addFunction statementRange unboundFunctionName
     return $ BindingReady statement
+  (RecordStatement statementRange recordName _) -> do
+    addRecord statementRange recordName
+    return $ BindingReady statement
 
 nonPositionalStatementBinder :: BindingReady PNonPositionalStatement -> IdentifierBinder IBNonPositionalStatement
 nonPositionalStatementBinder (BindingReady (FunctionStatement statementRange unboundFunctionName (FunctionDefinition definitionRange parameters (WithTypeAnnotation body returnTypeAnnotation)))) = do
@@ -54,6 +59,10 @@ nonPositionalStatementBinder (BindingReady (FunctionStatement statementRange unb
     let functionDefinitionData = IBFunctionDefinitionData {ibFunctionDefinitionRange = definitionRange, ibFunctionDefinitionCapturedIdentifiers = capturedIdentifiers}
     let functionDefinition = FunctionDefinition functionDefinitionData boundParameters (WithTypeAnnotation boundBody boundReturnTypeAnnotation)
     return $ FunctionStatement statementRange boundFunctionName functionDefinition
+nonPositionalStatementBinder (BindingReady (RecordStatement statementRange recordName fieldTypePairs)) = do
+  boundRecordName <- getRecordNameBinding recordName
+  boundFieldTypePairs <- mapM (secondM typeExpressionBinder) fieldTypePairs
+  return $ RecordStatement statementRange boundRecordName boundFieldTypePairs
 
 prepareStatementForBinding :: PStatement -> IdentifierBinder (BindingReady PStatement)
 prepareStatementForBinding statement = case statement of
@@ -75,6 +84,7 @@ statementBinder (BindingReady (VariableMutationStatement statementRange unboundV
   boundValueIdentifier <- case identifierInfo of
     ParameterIdentifierInfo declarationRange _ -> throwError $ MutatedParameterError unboundVariableName declarationRange statementRange
     FunctionIdentifierInfo declarationRange _ -> throwError $ MutatedFunctionError unboundVariableName declarationRange statementRange
+    RecordIdentifierInfo declarationRange _ -> throwError $ MutatedRecordError unboundVariableName declarationRange statementRange
     VariableIdentifierInfo declarationRange boundValueIdentifier mutability usability -> do
       case usability of
         BeforeDeclaration -> throwError $ VariableDefinedAfterReferenceError unboundVariableName statementRange declarationRange
@@ -109,6 +119,7 @@ expressionBinder (IdentifierExpression expressionRange unboundIdentifier) = do
   case identifierInfo of
     ParameterIdentifierInfo _ boundValueIdentifier -> return $ IdentifierExpression expressionRange $ Left boundValueIdentifier
     FunctionIdentifierInfo _ boundFunctionIdentifier -> return $ IdentifierExpression expressionRange $ Right boundFunctionIdentifier
+    RecordIdentifierInfo _ boundRecordIdentifier -> return $ RecordExpression expressionRange boundRecordIdentifier Map.empty
     VariableIdentifierInfo declarationRange boundValueIdentifier _ usability -> case usability of
       BeforeDeclaration -> throwError $ VariableDefinedAfterReferenceError unboundIdentifier expressionRange declarationRange
       InDeclaration -> throwError $ VariableReferencedInDeclarationError unboundIdentifier declarationRange expressionRange
@@ -124,6 +135,13 @@ expressionBinder (FunctionExpression expressionRange (FunctionDefinition definit
   let functionDefinitionData = IBFunctionDefinitionData {ibFunctionDefinitionRange = definitionRange, ibFunctionDefinitionCapturedIdentifiers = capturedIdentifiers}
   let functionDefinition = FunctionDefinition functionDefinitionData boundParameters (WithTypeAnnotation boundBody boundReturnTypeAnnotation)
   return $ FunctionExpression expressionRange functionDefinition
+expressionBinder (RecordExpression expressionRange recordName fieldValueMap) = do
+  identifierInfo <- getIdentifierBinding expressionRange recordName
+  boundRecordName <- case identifierInfo of
+    RecordIdentifierInfo _ boundRecordIdentifier -> return boundRecordIdentifier
+    valueIdentifier -> throwError $ ValueIdentifierUsedAsRecordNameError recordName (getRange valueIdentifier) expressionRange
+  boundFieldValueMap <- mapM expressionBinder fieldValueMap
+  return $ RecordExpression expressionRange boundRecordName boundFieldValueMap
 -- Standard cases
 expressionBinder (IntLiteralExpression d value) = return $ IntLiteralExpression d value
 expressionBinder (FloatLiteralExpression d value) = return $ FloatLiteralExpression d value
@@ -202,6 +220,9 @@ expressionBinder (FunctionCallExpression d function arguments) = do
   boundFunction <- expressionBinder function
   boundArguments <- traverse' expressionBinder arguments
   return $ FunctionCallExpression d boundFunction boundArguments
+expressionBinder (FieldAccessExpression d inner field) = do
+  boundInner <- expressionBinder inner
+  return $ FieldAccessExpression d boundInner field
 
 bindScope :: PScope -> IdentifierBinder IBScope
 bindScope (Scope () nonPositionalStatements statements) = do
@@ -222,13 +243,18 @@ bindParameter definitionRange (WithTypeAnnotation unboundParameter typeAnnotatio
 -- toAstIdentifier (IdentifierInfo {boundIdentifier, declarationRange}) = Identifier declarationRange boundIdentifier
 
 typeExpressionBinder :: PTypeExpression -> IdentifierBinder IBTypeExpression
-typeExpressionBinder (IntTypeExpression range) = return $ IntTypeExpression range
-typeExpressionBinder (FloatTypeExpression range) = return $ FloatTypeExpression range
-typeExpressionBinder (CharTypeExpression range) = return $ CharTypeExpression range
-typeExpressionBinder (StringTypeExpression range) = return $ StringTypeExpression range
-typeExpressionBinder (BoolTypeExpression range) = return $ BoolTypeExpression range
-typeExpressionBinder (NilTypeExpression range) = return $ NilTypeExpression range
-typeExpressionBinder (FunctionTypeExpression range parameterTypes returnType) = do
+typeExpressionBinder (IntTypeExpression typeExpressionRange) = return $ IntTypeExpression typeExpressionRange
+typeExpressionBinder (FloatTypeExpression typeExpressionRange) = return $ FloatTypeExpression typeExpressionRange
+typeExpressionBinder (CharTypeExpression typeExpressionRange) = return $ CharTypeExpression typeExpressionRange
+typeExpressionBinder (StringTypeExpression typeExpressionRange) = return $ StringTypeExpression typeExpressionRange
+typeExpressionBinder (BoolTypeExpression typeExpressionRange) = return $ BoolTypeExpression typeExpressionRange
+typeExpressionBinder (NilTypeExpression typeExpressionRange) = return $ NilTypeExpression typeExpressionRange
+typeExpressionBinder (FunctionTypeExpression typeExpressionRange parameterTypes returnType) = do
   boundParameterTypes <- mapM typeExpressionBinder parameterTypes
   boundReturnType <- typeExpressionBinder returnType
-  return $ FunctionTypeExpression range boundParameterTypes boundReturnType
+  return $ FunctionTypeExpression typeExpressionRange boundParameterTypes boundReturnType
+typeExpressionBinder (RecordTypeExpression typeExpressionRange recordName) = do
+  identifierInfo <- getIdentifierBinding typeExpressionRange recordName
+  case identifierInfo of
+    RecordIdentifierInfo _ boundRecordName -> return $ RecordTypeExpression typeExpressionRange boundRecordName
+    valueIdentifier -> throwError $ ValueIdentifierUsedAsTypeError recordName (getRange valueIdentifier) typeExpressionRange

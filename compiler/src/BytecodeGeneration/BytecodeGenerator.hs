@@ -10,8 +10,9 @@ import Core.SyntaxTree
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as LB
 import Data.Foldable
+import qualified Data.Sequence as Seq
 import FunctionLifting.SyntaxTree
-import IdentifierBinding.SyntaxTree (BoundValueIdentifier)
+import IdentifierBinding.SyntaxTree
 
 encodeFile :: FLModule -> BB.Builder
 encodeFile fileScope =
@@ -166,6 +167,12 @@ encodeExpression (FunctionCallExpression _ function arguments) = do
   encodedFunction <- encodeExpression function
   encodedArguments <- traverse encodeExpression arguments
   return $ encodedFunction <> fold encodedArguments <> callInstruction (fromIntegral . length $ arguments)
+encodeExpression (RecordExpression _ (BoundRecordIdentifier recordIndex _) fields) = do
+  encodedFields <- traverse encodeExpression fields
+  return $ fold encodedFields <> recordInstruction (fromIntegral recordIndex) (fromIntegral . Seq.length $ fields)
+encodeExpression (FieldAccessExpression _ inner fieldIndex) = do
+  encodedInner <- encodeExpression inner
+  return $ encodedInner <> fieldInstruction (fromIntegral fieldIndex)
 
 encodeScope :: FLScope -> BytecodeGenerator BB.Builder
 encodeScope (Scope _ _ statements) = withNewScope $ do

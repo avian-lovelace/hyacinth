@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module Parsing.SyntaxTree
@@ -12,11 +13,14 @@ module Parsing.SyntaxTree
     UnboundIdentifier,
     PTypeExpression,
     PWithTypeAnnotation,
+    PRecordIdentifier,
+    PFieldIdentifier,
   )
 where
 
 import Core.FilePositions
 import Core.SyntaxTree
+import Data.Map (Map)
 import Data.Text (Text)
 
 data ParsingPhase
@@ -69,12 +73,22 @@ type PFunctionIdentifier = FunctionIdentifier ParsingPhase
 
 type instance FunctionIdentifier ParsingPhase = UnboundIdentifier
 
+type PRecordIdentifier = RecordIdentifier ParsingPhase
+
+type instance RecordIdentifier ParsingPhase = UnboundIdentifier
+
+type PFieldIdentifier = FieldIdentifier ParsingPhase
+
+type instance FieldIdentifier ParsingPhase = UnboundIdentifier
+
 -- Expression
 type PExpression = Expression ParsingPhase
 
 type instance ExpressionData ParsingPhase = Range
 
 type instance FunctionExpressionContent ParsingPhase = PFunctionDefinition
+
+type instance RecordFieldValues ParsingPhase = Map PFieldIdentifier PExpression
 
 instance WithRange PExpression where
   getRange = getExpressionData

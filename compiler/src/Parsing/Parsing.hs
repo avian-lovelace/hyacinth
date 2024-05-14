@@ -13,6 +13,7 @@ module Parsing.Parsing
     ParseState (ParseSuccess, BoundErrors, UnboundError),
     ParseFunction,
     toParseState,
+    pExpect,
   )
 where
 
@@ -122,6 +123,10 @@ pZeroOrOne parser = Parser $ \sections ->
     (restSections, ParseSuccess a) -> (restSections, ParseSuccess $ Just a)
     _ -> (sections, ParseSuccess Nothing)
 
+pExpect :: Bool -> Parser ()
+pExpect True = return ()
+pExpect False = Parser $ \sections -> (sections, UnboundError)
+
 catchUnboundError :: Error -> ParseState a -> WithErrors a
 catchUnboundError replacementError parseState = case parseState of
   ParseSuccess a -> Success a
@@ -131,6 +136,7 @@ catchUnboundError replacementError parseState = case parseState of
 runParserToEnd :: Parser a -> Seq Section -> ParseState a
 runParserToEnd parser sections = case runParser parser sections of
   (Empty, ParseSuccess a) -> ParseSuccess a
+  (_, BoundErrors es) -> BoundErrors es
   (_, ParseSuccess _) -> UnboundError
   (_, err) -> err
 
