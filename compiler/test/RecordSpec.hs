@@ -33,7 +33,7 @@ testRecords = do
       "rec Foo [a: Int]; let Foo = 3;" `failsToCompileWithError` conflictingIdentifierDefinitionsError
     it "Variables cannot take the name of a record that is in a surrounding scope" $
       "rec Foo [a: Int]; { let Foo = 3; };" `failsToCompileWithError` identifierConflictsWithRecordError
-    {- TODO: This test currently fails because if parsing the field list fails, we end up parsing the record name as an
+    {- TODO [BUG-1]: This test currently fails because if parsing the field list fails, we end up parsing the record name as an
       identifier expression. This ends up eating the recordExpressionConflictingFieldsError, and we end up with an
       unbound error for the expresison. There are some standalone fixes for this issue, for example adding a lookahead
       to the identifier expression parser to check there's nothing that looks like a field list immediately after.

@@ -412,7 +412,6 @@ matchCurlyBraceSection :: Section -> Maybe (Range, Seq Section)
 matchCurlyBraceSection (CurlyBraceSection range innerSections) = Just (range, innerSections)
 matchCurlyBraceSection _ = Nothing
 
--- TODO: Consider changing this to ParseFunction style to get better error reporting
 ifExpressionParser :: Parser PExpression
 ifExpressionParser = do
   ifRange <- pNext <&&> matchIfSection
