@@ -61,7 +61,7 @@ compileCode logger code = do
   (recordFieldOrders, tcAst) <- liftWithErrors $ runTypeChecking ibAst
   logger "Completed type checking"
   logger $ pretty tcAst
-  flAst <- liftWithErrors $ runFunctionLifting boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders tcAst
+  flAst <- liftWithErrors $ runIntermediateCodeGeneration boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders tcAst
   logger "Completed function lifting"
   -- logger $ pretty flAst
   let bytecode = encodeFile flAst

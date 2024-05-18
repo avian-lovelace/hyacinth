@@ -1,4 +1,4 @@
-module IntermediateCodeGeneration.IntermediateCodeGenerator (runFunctionLifting) where
+module IntermediateCodeGeneration.IntermediateCodeGenerator (runIntermediateCodeGeneration) where
 
 import Control.Monad (foldM, unless)
 import Core.ErrorState
@@ -20,52 +20,52 @@ import IntermediateCodeGeneration.IntermediateCodeGeneration
 import Parsing.SyntaxTree
 import TypeChecking.SyntaxTree
 
-runFunctionLifting :: Int -> Int -> Map BoundRecordIdentifier (Seq UnboundIdentifier) -> TCModule -> WithErrors Mod
-runFunctionLifting boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders tcModule = liftingResult
+runIntermediateCodeGeneration :: Int -> Int -> Map BoundRecordIdentifier (Seq UnboundIdentifier) -> TCModule -> WithErrors Mod
+runIntermediateCodeGeneration boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders tcModule = intermediateCode
   where
-    initialState = initialFunctionLiftingState boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders
-    (_, liftingResult) = runErrorState (moduleLifter tcModule) initialState
+    initialState = initialIntermediateCodeGenerationState boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders
+    (_, intermediateCode) = runErrorState (moduleGenerator tcModule) initialState
 
-moduleLifter :: TCModule -> FunctionLifter Mod
-moduleLifter (Module () (MainFunction () mainFunctionScope)) = do
-  liftedMainFunctionScope <- scopeLifter mainFunctionScope
-  subFunctions <- getLiftedFunctions
-  return $ Mod (MainFunc liftedMainFunctionScope) subFunctions
+moduleGenerator :: TCModule -> IntermediateCodeGenerator Mod
+moduleGenerator (Module () (MainFunction () mainFunctionScope)) = do
+  encodedMainFunctionScope <- scopeGenerator mainFunctionScope
+  subFunctions <- getSubFunctions
+  return $ Mod (MainFunc encodedMainFunctionScope) subFunctions
 
-scopeLifter :: TCScope -> FunctionLifter (Seq Stmt)
-scopeLifter (Scope _ nonPositionalStatements statements) = do
+scopeGenerator :: TCScope -> IntermediateCodeGenerator (Seq Stmt)
+scopeGenerator (Scope _ nonPositionalStatements statements) = do
   functionGraph <- makeScopeFunctionGraph nonPositionalStatements
   mapM_ (initializeFunction functionGraph) nonPositionalStatements
-  mapM_ nonPositionalStatementLifter nonPositionalStatements
-  mapM statementLifter statements
+  mapM_ nonPositionalStatementGenerator nonPositionalStatements
+  mapM statementGenerator statements
   where
     getCapturedIdentifiers :: Graph BoundFunctionIdentifier (Set BoundValueIdentifier) -> BoundFunctionIdentifier -> Set BoundValueIdentifier
     getCapturedIdentifiers graph functionName = foldDepthFirst Set.empty Set.union functionName graph
-    initializeFunction :: Graph BoundFunctionIdentifier (Set BoundValueIdentifier) -> TCNonPositionalStatement -> FunctionLifter ()
+    initializeFunction :: Graph BoundFunctionIdentifier (Set BoundValueIdentifier) -> TCNonPositionalStatement -> IntermediateCodeGenerator ()
     initializeFunction graph (FunctionStatement _ functionName _) = do
       let capturedIdentifiers = getCapturedIdentifiers graph functionName
       addFunctionCapturedIdentifiers functionName capturedIdentifiers
     initializeFunction _ (RecordStatement {}) = throwError $ ShouldNotGetHereError "Got record statement in initializeFunction"
 
-makeScopeFunctionGraph :: Seq TCNonPositionalStatement -> FunctionLifter (Graph BoundFunctionIdentifier (Set BoundValueIdentifier))
+makeScopeFunctionGraph :: Seq TCNonPositionalStatement -> IntermediateCodeGenerator (Graph BoundFunctionIdentifier (Set BoundValueIdentifier))
 makeScopeFunctionGraph nonPositionalStatements = do
   graphNodes <- mapM toNamedGraphNode nonPositionalStatements
   return $ Graph $ Map.fromList . toList $ graphNodes
   where
-    toNamedGraphNode :: TCNonPositionalStatement -> FunctionLifter (BoundFunctionIdentifier, GraphNode BoundFunctionIdentifier (Set BoundValueIdentifier))
+    toNamedGraphNode :: TCNonPositionalStatement -> IntermediateCodeGenerator (BoundFunctionIdentifier, GraphNode BoundFunctionIdentifier (Set BoundValueIdentifier))
     toNamedGraphNode (FunctionStatement _ functionName functionDefinition) = do
       graphNode <- toGraphNode functionDefinition
       return (functionName, graphNode)
     toNamedGraphNode (RecordStatement {}) = throwError $ ShouldNotGetHereError "Got record statement in toNamedGraphNode"
-    toGraphNode :: TCFunctionDefinition -> FunctionLifter (GraphNode BoundFunctionIdentifier (Set BoundValueIdentifier))
+    toGraphNode :: TCFunctionDefinition -> IntermediateCodeGenerator (GraphNode BoundFunctionIdentifier (Set BoundValueIdentifier))
     toGraphNode (FunctionDefinition TCFunctionDefinitionData {tcFunctionDefinitionCapturedIdentifiers} _ _) = do
       (capturedValueIdentifiers, capturedFunctionIdentifiers) <- consolidateCapturedIdentifiers tcFunctionDefinitionCapturedIdentifiers
       return $ GraphNode capturedValueIdentifiers capturedFunctionIdentifiers
 
-consolidateCapturedIdentifiers :: Set TCIdentifier -> FunctionLifter (Set BoundValueIdentifier, Set BoundFunctionIdentifier)
+consolidateCapturedIdentifiers :: Set TCIdentifier -> IntermediateCodeGenerator (Set BoundValueIdentifier, Set BoundFunctionIdentifier)
 consolidateCapturedIdentifiers = foldM combine (Set.empty, Set.empty)
   where
-    combine :: (Set BoundValueIdentifier, Set BoundFunctionIdentifier) -> TCIdentifier -> FunctionLifter (Set BoundValueIdentifier, Set BoundFunctionIdentifier)
+    combine :: (Set BoundValueIdentifier, Set BoundFunctionIdentifier) -> TCIdentifier -> IntermediateCodeGenerator (Set BoundValueIdentifier, Set BoundFunctionIdentifier)
     combine (capturedValueIdentifiers, capturedFunctionIdentifiers) (Left valueIdentifier) =
       return (Set.insert valueIdentifier capturedValueIdentifiers, capturedFunctionIdentifiers)
     combine (capturedValueIdentifiers, capturedFunctionIdentifiers) (Right functionIdentifier) = do
@@ -74,167 +74,167 @@ consolidateCapturedIdentifiers = foldM combine (Set.empty, Set.empty)
         Just functionCapturedValueIdentifiers -> return (Set.union capturedValueIdentifiers functionCapturedValueIdentifiers, capturedFunctionIdentifiers)
         Nothing -> return (capturedValueIdentifiers, Set.insert functionIdentifier capturedFunctionIdentifiers)
 
-nonPositionalStatementLifter :: TCNonPositionalStatement -> FunctionLifter ()
-nonPositionalStatementLifter (FunctionStatement statementRange functionName functionDefinition) = do
+nonPositionalStatementGenerator :: TCNonPositionalStatement -> IntermediateCodeGenerator ()
+nonPositionalStatementGenerator (FunctionStatement _ functionName functionDefinition) = do
   maybeCapturedIdentifiers <- getFunctionCapturedIdentifiers functionName
   capturedIdentifiers <- case maybeCapturedIdentifiers of
     Just capturedIdentifiers -> return capturedIdentifiers
-    Nothing -> throwError $ ShouldNotGetHereError "Captured identifiers were not recorded before calling nonPositionalStatementLifter"
-  (makeSubFunc, capturedIdentifierInnerValues) <- withCapturedIdentifiers capturedIdentifiers (functionDefinitionLifter functionDefinition)
+    Nothing -> throwError $ ShouldNotGetHereError "Captured identifiers were not recorded before calling nonPositionalStatementGenerator"
+  (makeSubFunc, capturedIdentifierInnerValues) <- withCapturedIdentifiers capturedIdentifiers (functionDefinitionGenerator functionDefinition)
   let (BoundFunctionIdentifier functionIndex _) = functionName
   let subFunction = makeSubFunc (getValueIdentifierIndex <$> capturedIdentifierInnerValues)
-  addLiftedFunction functionIndex subFunction
-nonPositionalStatementLifter (RecordStatement {}) = throwError $ ShouldNotGetHereError "Got record statement in nonPositionalStatementLifter"
+  addSubFunction functionIndex subFunction
+nonPositionalStatementGenerator (RecordStatement {}) = throwError $ ShouldNotGetHereError "Got record statement in nonPositionalStatementGenerator"
 
-statementLifter :: TCStatement -> FunctionLifter Stmt
-statementLifter (VariableDeclarationStatement _ _ (WithTypeAnnotation variableName ()) variableValue) = do
-  liftedVariableValue <- expressionLifter variableValue
+statementGenerator :: TCStatement -> IntermediateCodeGenerator Stmt
+statementGenerator (VariableDeclarationStatement _ _ (WithTypeAnnotation variableName ()) variableValue) = do
+  encodedVariableValue <- expressionGenerator variableValue
   setIdentifierIsUsable variableName
-  return $ VariableDeclarationStmt (getValueIdentifierIndex variableName) liftedVariableValue
-statementLifter (VariableMutationStatement TCStatementData {statementRange} variableName variableValue) = do
+  return $ VariableDeclarationStmt (getValueIdentifierIndex variableName) encodedVariableValue
+statementGenerator (VariableMutationStatement TCStatementData {statementRange} variableName variableValue) = do
   let BoundValueIdentifier _ variableTextName = variableName
   let mutatedCapturedIdentifierError = MutatedCapturedIdentifierError variableTextName statementRange
   assertIdentifierIsNotCaptured mutatedCapturedIdentifierError variableName
-  liftedVariableValue <- expressionLifter variableValue
-  return $ VariableMutationStmt (getValueIdentifierIndex variableName) liftedVariableValue
-statementLifter (PrintStatement _ expression) = do
-  liftedExpression <- expressionLifter expression
-  return $ ExpressionStmt (BuiltInFunctionExpr PrintFn $ Seq.singleton liftedExpression)
-statementLifter (ExpressionStatement _ expression) = do
-  liftedExpression <- expressionLifter expression
-  return $ ExpressionStmt liftedExpression
-statementLifter (WhileLoopStatement _ condition body) = do
-  liftedCondition <- expressionLifter condition
-  liftedBody <- expressionLifter body
-  return $ WhileLoopStmt liftedCondition liftedBody
-statementLifter (ReturnStatement _ (Just expression)) = do
-  liftedExpression <- expressionLifter expression
-  return $ ReturnStmt liftedExpression
-statementLifter (ReturnStatement _ Nothing) =
+  encodedVariableValue <- expressionGenerator variableValue
+  return $ VariableMutationStmt (getValueIdentifierIndex variableName) encodedVariableValue
+statementGenerator (PrintStatement _ expression) = do
+  encodedExpression <- expressionGenerator expression
+  return $ ExpressionStmt (BuiltInFunctionExpr PrintFn $ Seq.singleton encodedExpression)
+statementGenerator (ExpressionStatement _ expression) = do
+  encodedExpression <- expressionGenerator expression
+  return $ ExpressionStmt encodedExpression
+statementGenerator (WhileLoopStatement _ condition body) = do
+  encodedCondition <- expressionGenerator condition
+  encodedBody <- expressionGenerator body
+  return $ WhileLoopStmt encodedCondition encodedBody
+statementGenerator (ReturnStatement _ (Just expression)) = do
+  encodedExpression <- expressionGenerator expression
+  return $ ReturnStmt encodedExpression
+statementGenerator (ReturnStatement _ Nothing) =
   return $ ReturnStmt (LiteralExpr NilLiteral)
 
-functionDefinitionLifter :: TCFunctionDefinition -> FunctionLifter (Seq ValueIdentifierIndex -> SubFunc)
-functionDefinitionLifter (FunctionDefinition TCFunctionDefinitionData {tcFunctionDefinitionRange} parameters (WithTypeAnnotation body ())) = do
-  liftedParameters <- mapM liftParameter parameters
-  liftedBody <- expressionLifter body
-  return $ \capturedIdentifiers -> SubFunc (liftedParameters >< capturedIdentifiers) liftedBody
+functionDefinitionGenerator :: TCFunctionDefinition -> IntermediateCodeGenerator (Seq ValueIdentifierIndex -> SubFunc)
+functionDefinitionGenerator (FunctionDefinition _ parameters (WithTypeAnnotation body ())) = do
+  encodedParameters <- mapM parameterGenerator parameters
+  encodedBody <- expressionGenerator body
+  return $ \capturedIdentifiers -> SubFunc (encodedParameters >< capturedIdentifiers) encodedBody
   where
-    liftParameter :: TCWithTypeAnnotation BoundValueIdentifier -> FunctionLifter ValueIdentifierIndex
-    liftParameter (WithTypeAnnotation parameter ()) = do
+    parameterGenerator :: TCWithTypeAnnotation BoundValueIdentifier -> IntermediateCodeGenerator ValueIdentifierIndex
+    parameterGenerator (WithTypeAnnotation parameter ()) = do
       setIdentifierIsUsable parameter
       return $ getValueIdentifierIndex parameter
 
-expressionLifter :: TCExpression -> FunctionLifter Expr
-expressionLifter (IdentifierExpression TCExpresionData {expressionRange} identifier) = case identifier of
+expressionGenerator :: TCExpression -> IntermediateCodeGenerator Expr
+expressionGenerator (IdentifierExpression TCExpresionData {expressionRange} identifier) = case identifier of
   Left valueIdentifier -> do
-    let identifierUnusableError = ShouldNotGetHereError "Found unusable value identifier in expressionLifter. This should have already been caught in identifier binding."
-    liftedIdentifier <- getIdentifierInContext identifierUnusableError valueIdentifier
-    return $ IdentifierExpr (getValueIdentifierIndex liftedIdentifier)
+    let identifierUnusableError = ShouldNotGetHereError "Found unusable value identifier in expressionGenerator. This should have already been caught in identifier binding."
+    encodedIdentifier <- getIdentifierInContext identifierUnusableError valueIdentifier
+    return $ IdentifierExpr (getValueIdentifierIndex encodedIdentifier)
   Right functionIdentifier -> do
     capturedIdentifiers <- getFunctionCapturedIdentifiersInContext expressionRange functionIdentifier
     let (BoundFunctionIdentifier functionIndex _) = functionIdentifier
     return $ FunctionExpr functionIndex (getValueIdentifierIndex <$> capturedIdentifiers)
-expressionLifter (FunctionExpression TCExpresionData {expressionRange} functionDefinition) = do
+expressionGenerator (FunctionExpression _ functionDefinition) = do
   let combinedCapturedIdentifiers = tcFunctionDefinitionCapturedIdentifiers . getFunctionDefinitionData $ functionDefinition
   (capturedValueIdentifiers, capturedFunctionIdentifiers) <- consolidateCapturedIdentifiers combinedCapturedIdentifiers
   unless (Set.size capturedFunctionIdentifiers == 0) $
-    throwError (ShouldNotGetHereError "Some captured functions were not initialized in expressionLifter")
-  let identifierUnusableError = ShouldNotGetHereError "Found unusable captured identifier in expressionLifter. This should have already been caught in identifier binding."
+    throwError (ShouldNotGetHereError "Some captured functions were not initialized in expressionGenerator")
+  let identifierUnusableError = ShouldNotGetHereError "Found unusable captured identifier in expressionGenerator. This should have already been caught in identifier binding."
   capturedFunctionIdentifierContextValues <- mapM (getIdentifierInContext identifierUnusableError) $ Set.toAscList capturedValueIdentifiers
-  (makeSubFunc, capturedIdentifierInnerValues) <- withCapturedIdentifiers capturedValueIdentifiers (functionDefinitionLifter functionDefinition)
+  (makeSubFunc, capturedIdentifierInnerValues) <- withCapturedIdentifiers capturedValueIdentifiers (functionDefinitionGenerator functionDefinition)
   functionIndex <- getNewFunctionIndex
   let subFunction = makeSubFunc (getValueIdentifierIndex <$> capturedIdentifierInnerValues)
-  addLiftedFunction functionIndex subFunction
+  addSubFunction functionIndex subFunction
   return $ FunctionExpr functionIndex (getValueIdentifierIndex <$> Seq.fromList capturedFunctionIdentifierContextValues)
-expressionLifter (RecordExpression TCExpresionData {expressionRange} recordName fieldValueMap) = do
+expressionGenerator (RecordExpression _ recordName fieldValueMap) = do
   recordFieldOrder <- getRecordFieldOrder recordName
   let recordFields = (\fieldName -> fromJust $ Map.lookup fieldName fieldValueMap) <$> recordFieldOrder
-  liftedRecordFields <- mapM expressionLifter recordFields
-  return $ RecordExpr (getRecordIdentifierIndex recordName) liftedRecordFields
-expressionLifter (FieldAccessExpression TCExpresionData {expressionRange} inner fieldName) = do
-  liftedInner <- expressionLifter inner
+  encodedRecordFields <- mapM expressionGenerator recordFields
+  return $ RecordExpr (getRecordIdentifierIndex recordName) encodedRecordFields
+expressionGenerator (FieldAccessExpression _ inner fieldName) = do
+  encodedInner <- expressionGenerator inner
   let innerType = expressionType . getExpressionData $ inner
   recordName <- case innerType of
     RecordType recordName -> return recordName
-    _ -> throwError $ ShouldNotGetHereError "Inner expression of FieldAccessExpression was not a record in expressionLifter"
+    _ -> throwError $ ShouldNotGetHereError "Inner expression of FieldAccessExpression was not a record in expressionGenerator"
   fieldIndex <- getRecordFieldIndex recordName fieldName
-  return $ FieldExpr liftedInner fieldIndex
+  return $ FieldExpr encodedInner fieldIndex
 -- Standard cases
-expressionLifter (IntLiteralExpression TCExpresionData {expressionRange} value) = return $ LiteralExpr (IntLiteral value)
-expressionLifter (FloatLiteralExpression TCExpresionData {expressionRange} value) = return $ LiteralExpr (FloatLiteral value)
-expressionLifter (CharLiteralExpression TCExpresionData {expressionRange} value) = return $ LiteralExpr (CharLiteral value)
-expressionLifter (StringLiteralExpression TCExpresionData {expressionRange} value) = return $ LiteralExpr (StringLiteral value)
-expressionLifter (BoolLiteralExpression TCExpresionData {expressionRange} value) = return $ LiteralExpr (BoolLiteral value)
-expressionLifter (NilExpression TCExpresionData {expressionRange}) = return $ LiteralExpr NilLiteral
-expressionLifter (NegateExpression TCExpresionData {expressionRange} inner) = do
-  liftedInner <- expressionLifter inner
-  return $ BuiltInFunctionExpr NegateFn (Seq.singleton liftedInner)
-expressionLifter (AddExpression TCExpresionData {expressionRange} left right) = do
-  liftedLeft <- expressionLifter left
-  liftedRight <- expressionLifter right
-  return $ BuiltInFunctionExpr AddFn (Seq.fromList [liftedLeft, liftedRight])
-expressionLifter (SubtractExpression TCExpresionData {expressionRange} left right) = do
-  liftedLeft <- expressionLifter left
-  liftedRight <- expressionLifter right
-  return $ BuiltInFunctionExpr SubtractFn (Seq.fromList [liftedLeft, liftedRight])
-expressionLifter (MultiplyExpression TCExpresionData {expressionRange} left right) = do
-  liftedLeft <- expressionLifter left
-  liftedRight <- expressionLifter right
-  return $ BuiltInFunctionExpr MultiplyFn (Seq.fromList [liftedLeft, liftedRight])
-expressionLifter (DivideExpression TCExpresionData {expressionRange} left right) = do
-  liftedLeft <- expressionLifter left
-  liftedRight <- expressionLifter right
-  return $ BuiltInFunctionExpr DivideFn (Seq.fromList [liftedLeft, liftedRight])
-expressionLifter (ModuloExpression TCExpresionData {expressionRange} left right) = do
-  liftedLeft <- expressionLifter left
-  liftedRight <- expressionLifter right
-  return $ BuiltInFunctionExpr ModuloFn (Seq.fromList [liftedLeft, liftedRight])
-expressionLifter (NotExpression TCExpresionData {expressionRange} inner) = do
-  liftedInner <- expressionLifter inner
-  return $ BuiltInFunctionExpr NotFn (Seq.singleton liftedInner)
-expressionLifter (AndExpression TCExpresionData {expressionRange} left right) = do
-  liftedLeft <- expressionLifter left
-  liftedRight <- expressionLifter right
-  return $ IfThenElseExpr liftedLeft liftedRight (LiteralExpr (BoolLiteral False))
-expressionLifter (OrExpression TCExpresionData {expressionRange} left right) = do
-  liftedLeft <- expressionLifter left
-  liftedRight <- expressionLifter right
-  return $ IfThenElseExpr liftedLeft (LiteralExpr (BoolLiteral True)) liftedRight
-expressionLifter (EqualExpression TCExpresionData {expressionRange} left right) = do
-  liftedLeft <- expressionLifter left
-  liftedRight <- expressionLifter right
-  return $ BuiltInFunctionExpr EqualFn (Seq.fromList [liftedLeft, liftedRight])
-expressionLifter (NotEqualExpression TCExpresionData {expressionRange} left right) = do
-  liftedLeft <- expressionLifter left
-  liftedRight <- expressionLifter right
-  return $ BuiltInFunctionExpr NotEqualFn (Seq.fromList [liftedLeft, liftedRight])
-expressionLifter (GreaterExpression TCExpresionData {expressionRange} left right) = do
-  liftedLeft <- expressionLifter left
-  liftedRight <- expressionLifter right
-  return $ BuiltInFunctionExpr GreaterFn (Seq.fromList [liftedLeft, liftedRight])
-expressionLifter (LessExpression TCExpresionData {expressionRange} left right) = do
-  liftedLeft <- expressionLifter left
-  liftedRight <- expressionLifter right
-  return $ BuiltInFunctionExpr LessFn (Seq.fromList [liftedLeft, liftedRight])
-expressionLifter (GreaterEqualExpression TCExpresionData {expressionRange} left right) = do
-  liftedLeft <- expressionLifter left
-  liftedRight <- expressionLifter right
-  return $ BuiltInFunctionExpr GreaterEqualFn (Seq.fromList [liftedLeft, liftedRight])
-expressionLifter (LessEqualExpression TCExpresionData {expressionRange} left right) = do
-  liftedLeft <- expressionLifter left
-  liftedRight <- expressionLifter right
-  return $ BuiltInFunctionExpr LessEqualFn (Seq.fromList [liftedLeft, liftedRight])
-expressionLifter (IfThenElseExpression TCExpresionData {expressionRange} condition trueExpression maybeFalseExpression) = do
-  liftedCondition <- expressionLifter condition
-  liftedTrueExpression <- expressionLifter trueExpression
-  liftedFalseExpression <- case maybeFalseExpression of
-    Just falseExpression -> expressionLifter falseExpression
+expressionGenerator (IntLiteralExpression _ value) = return $ LiteralExpr (IntLiteral value)
+expressionGenerator (FloatLiteralExpression _ value) = return $ LiteralExpr (FloatLiteral value)
+expressionGenerator (CharLiteralExpression _ value) = return $ LiteralExpr (CharLiteral value)
+expressionGenerator (StringLiteralExpression _ value) = return $ LiteralExpr (StringLiteral value)
+expressionGenerator (BoolLiteralExpression _ value) = return $ LiteralExpr (BoolLiteral value)
+expressionGenerator (NilExpression _) = return $ LiteralExpr NilLiteral
+expressionGenerator (NegateExpression _ inner) = do
+  encodedInner <- expressionGenerator inner
+  return $ BuiltInFunctionExpr NegateFn (Seq.singleton encodedInner)
+expressionGenerator (AddExpression _ left right) = do
+  encodedLeft <- expressionGenerator left
+  encodedRight <- expressionGenerator right
+  return $ BuiltInFunctionExpr AddFn (Seq.fromList [encodedLeft, encodedRight])
+expressionGenerator (SubtractExpression _ left right) = do
+  encodedLeft <- expressionGenerator left
+  encodedRight <- expressionGenerator right
+  return $ BuiltInFunctionExpr SubtractFn (Seq.fromList [encodedLeft, encodedRight])
+expressionGenerator (MultiplyExpression _ left right) = do
+  encodedLeft <- expressionGenerator left
+  encodedRight <- expressionGenerator right
+  return $ BuiltInFunctionExpr MultiplyFn (Seq.fromList [encodedLeft, encodedRight])
+expressionGenerator (DivideExpression _ left right) = do
+  encodedLeft <- expressionGenerator left
+  encodedRight <- expressionGenerator right
+  return $ BuiltInFunctionExpr DivideFn (Seq.fromList [encodedLeft, encodedRight])
+expressionGenerator (ModuloExpression _ left right) = do
+  encodedLeft <- expressionGenerator left
+  encodedRight <- expressionGenerator right
+  return $ BuiltInFunctionExpr ModuloFn (Seq.fromList [encodedLeft, encodedRight])
+expressionGenerator (NotExpression _ inner) = do
+  encodedInner <- expressionGenerator inner
+  return $ BuiltInFunctionExpr NotFn (Seq.singleton encodedInner)
+expressionGenerator (AndExpression _ left right) = do
+  encodedLeft <- expressionGenerator left
+  encodedRight <- expressionGenerator right
+  return $ IfThenElseExpr encodedLeft encodedRight (LiteralExpr (BoolLiteral False))
+expressionGenerator (OrExpression _ left right) = do
+  encodedLeft <- expressionGenerator left
+  encodedRight <- expressionGenerator right
+  return $ IfThenElseExpr encodedLeft (LiteralExpr (BoolLiteral True)) encodedRight
+expressionGenerator (EqualExpression _ left right) = do
+  encodedLeft <- expressionGenerator left
+  encodedRight <- expressionGenerator right
+  return $ BuiltInFunctionExpr EqualFn (Seq.fromList [encodedLeft, encodedRight])
+expressionGenerator (NotEqualExpression _ left right) = do
+  encodedLeft <- expressionGenerator left
+  encodedRight <- expressionGenerator right
+  return $ BuiltInFunctionExpr NotEqualFn (Seq.fromList [encodedLeft, encodedRight])
+expressionGenerator (GreaterExpression _ left right) = do
+  encodedLeft <- expressionGenerator left
+  encodedRight <- expressionGenerator right
+  return $ BuiltInFunctionExpr GreaterFn (Seq.fromList [encodedLeft, encodedRight])
+expressionGenerator (LessExpression _ left right) = do
+  encodedLeft <- expressionGenerator left
+  encodedRight <- expressionGenerator right
+  return $ BuiltInFunctionExpr LessFn (Seq.fromList [encodedLeft, encodedRight])
+expressionGenerator (GreaterEqualExpression _ left right) = do
+  encodedLeft <- expressionGenerator left
+  encodedRight <- expressionGenerator right
+  return $ BuiltInFunctionExpr GreaterEqualFn (Seq.fromList [encodedLeft, encodedRight])
+expressionGenerator (LessEqualExpression _ left right) = do
+  encodedLeft <- expressionGenerator left
+  encodedRight <- expressionGenerator right
+  return $ BuiltInFunctionExpr LessEqualFn (Seq.fromList [encodedLeft, encodedRight])
+expressionGenerator (IfThenElseExpression _ condition trueExpression maybeFalseExpression) = do
+  encodedCondition <- expressionGenerator condition
+  encodedTrueExpression <- expressionGenerator trueExpression
+  encodedFalseExpression <- case maybeFalseExpression of
+    Just falseExpression -> expressionGenerator falseExpression
     Nothing -> return (LiteralExpr NilLiteral)
-  return $ IfThenElseExpr liftedCondition liftedTrueExpression liftedFalseExpression
-expressionLifter (ScopeExpression TCExpresionData {expressionRange} scope) = do
-  liftedScope <- scopeLifter scope
-  return $ ScopeExpr liftedScope
-expressionLifter (FunctionCallExpression TCExpresionData {expressionRange} function arguments) = do
-  liftedFunction <- expressionLifter function
-  liftedArguments <- traverse' expressionLifter arguments
-  return $ CallExpr liftedFunction liftedArguments
+  return $ IfThenElseExpr encodedCondition encodedTrueExpression encodedFalseExpression
+expressionGenerator (ScopeExpression _ scope) = do
+  encodedScope <- scopeGenerator scope
+  return $ ScopeExpr encodedScope
+expressionGenerator (FunctionCallExpression _ function arguments) = do
+  encodedFunction <- expressionGenerator function
+  encodedArguments <- traverse' expressionGenerator arguments
+  return $ CallExpr encodedFunction encodedArguments

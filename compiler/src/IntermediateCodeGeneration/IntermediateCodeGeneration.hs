@@ -1,13 +1,13 @@
 module IntermediateCodeGeneration.IntermediateCodeGeneration
-  ( FunctionLifter,
-    initialFunctionLiftingState,
+  ( IntermediateCodeGenerator,
+    initialIntermediateCodeGenerationState,
     getIdentifierInContext,
     getFunctionCapturedIdentifiers,
     getFunctionCapturedIdentifiersInContext,
     addFunctionCapturedIdentifiers,
     withCapturedIdentifiers,
-    addLiftedFunction,
-    getLiftedFunctions,
+    addSubFunction,
+    getSubFunctions,
     getCapturedValueBinding,
     getNewFunctionIndex,
     assertIdentifierIsNotCaptured,
@@ -31,31 +31,31 @@ import IdentifierBinding.SyntaxTree
 import IntermediateCodeGeneration.IntermediateCode
 import Parsing.SyntaxTree
 
-type FunctionLifter a = ErrorState FunctionLiftingState a
+type IntermediateCodeGenerator a = ErrorState IntermediateCodeGenerationState a
 
-data FunctionLiftingState = FunctionLiftingState
+data IntermediateCodeGenerationState = IntermediateCodeGenerationState
   { capturedIdentifierStack :: [Map BoundValueIdentifier BoundValueIdentifier],
     functionCapturedIdentifiers :: Map BoundFunctionIdentifier (Set BoundValueIdentifier),
     usableValueIdentifiers :: Set BoundValueIdentifier,
-    liftedFunctions :: Map FunctionIndex SubFunc,
+    subFunctions :: Map FunctionIndex SubFunc,
     boundValueIdentifierCounter :: Int,
     boundFunctionIdentifierCounter :: Int,
     recordFieldOrders :: Map BoundRecordIdentifier (Seq UnboundIdentifier)
   }
 
-initialFunctionLiftingState :: Int -> Int -> Map BoundRecordIdentifier (Seq UnboundIdentifier) -> FunctionLiftingState
-initialFunctionLiftingState boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders =
-  FunctionLiftingState
+initialIntermediateCodeGenerationState :: Int -> Int -> Map BoundRecordIdentifier (Seq UnboundIdentifier) -> IntermediateCodeGenerationState
+initialIntermediateCodeGenerationState boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders =
+  IntermediateCodeGenerationState
     { capturedIdentifierStack = [],
       functionCapturedIdentifiers = Map.empty,
       usableValueIdentifiers = Set.empty,
-      liftedFunctions = Map.empty,
+      subFunctions = Map.empty,
       boundValueIdentifierCounter,
       boundFunctionIdentifierCounter,
       recordFieldOrders
     }
 
-getIdentifierInContext :: Error -> BoundValueIdentifier -> FunctionLifter BoundValueIdentifier
+getIdentifierInContext :: Error -> BoundValueIdentifier -> IntermediateCodeGenerator BoundValueIdentifier
 getIdentifierInContext identifierUnusableError identifier = do
   capturedIdentifierStack <- capturedIdentifierStack <$> getState
   case capturedIdentifierStack of
@@ -66,7 +66,7 @@ getIdentifierInContext identifierUnusableError identifier = do
         return identifier
     [] -> return identifier
 
-assertIdentifierIsNotCaptured :: Error -> BoundValueIdentifier -> FunctionLifter ()
+assertIdentifierIsNotCaptured :: Error -> BoundValueIdentifier -> IntermediateCodeGenerator ()
 assertIdentifierIsNotCaptured identifierCapturedError identifier = do
   capturedIdentifierStack <- capturedIdentifierStack <$> getState
   case capturedIdentifierStack of
@@ -75,10 +75,10 @@ assertIdentifierIsNotCaptured identifierCapturedError identifier = do
       Nothing -> return ()
     [] -> return ()
 
-getFunctionCapturedIdentifiers :: BoundFunctionIdentifier -> FunctionLifter (Maybe (Set BoundValueIdentifier))
+getFunctionCapturedIdentifiers :: BoundFunctionIdentifier -> IntermediateCodeGenerator (Maybe (Set BoundValueIdentifier))
 getFunctionCapturedIdentifiers functionIdentifier = Map.lookup functionIdentifier . functionCapturedIdentifiers <$> getState
 
-getFunctionCapturedIdentifiersInContext :: Range -> BoundFunctionIdentifier -> FunctionLifter (Seq BoundValueIdentifier)
+getFunctionCapturedIdentifiersInContext :: Range -> BoundFunctionIdentifier -> IntermediateCodeGenerator (Seq BoundValueIdentifier)
 getFunctionCapturedIdentifiersInContext captureRange functionIdentifier = do
   maybeOuterCapturedIdentifiers <- getFunctionCapturedIdentifiers functionIdentifier
   case maybeOuterCapturedIdentifiers of
@@ -93,18 +93,18 @@ getFunctionCapturedIdentifiersInContext captureRange functionIdentifier = do
       orderedCapturedIdentifiersInContext <- mapM processIdentifier orderedCapturedIdentifiers
       return $ Seq.fromList orderedCapturedIdentifiersInContext
 
-addFunctionCapturedIdentifiers :: BoundFunctionIdentifier -> Set BoundValueIdentifier -> FunctionLifter ()
+addFunctionCapturedIdentifiers :: BoundFunctionIdentifier -> Set BoundValueIdentifier -> IntermediateCodeGenerator ()
 addFunctionCapturedIdentifiers functionIdentifier boundIdentifiers = do
   functionCapturedIdentifiers <- functionCapturedIdentifiers <$> getState
   setFunctionCapturedIdentifiers $ Map.insert functionIdentifier boundIdentifiers functionCapturedIdentifiers
 
-withCapturedIdentifiers :: Set BoundValueIdentifier -> FunctionLifter a -> FunctionLifter (a, Seq BoundValueIdentifier)
-withCapturedIdentifiers capturedIdentifiers lifter =
+withCapturedIdentifiers :: Set BoundValueIdentifier -> IntermediateCodeGenerator a -> IntermediateCodeGenerator (a, Seq BoundValueIdentifier)
+withCapturedIdentifiers capturedIdentifiers generator =
   do
     capturedIdentifierPairs <- mapM toCapturedIdentifierPair (Set.toAscList capturedIdentifiers)
     let capturedIdentifierMap = Map.fromAscList capturedIdentifierPairs
     pushCapturedIdentifierMap capturedIdentifierMap
-    result <- lifter
+    result <- generator
     return (result, Seq.fromList $ snd <$> capturedIdentifierPairs)
     `andFinally` popCapturedIdentifierMap
   where
@@ -112,12 +112,12 @@ withCapturedIdentifiers capturedIdentifiers lifter =
       innerIdentifier <- getCapturedValueBinding outerIdentifer
       return (outerIdentifer, innerIdentifier)
 
-pushCapturedIdentifierMap :: Map BoundValueIdentifier BoundValueIdentifier -> FunctionLifter ()
+pushCapturedIdentifierMap :: Map BoundValueIdentifier BoundValueIdentifier -> IntermediateCodeGenerator ()
 pushCapturedIdentifierMap capturedIdentifierMap = do
   capturedIdentifierStack <- capturedIdentifierStack <$> getState
   setCapturedIdentifierStack $ capturedIdentifierMap : capturedIdentifierStack
 
-popCapturedIdentifierMap :: FunctionLifter ()
+popCapturedIdentifierMap :: IntermediateCodeGenerator ()
 popCapturedIdentifierMap = do
   capturedIdentifierStack <- capturedIdentifierStack <$> getState
   case capturedIdentifierStack of
@@ -126,86 +126,86 @@ popCapturedIdentifierMap = do
       setCapturedIdentifierStack restStack
       return ()
 
-setIdentifierIsUsable :: BoundValueIdentifier -> FunctionLifter ()
+setIdentifierIsUsable :: BoundValueIdentifier -> IntermediateCodeGenerator ()
 setIdentifierIsUsable valueIdentifier = do
   usableValueIdentifiers <- usableValueIdentifiers <$> getState
   setUsableValueIdentifiers $ Set.insert valueIdentifier usableValueIdentifiers
 
-assertIdentifierIsUsable :: Error -> BoundValueIdentifier -> FunctionLifter ()
+assertIdentifierIsUsable :: Error -> BoundValueIdentifier -> IntermediateCodeGenerator ()
 assertIdentifierIsUsable identifierUnusableError valueIdentifier = do
   usableValueIdentifiers <- usableValueIdentifiers <$> getState
   if Set.member valueIdentifier usableValueIdentifiers
     then return ()
     else throwError identifierUnusableError
 
-addLiftedFunction :: FunctionIndex -> SubFunc -> FunctionLifter ()
-addLiftedFunction functionIndex subFunction = do
-  liftedFunctions <- liftedFunctions <$> getState
-  setLiftedFunctions $ Map.insert functionIndex subFunction liftedFunctions
+addSubFunction :: FunctionIndex -> SubFunc -> IntermediateCodeGenerator ()
+addSubFunction functionIndex subFunction = do
+  subFunctions <- subFunctions <$> getState
+  setSubFunctions $ Map.insert functionIndex subFunction subFunctions
 
-getLiftedFunctions :: FunctionLifter (Seq SubFunc)
-getLiftedFunctions = do
-  liftedFunctionMap <- liftedFunctions <$> getState
-  liftedFunctions <- mapM (getFunctionWithIndex liftedFunctionMap) [1 .. Map.size liftedFunctionMap]
-  return $ Seq.fromList liftedFunctions
+getSubFunctions :: IntermediateCodeGenerator (Seq SubFunc)
+getSubFunctions = do
+  subFunctionMap <- subFunctions <$> getState
+  subFunctions <- mapM (getFunctionWithIndex subFunctionMap) [1 .. Map.size subFunctionMap]
+  return $ Seq.fromList subFunctions
   where
-    getFunctionWithIndex :: Map FunctionIndex SubFunc -> FunctionIndex -> FunctionLifter SubFunc
-    getFunctionWithIndex liftedFunctionMap functionIndex = case Map.lookup functionIndex liftedFunctionMap of
-      Nothing -> throwError $ ShouldNotGetHereError $ "function with index " ++ show functionIndex ++ " was missing in getLiftedFunctions"
+    getFunctionWithIndex :: Map FunctionIndex SubFunc -> FunctionIndex -> IntermediateCodeGenerator SubFunc
+    getFunctionWithIndex subFunctionMap functionIndex = case Map.lookup functionIndex subFunctionMap of
+      Nothing -> throwError $ ShouldNotGetHereError $ "function with index " ++ show functionIndex ++ " was missing in getSubFunctions"
       Just subFunction -> return subFunction
 
-getCapturedValueBinding :: BoundValueIdentifier -> FunctionLifter BoundValueIdentifier
+getCapturedValueBinding :: BoundValueIdentifier -> IntermediateCodeGenerator BoundValueIdentifier
 getCapturedValueBinding (BoundValueIdentifier _ identifierName) = do
   valueIdentifierIndex <- boundValueIdentifierCounter <$> getState
   setBoundValueIdentifierCounter $ valueIdentifierIndex + 1
   return $ BoundValueIdentifier valueIdentifierIndex identifierName
 
-getNewFunctionIndex :: FunctionLifter FunctionIndex
+getNewFunctionIndex :: IntermediateCodeGenerator FunctionIndex
 getNewFunctionIndex = do
   functionIndex <- boundFunctionIdentifierCounter <$> getState
   setBoundFunctionIdentifierCounter $ functionIndex + 1
   return functionIndex
 
-getRecordFieldOrder :: BoundRecordIdentifier -> FunctionLifter (Seq UnboundIdentifier)
+getRecordFieldOrder :: BoundRecordIdentifier -> IntermediateCodeGenerator (Seq UnboundIdentifier)
 getRecordFieldOrder recordName = do
   recordFieldOrders <- recordFieldOrders <$> getState
   case Map.lookup recordName recordFieldOrders of
     Nothing -> throwError $ ShouldNotGetHereError "Failed to find record in getRecordFieldOrder"
     Just fieldOrder -> return fieldOrder
 
-getRecordFieldIndex :: BoundRecordIdentifier -> UnboundIdentifier -> FunctionLifter FieldIndex
+getRecordFieldIndex :: BoundRecordIdentifier -> UnboundIdentifier -> IntermediateCodeGenerator FieldIndex
 getRecordFieldIndex recordName fieldName = do
   fieldOrder <- getRecordFieldOrder recordName
   case Seq.elemIndexL fieldName fieldOrder of
     Nothing -> throwError $ ShouldNotGetHereError "Failed to find field in getRecordFieldIndex"
     Just index -> return index
 
-setCapturedIdentifierStack :: [Map BoundValueIdentifier BoundValueIdentifier] -> ErrorState FunctionLiftingState ()
+setCapturedIdentifierStack :: [Map BoundValueIdentifier BoundValueIdentifier] -> ErrorState IntermediateCodeGenerationState ()
 setCapturedIdentifierStack capturedIdentifierStack = do
   state <- getState
   setState state {capturedIdentifierStack}
 
-setFunctionCapturedIdentifiers :: Map BoundFunctionIdentifier (Set BoundValueIdentifier) -> ErrorState FunctionLiftingState ()
+setFunctionCapturedIdentifiers :: Map BoundFunctionIdentifier (Set BoundValueIdentifier) -> ErrorState IntermediateCodeGenerationState ()
 setFunctionCapturedIdentifiers functionCapturedIdentifiers = do
   state <- getState
   setState state {functionCapturedIdentifiers}
 
-setUsableValueIdentifiers :: Set BoundValueIdentifier -> ErrorState FunctionLiftingState ()
+setUsableValueIdentifiers :: Set BoundValueIdentifier -> ErrorState IntermediateCodeGenerationState ()
 setUsableValueIdentifiers usableValueIdentifiers = do
   state <- getState
   setState state {usableValueIdentifiers}
 
-setLiftedFunctions :: Map FunctionIndex SubFunc -> ErrorState FunctionLiftingState ()
-setLiftedFunctions liftedFunctions = do
+setSubFunctions :: Map FunctionIndex SubFunc -> ErrorState IntermediateCodeGenerationState ()
+setSubFunctions subFunctions = do
   state <- getState
-  setState state {liftedFunctions}
+  setState state {subFunctions}
 
-setBoundValueIdentifierCounter :: Int -> ErrorState FunctionLiftingState ()
+setBoundValueIdentifierCounter :: Int -> ErrorState IntermediateCodeGenerationState ()
 setBoundValueIdentifierCounter boundValueIdentifierCounter = do
   state <- getState
   setState state {boundValueIdentifierCounter}
 
-setBoundFunctionIdentifierCounter :: Int -> ErrorState FunctionLiftingState ()
+setBoundFunctionIdentifierCounter :: Int -> ErrorState IntermediateCodeGenerationState ()
 setBoundFunctionIdentifierCounter boundFunctionIdentifierCounter = do
   state <- getState
   setState state {boundFunctionIdentifierCounter}
