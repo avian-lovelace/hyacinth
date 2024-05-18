@@ -22,7 +22,7 @@ data BytecodeGeneratorState = BytecodeGeneratorState
     constants :: Seq Constant
   }
 
-newtype Scope = Scope {variables :: Seq BoundValueIdentifier}
+newtype Scope = Scope {variables :: Seq ValueIdentifierIndex}
 
 newtype BytecodeGenerator a = BytecodeGenerator {runGenerator :: BytecodeGeneratorState -> (BytecodeGeneratorState, a)} deriving (Functor)
 
@@ -54,11 +54,10 @@ withNewScope generator = do
   let popLocalVariables = popMultipleInstruction $ fromIntegral . Seq.length . variables $ endedScope
   return $ result <> popLocalVariables <> nilInstruction
 
-withFunctionScope :: Seq BoundValueIdentifier -> Seq BoundValueIdentifier -> BytecodeGenerator BB.Builder -> BytecodeGenerator BB.Builder
-withFunctionScope parameters capturedIdentifiers generator = do
+withFunctionScope :: Seq ValueIdentifierIndex -> BytecodeGenerator BB.Builder -> BytecodeGenerator BB.Builder
+withFunctionScope parameters generator = do
   pushNewScope
   traverse_ addVariableToScope parameters
-  traverse_ addVariableToScope capturedIdentifiers
   result <- generator
   _ <- popScope
   return result
@@ -72,14 +71,14 @@ popScope = BytecodeGenerator $ \BytecodeGeneratorState {scopes, constants} -> ca
   initScopes :|> finalScope -> (BytecodeGeneratorState {scopes = initScopes, constants}, finalScope)
   Empty -> undefined -- Should not get here
 
-addVariableToScope :: BoundValueIdentifier -> BytecodeGenerator ()
+addVariableToScope :: ValueIdentifierIndex -> BytecodeGenerator ()
 addVariableToScope newVariable = BytecodeGenerator run
   where
     run (BytecodeGeneratorState {scopes = initScopes :|> (Scope {variables}), constants}) =
       (BytecodeGeneratorState {scopes = initScopes |> Scope {variables = variables |> newVariable}, constants}, ())
     run _ = undefined
 
-getVariableIndex :: BoundValueIdentifier -> BytecodeGenerator Int
+getVariableIndex :: ValueIdentifierIndex -> BytecodeGenerator Int
 getVariableIndex variable = BytecodeGenerator $ \state -> (state, fromIntegral $ getVariableIndexInScopes $ scopes state)
   where
     getVariableIndexInScopes ((Scope {variables}) :<| tailScopes) = case elemIndexL variable variables of

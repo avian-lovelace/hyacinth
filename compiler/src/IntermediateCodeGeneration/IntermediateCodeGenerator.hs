@@ -1,4 +1,4 @@
-module FunctionLifting.FunctionLifter (runFunctionLifting) where
+module IntermediateCodeGeneration.IntermediateCodeGenerator (runFunctionLifting) where
 
 import Control.Monad (foldM, unless)
 import Core.ErrorState
@@ -10,35 +10,34 @@ import Data.Foldable (toList)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
-import Data.Sequence (Seq)
+import Data.Sequence (Seq, (><))
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
-import FunctionLifting.FunctionLifting
-import FunctionLifting.SyntaxTree
 import IdentifierBinding.SyntaxTree
+import IntermediateCodeGeneration.IntermediateCode
+import IntermediateCodeGeneration.IntermediateCodeGeneration
 import Parsing.SyntaxTree
 import TypeChecking.SyntaxTree
 
-runFunctionLifting :: Int -> Int -> Map BoundRecordIdentifier (Seq UnboundIdentifier) -> TCModule -> WithErrors FLModule
+runFunctionLifting :: Int -> Int -> Map BoundRecordIdentifier (Seq UnboundIdentifier) -> TCModule -> WithErrors Mod
 runFunctionLifting boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders tcModule = liftingResult
   where
     initialState = initialFunctionLiftingState boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders
     (_, liftingResult) = runErrorState (moduleLifter tcModule) initialState
 
-moduleLifter :: TCModule -> FunctionLifter FLModule
+moduleLifter :: TCModule -> FunctionLifter Mod
 moduleLifter (Module () (MainFunction () mainFunctionScope)) = do
   liftedMainFunctionScope <- scopeLifter mainFunctionScope
   subFunctions <- getLiftedFunctions
-  return $ Module () (MainFunction () liftedMainFunctionScope, subFunctions)
+  return $ Mod (MainFunc liftedMainFunctionScope) subFunctions
 
-scopeLifter :: TCScope -> FunctionLifter FLScope
+scopeLifter :: TCScope -> FunctionLifter (Seq Stmt)
 scopeLifter (Scope _ nonPositionalStatements statements) = do
   functionGraph <- makeScopeFunctionGraph nonPositionalStatements
   mapM_ (initializeFunction functionGraph) nonPositionalStatements
   mapM_ nonPositionalStatementLifter nonPositionalStatements
-  liftedStatements <- mapM statementLifter statements
-  return $ Scope () Seq.Empty liftedStatements
+  mapM statementLifter statements
   where
     getCapturedIdentifiers :: Graph BoundFunctionIdentifier (Set BoundValueIdentifier) -> BoundFunctionIdentifier -> Set BoundValueIdentifier
     getCapturedIdentifiers graph functionName = foldDepthFirst Set.empty Set.union functionName graph
@@ -81,60 +80,60 @@ nonPositionalStatementLifter (FunctionStatement statementRange functionName func
   capturedIdentifiers <- case maybeCapturedIdentifiers of
     Just capturedIdentifiers -> return capturedIdentifiers
     Nothing -> throwError $ ShouldNotGetHereError "Captured identifiers were not recorded before calling nonPositionalStatementLifter"
-  (liftedFunctionDefinition, capturedIdentifierInnerValues) <- withCapturedIdentifiers capturedIdentifiers (functionDefinitionLifter functionDefinition)
+  (makeSubFunc, capturedIdentifierInnerValues) <- withCapturedIdentifiers capturedIdentifiers (functionDefinitionLifter functionDefinition)
   let (BoundFunctionIdentifier functionIndex _) = functionName
-  let subFunction = SubFunction statementRange capturedIdentifierInnerValues liftedFunctionDefinition
+  let subFunction = makeSubFunc (getValueIdentifierIndex <$> capturedIdentifierInnerValues)
   addLiftedFunction functionIndex subFunction
 nonPositionalStatementLifter (RecordStatement {}) = throwError $ ShouldNotGetHereError "Got record statement in nonPositionalStatementLifter"
 
-statementLifter :: TCStatement -> FunctionLifter FLStatement
-statementLifter (VariableDeclarationStatement TCStatementData {statementRange} mutability (WithTypeAnnotation variableName ()) variableValue) = do
+statementLifter :: TCStatement -> FunctionLifter Stmt
+statementLifter (VariableDeclarationStatement _ _ (WithTypeAnnotation variableName ()) variableValue) = do
   liftedVariableValue <- expressionLifter variableValue
   setIdentifierIsUsable variableName
-  return $ VariableDeclarationStatement statementRange mutability (WithTypeAnnotation variableName ()) liftedVariableValue
+  return $ VariableDeclarationStmt (getValueIdentifierIndex variableName) liftedVariableValue
 statementLifter (VariableMutationStatement TCStatementData {statementRange} variableName variableValue) = do
   let BoundValueIdentifier _ variableTextName = variableName
   let mutatedCapturedIdentifierError = MutatedCapturedIdentifierError variableTextName statementRange
   assertIdentifierIsNotCaptured mutatedCapturedIdentifierError variableName
   liftedVariableValue <- expressionLifter variableValue
-  return $ VariableMutationStatement statementRange variableName liftedVariableValue
-statementLifter (PrintStatement TCStatementData {statementRange} expression) = do
+  return $ VariableMutationStmt (getValueIdentifierIndex variableName) liftedVariableValue
+statementLifter (PrintStatement _ expression) = do
   liftedExpression <- expressionLifter expression
-  return $ PrintStatement statementRange liftedExpression
-statementLifter (ExpressionStatement TCStatementData {statementRange} expression) = do
+  return $ ExpressionStmt (BuiltInFunctionExpr PrintFn $ Seq.singleton liftedExpression)
+statementLifter (ExpressionStatement _ expression) = do
   liftedExpression <- expressionLifter expression
-  return $ ExpressionStatement statementRange liftedExpression
-statementLifter (WhileLoopStatement TCStatementData {statementRange} condition body) = do
+  return $ ExpressionStmt liftedExpression
+statementLifter (WhileLoopStatement _ condition body) = do
   liftedCondition <- expressionLifter condition
   liftedBody <- expressionLifter body
-  return $ WhileLoopStatement statementRange liftedCondition liftedBody
-statementLifter (ReturnStatement TCStatementData {statementRange} (Just expression)) = do
+  return $ WhileLoopStmt liftedCondition liftedBody
+statementLifter (ReturnStatement _ (Just expression)) = do
   liftedExpression <- expressionLifter expression
-  return $ ReturnStatement statementRange (Just liftedExpression)
-statementLifter (ReturnStatement TCStatementData {statementRange} Nothing) =
-  return $ ReturnStatement statementRange Nothing
+  return $ ReturnStmt liftedExpression
+statementLifter (ReturnStatement _ Nothing) =
+  return $ ReturnStmt (LiteralExpr NilLiteral)
 
-functionDefinitionLifter :: TCFunctionDefinition -> FunctionLifter FLFunctionDefinition
+functionDefinitionLifter :: TCFunctionDefinition -> FunctionLifter (Seq ValueIdentifierIndex -> SubFunc)
 functionDefinitionLifter (FunctionDefinition TCFunctionDefinitionData {tcFunctionDefinitionRange} parameters (WithTypeAnnotation body ())) = do
   liftedParameters <- mapM liftParameter parameters
   liftedBody <- expressionLifter body
-  return $ FunctionDefinition tcFunctionDefinitionRange liftedParameters (WithTypeAnnotation liftedBody ())
+  return $ \capturedIdentifiers -> SubFunc (liftedParameters >< capturedIdentifiers) liftedBody
   where
-    liftParameter :: TCWithTypeAnnotation BoundValueIdentifier -> FunctionLifter (FLWithTypeAnnotation BoundValueIdentifier)
+    liftParameter :: TCWithTypeAnnotation BoundValueIdentifier -> FunctionLifter ValueIdentifierIndex
     liftParameter (WithTypeAnnotation parameter ()) = do
       setIdentifierIsUsable parameter
-      return $ WithTypeAnnotation parameter ()
+      return $ getValueIdentifierIndex parameter
 
-expressionLifter :: TCExpression -> FunctionLifter FLExpression
+expressionLifter :: TCExpression -> FunctionLifter Expr
 expressionLifter (IdentifierExpression TCExpresionData {expressionRange} identifier) = case identifier of
   Left valueIdentifier -> do
     let identifierUnusableError = ShouldNotGetHereError "Found unusable value identifier in expressionLifter. This should have already been caught in identifier binding."
     liftedIdentifier <- getIdentifierInContext identifierUnusableError valueIdentifier
-    return $ IdentifierExpression expressionRange liftedIdentifier
+    return $ IdentifierExpr (getValueIdentifierIndex liftedIdentifier)
   Right functionIdentifier -> do
     capturedIdentifiers <- getFunctionCapturedIdentifiersInContext expressionRange functionIdentifier
     let (BoundFunctionIdentifier functionIndex _) = functionIdentifier
-    return $ FunctionExpression expressionRange $ FunctionReference functionIndex capturedIdentifiers
+    return $ FunctionExpr functionIndex (getValueIdentifierIndex <$> capturedIdentifiers)
 expressionLifter (FunctionExpression TCExpresionData {expressionRange} functionDefinition) = do
   let combinedCapturedIdentifiers = tcFunctionDefinitionCapturedIdentifiers . getFunctionDefinitionData $ functionDefinition
   (capturedValueIdentifiers, capturedFunctionIdentifiers) <- consolidateCapturedIdentifiers combinedCapturedIdentifiers
@@ -142,16 +141,16 @@ expressionLifter (FunctionExpression TCExpresionData {expressionRange} functionD
     throwError (ShouldNotGetHereError "Some captured functions were not initialized in expressionLifter")
   let identifierUnusableError = ShouldNotGetHereError "Found unusable captured identifier in expressionLifter. This should have already been caught in identifier binding."
   capturedFunctionIdentifierContextValues <- mapM (getIdentifierInContext identifierUnusableError) $ Set.toAscList capturedValueIdentifiers
-  (liftedFunctionDefinition, capturedIdentifierInnerValues) <- withCapturedIdentifiers capturedValueIdentifiers (functionDefinitionLifter functionDefinition)
+  (makeSubFunc, capturedIdentifierInnerValues) <- withCapturedIdentifiers capturedValueIdentifiers (functionDefinitionLifter functionDefinition)
   functionIndex <- getNewFunctionIndex
-  let subFunction = SubFunction expressionRange capturedIdentifierInnerValues liftedFunctionDefinition
+  let subFunction = makeSubFunc (getValueIdentifierIndex <$> capturedIdentifierInnerValues)
   addLiftedFunction functionIndex subFunction
-  return $ FunctionExpression expressionRange (FunctionReference functionIndex (Seq.fromList capturedFunctionIdentifierContextValues))
+  return $ FunctionExpr functionIndex (getValueIdentifierIndex <$> Seq.fromList capturedFunctionIdentifierContextValues)
 expressionLifter (RecordExpression TCExpresionData {expressionRange} recordName fieldValueMap) = do
   recordFieldOrder <- getRecordFieldOrder recordName
   let recordFields = (\fieldName -> fromJust $ Map.lookup fieldName fieldValueMap) <$> recordFieldOrder
   liftedRecordFields <- mapM expressionLifter recordFields
-  return $ RecordExpression expressionRange recordName liftedRecordFields
+  return $ RecordExpr (getRecordIdentifierIndex recordName) liftedRecordFields
 expressionLifter (FieldAccessExpression TCExpresionData {expressionRange} inner fieldName) = do
   liftedInner <- expressionLifter inner
   let innerType = expressionType . getExpressionData $ inner
@@ -159,85 +158,83 @@ expressionLifter (FieldAccessExpression TCExpresionData {expressionRange} inner 
     RecordType recordName -> return recordName
     _ -> throwError $ ShouldNotGetHereError "Inner expression of FieldAccessExpression was not a record in expressionLifter"
   fieldIndex <- getRecordFieldIndex recordName fieldName
-  return $ FieldAccessExpression expressionRange liftedInner fieldIndex
+  return $ FieldExpr liftedInner fieldIndex
 -- Standard cases
-expressionLifter (IntLiteralExpression TCExpresionData {expressionRange} value) = return $ IntLiteralExpression expressionRange value
-expressionLifter (FloatLiteralExpression TCExpresionData {expressionRange} value) = return $ FloatLiteralExpression expressionRange value
-expressionLifter (CharLiteralExpression TCExpresionData {expressionRange} value) = return $ CharLiteralExpression expressionRange value
-expressionLifter (StringLiteralExpression TCExpresionData {expressionRange} value) = return $ StringLiteralExpression expressionRange value
-expressionLifter (BoolLiteralExpression TCExpresionData {expressionRange} value) = return $ BoolLiteralExpression expressionRange value
-expressionLifter (NilExpression TCExpresionData {expressionRange}) = return $ NilExpression expressionRange
+expressionLifter (IntLiteralExpression TCExpresionData {expressionRange} value) = return $ LiteralExpr (IntLiteral value)
+expressionLifter (FloatLiteralExpression TCExpresionData {expressionRange} value) = return $ LiteralExpr (FloatLiteral value)
+expressionLifter (CharLiteralExpression TCExpresionData {expressionRange} value) = return $ LiteralExpr (CharLiteral value)
+expressionLifter (StringLiteralExpression TCExpresionData {expressionRange} value) = return $ LiteralExpr (StringLiteral value)
+expressionLifter (BoolLiteralExpression TCExpresionData {expressionRange} value) = return $ LiteralExpr (BoolLiteral value)
+expressionLifter (NilExpression TCExpresionData {expressionRange}) = return $ LiteralExpr NilLiteral
 expressionLifter (NegateExpression TCExpresionData {expressionRange} inner) = do
   liftedInner <- expressionLifter inner
-  return $ NegateExpression expressionRange liftedInner
+  return $ BuiltInFunctionExpr NegateFn (Seq.singleton liftedInner)
 expressionLifter (AddExpression TCExpresionData {expressionRange} left right) = do
   liftedLeft <- expressionLifter left
   liftedRight <- expressionLifter right
-  return $ AddExpression expressionRange liftedLeft liftedRight
+  return $ BuiltInFunctionExpr AddFn (Seq.fromList [liftedLeft, liftedRight])
 expressionLifter (SubtractExpression TCExpresionData {expressionRange} left right) = do
   liftedLeft <- expressionLifter left
   liftedRight <- expressionLifter right
-  return $ SubtractExpression expressionRange liftedLeft liftedRight
+  return $ BuiltInFunctionExpr SubtractFn (Seq.fromList [liftedLeft, liftedRight])
 expressionLifter (MultiplyExpression TCExpresionData {expressionRange} left right) = do
   liftedLeft <- expressionLifter left
   liftedRight <- expressionLifter right
-  return $ MultiplyExpression expressionRange liftedLeft liftedRight
+  return $ BuiltInFunctionExpr MultiplyFn (Seq.fromList [liftedLeft, liftedRight])
 expressionLifter (DivideExpression TCExpresionData {expressionRange} left right) = do
   liftedLeft <- expressionLifter left
   liftedRight <- expressionLifter right
-  return $ DivideExpression expressionRange liftedLeft liftedRight
+  return $ BuiltInFunctionExpr DivideFn (Seq.fromList [liftedLeft, liftedRight])
 expressionLifter (ModuloExpression TCExpresionData {expressionRange} left right) = do
   liftedLeft <- expressionLifter left
   liftedRight <- expressionLifter right
-  return $ ModuloExpression expressionRange liftedLeft liftedRight
+  return $ BuiltInFunctionExpr ModuloFn (Seq.fromList [liftedLeft, liftedRight])
 expressionLifter (NotExpression TCExpresionData {expressionRange} inner) = do
   liftedInner <- expressionLifter inner
-  return $ NotExpression expressionRange liftedInner
+  return $ BuiltInFunctionExpr NotFn (Seq.singleton liftedInner)
 expressionLifter (AndExpression TCExpresionData {expressionRange} left right) = do
   liftedLeft <- expressionLifter left
   liftedRight <- expressionLifter right
-  return $ AndExpression expressionRange liftedLeft liftedRight
+  return $ IfThenElseExpr liftedLeft liftedRight (LiteralExpr (BoolLiteral False))
 expressionLifter (OrExpression TCExpresionData {expressionRange} left right) = do
   liftedLeft <- expressionLifter left
   liftedRight <- expressionLifter right
-  return $ OrExpression expressionRange liftedLeft liftedRight
+  return $ IfThenElseExpr liftedLeft (LiteralExpr (BoolLiteral True)) liftedRight
 expressionLifter (EqualExpression TCExpresionData {expressionRange} left right) = do
   liftedLeft <- expressionLifter left
   liftedRight <- expressionLifter right
-  return $ EqualExpression expressionRange liftedLeft liftedRight
+  return $ BuiltInFunctionExpr EqualFn (Seq.fromList [liftedLeft, liftedRight])
 expressionLifter (NotEqualExpression TCExpresionData {expressionRange} left right) = do
   liftedLeft <- expressionLifter left
   liftedRight <- expressionLifter right
-  return $ NotEqualExpression expressionRange liftedLeft liftedRight
+  return $ BuiltInFunctionExpr NotEqualFn (Seq.fromList [liftedLeft, liftedRight])
 expressionLifter (GreaterExpression TCExpresionData {expressionRange} left right) = do
   liftedLeft <- expressionLifter left
   liftedRight <- expressionLifter right
-  return $ GreaterExpression expressionRange liftedLeft liftedRight
+  return $ BuiltInFunctionExpr GreaterFn (Seq.fromList [liftedLeft, liftedRight])
 expressionLifter (LessExpression TCExpresionData {expressionRange} left right) = do
   liftedLeft <- expressionLifter left
   liftedRight <- expressionLifter right
-  return $ LessExpression expressionRange liftedLeft liftedRight
+  return $ BuiltInFunctionExpr LessFn (Seq.fromList [liftedLeft, liftedRight])
 expressionLifter (GreaterEqualExpression TCExpresionData {expressionRange} left right) = do
   liftedLeft <- expressionLifter left
   liftedRight <- expressionLifter right
-  return $ GreaterEqualExpression expressionRange liftedLeft liftedRight
+  return $ BuiltInFunctionExpr GreaterEqualFn (Seq.fromList [liftedLeft, liftedRight])
 expressionLifter (LessEqualExpression TCExpresionData {expressionRange} left right) = do
   liftedLeft <- expressionLifter left
   liftedRight <- expressionLifter right
-  return $ LessEqualExpression expressionRange liftedLeft liftedRight
+  return $ BuiltInFunctionExpr LessEqualFn (Seq.fromList [liftedLeft, liftedRight])
 expressionLifter (IfThenElseExpression TCExpresionData {expressionRange} condition trueExpression maybeFalseExpression) = do
   liftedCondition <- expressionLifter condition
   liftedTrueExpression <- expressionLifter trueExpression
   liftedFalseExpression <- case maybeFalseExpression of
-    Just falseExpression -> do
-      boundFalseExpression <- expressionLifter falseExpression
-      return $ Just boundFalseExpression
-    Nothing -> return Nothing
-  return $ IfThenElseExpression expressionRange liftedCondition liftedTrueExpression liftedFalseExpression
+    Just falseExpression -> expressionLifter falseExpression
+    Nothing -> return (LiteralExpr NilLiteral)
+  return $ IfThenElseExpr liftedCondition liftedTrueExpression liftedFalseExpression
 expressionLifter (ScopeExpression TCExpresionData {expressionRange} scope) = do
   liftedScope <- scopeLifter scope
-  return $ ScopeExpression expressionRange liftedScope
+  return $ ScopeExpr liftedScope
 expressionLifter (FunctionCallExpression TCExpresionData {expressionRange} function arguments) = do
   liftedFunction <- expressionLifter function
   liftedArguments <- traverse' expressionLifter arguments
-  return $ FunctionCallExpression expressionRange liftedFunction liftedArguments
+  return $ CallExpr liftedFunction liftedArguments

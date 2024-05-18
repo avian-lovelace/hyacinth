@@ -12,8 +12,8 @@ import Core.Utils
 import qualified Data.ByteString.Builder as BB
 import Data.Text (Text)
 import qualified Data.Text as Text
-import FunctionLifting.FunctionLifter
 import IdentifierBinding.IdentifierBinder
+import IntermediateCodeGeneration.IntermediateCodeGenerator
 import Lexing.Lexer
 import Parsing.Parser
 import Sectioning.Sectioner
@@ -29,7 +29,7 @@ standardBytecodeFilePath :: FilePath
 standardBytecodeFilePath = "../byte.code"
 
 standardCode :: Text
-standardCode = "print fib[6]; func fib[x: Int]: Int -> if x <= 1 then x else fib[x - 1] + fib[x - 2];"
+standardCode = "nil == { let foo = 1; print foo; };"
 
 run :: IO ()
 run = runAndOutputErrors $ do
@@ -63,7 +63,7 @@ compileCode logger code = do
   logger $ pretty tcAst
   flAst <- liftWithErrors $ runFunctionLifting boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders tcAst
   logger "Completed function lifting"
-  logger $ pretty flAst
+  -- logger $ pretty flAst
   let bytecode = encodeFile flAst
   logger "Completed bytecode generation"
   logger $ show $ BB.toLazyByteString bytecode

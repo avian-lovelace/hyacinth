@@ -1,4 +1,4 @@
-module FunctionLifting.FunctionLifting
+module IntermediateCodeGeneration.IntermediateCodeGeneration
   ( FunctionLifter,
     initialFunctionLiftingState,
     getIdentifierInContext,
@@ -27,8 +27,8 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
-import FunctionLifting.SyntaxTree
 import IdentifierBinding.SyntaxTree
+import IntermediateCodeGeneration.IntermediateCode
 import Parsing.SyntaxTree
 
 type FunctionLifter a = ErrorState FunctionLiftingState a
@@ -37,7 +37,7 @@ data FunctionLiftingState = FunctionLiftingState
   { capturedIdentifierStack :: [Map BoundValueIdentifier BoundValueIdentifier],
     functionCapturedIdentifiers :: Map BoundFunctionIdentifier (Set BoundValueIdentifier),
     usableValueIdentifiers :: Set BoundValueIdentifier,
-    liftedFunctions :: Map FunctionIndex FLSubFunction,
+    liftedFunctions :: Map FunctionIndex SubFunc,
     boundValueIdentifierCounter :: Int,
     boundFunctionIdentifierCounter :: Int,
     recordFieldOrders :: Map BoundRecordIdentifier (Seq UnboundIdentifier)
@@ -138,18 +138,18 @@ assertIdentifierIsUsable identifierUnusableError valueIdentifier = do
     then return ()
     else throwError identifierUnusableError
 
-addLiftedFunction :: FunctionIndex -> FLSubFunction -> FunctionLifter ()
+addLiftedFunction :: FunctionIndex -> SubFunc -> FunctionLifter ()
 addLiftedFunction functionIndex subFunction = do
   liftedFunctions <- liftedFunctions <$> getState
   setLiftedFunctions $ Map.insert functionIndex subFunction liftedFunctions
 
-getLiftedFunctions :: FunctionLifter (Seq FLSubFunction)
+getLiftedFunctions :: FunctionLifter (Seq SubFunc)
 getLiftedFunctions = do
   liftedFunctionMap <- liftedFunctions <$> getState
   liftedFunctions <- mapM (getFunctionWithIndex liftedFunctionMap) [1 .. Map.size liftedFunctionMap]
   return $ Seq.fromList liftedFunctions
   where
-    getFunctionWithIndex :: Map FunctionIndex FLSubFunction -> FunctionIndex -> FunctionLifter FLSubFunction
+    getFunctionWithIndex :: Map FunctionIndex SubFunc -> FunctionIndex -> FunctionLifter SubFunc
     getFunctionWithIndex liftedFunctionMap functionIndex = case Map.lookup functionIndex liftedFunctionMap of
       Nothing -> throwError $ ShouldNotGetHereError $ "function with index " ++ show functionIndex ++ " was missing in getLiftedFunctions"
       Just subFunction -> return subFunction
@@ -195,7 +195,7 @@ setUsableValueIdentifiers usableValueIdentifiers = do
   state <- getState
   setState state {usableValueIdentifiers}
 
-setLiftedFunctions :: Map FunctionIndex FLSubFunction -> ErrorState FunctionLiftingState ()
+setLiftedFunctions :: Map FunctionIndex SubFunc -> ErrorState FunctionLiftingState ()
 setLiftedFunctions liftedFunctions = do
   state <- getState
   setState state {liftedFunctions}

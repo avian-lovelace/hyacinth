@@ -40,6 +40,7 @@ impl VM {
                             }
                         }
                     }
+                    self.push(Value::Nil);
                 }
                 Instruction::Constant(const_index) => {
                     self.push(self.constants[const_index as usize])

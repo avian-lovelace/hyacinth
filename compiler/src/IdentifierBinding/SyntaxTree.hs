@@ -23,6 +23,11 @@ module IdentifierBinding.SyntaxTree
     IBFunctionDefinition,
     IBFunctionDefinitionData (IBFunctionDefinitionData, ibFunctionDefinitionCapturedIdentifiers, ibFunctionDefinitionRange),
     WithTextName (getTextName),
+    ValueIdentifierIndex,
+    RecordIndex,
+    getValueIdentifierIndex,
+    getFunctionIdentifierIndex,
+    getRecordIdentifierIndex,
   )
 where
 
@@ -96,6 +101,9 @@ data BoundValueIdentifier = BoundValueIdentifier ValueIdentifierIndex UnboundIde
 instance Pretty BoundValueIdentifier where
   pretty (BoundValueIdentifier index name) = "(BoundValueIdentifier " ++ show index ++ " " ++ pretty name ++ ")"
 
+getValueIdentifierIndex :: BoundValueIdentifier -> ValueIdentifierIndex
+getValueIdentifierIndex (BoundValueIdentifier index _) = index
+
 class WithTextName i where
   getTextName :: i -> Text
 
@@ -117,6 +125,9 @@ instance Pretty BoundFunctionIdentifier where
 instance WithTextName BoundFunctionIdentifier where
   getTextName (BoundFunctionIdentifier _ name) = name
 
+getFunctionIdentifierIndex :: BoundFunctionIdentifier -> FunctionIndex
+getFunctionIdentifierIndex (BoundFunctionIdentifier index _) = index
+
 type IBRecordIdentifier = RecordIdentifier IdentifierBindingPhase
 
 type instance RecordIdentifier IdentifierBindingPhase = BoundRecordIdentifier
@@ -131,6 +142,9 @@ instance Pretty BoundRecordIdentifier where
 
 instance WithTextName BoundRecordIdentifier where
   getTextName (BoundRecordIdentifier _ name) = name
+
+getRecordIdentifierIndex :: BoundRecordIdentifier -> RecordIndex
+getRecordIdentifierIndex (BoundRecordIdentifier index _) = index
 
 type IBFieldIdentifier = FieldIdentifier IdentifierBindingPhase
 
