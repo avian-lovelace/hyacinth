@@ -602,7 +602,7 @@ impl fmt::Display for Instruction {
             Instruction::MutateVariable(stack_index) => {
                 write!(f, "MutateVariable {}", stack_index)
             }
-            Instruction::Nil => write!(f, "()"),
+            Instruction::Nil => write!(f, "Nil"),
             Instruction::Pop => write!(f, "Pop"),
             Instruction::PopMultiple(u) => write!(f, "PopMultiple {}", u),
             Instruction::Jump(offset) => write!(f, "Jump {}", offset),
