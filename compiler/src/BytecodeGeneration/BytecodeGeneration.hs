@@ -1,91 +1,79 @@
 module BytecodeGeneration.BytecodeGeneration
-  ( BytecodeGenerator (BytecodeGenerator, runGenerator),
+  ( BytecodeGenerator,
     BytecodeGeneratorState (BytecodeGeneratorState, constants),
     addConstant,
-    addVariableToScope,
     getVariableIndex,
-    withNewScope,
-    withFunctionScope,
     initialState,
+    addVariable,
+    initializeFunction,
+    getStackSize,
+    setStackSize,
+    adjustStackSize,
   )
 where
 
 import BytecodeGeneration.Bytecode
-import qualified Data.ByteString.Builder as BB
-import Data.Foldable (traverse_)
-import Data.Sequence (Seq (Empty, (:<|), (:|>)), elemIndexL, (|>))
+import Control.Monad.State (State, get, put)
+import Data.Foldable (foldl')
+import Data.Map (Map, (!))
+import qualified Data.Map as Map
+import Data.Sequence (Seq (Empty), (|>))
 import qualified Data.Sequence as Seq
 import IdentifierBinding.SyntaxTree
 
 data BytecodeGeneratorState = BytecodeGeneratorState
-  { scopes :: Seq Scope,
+  { identifierIndexMap :: Map ValueIdentifierIndex Int,
+    stackSize :: Int,
     constants :: Seq Constant
   }
 
-newtype Scope = Scope {variables :: Seq ValueIdentifierIndex}
-
-newtype BytecodeGenerator a = BytecodeGenerator {runGenerator :: BytecodeGeneratorState -> (BytecodeGeneratorState, a)} deriving (Functor)
-
-instance Applicative BytecodeGenerator where
-  pure a = BytecodeGenerator $ \state -> (state, a)
-  generatorF <*> generatorA = BytecodeGenerator $ \state1 ->
-    let (state2, f) = runGenerator generatorF state1
-     in let (state3, a) = runGenerator generatorA state2
-         in (state3, f a)
-
-instance Monad BytecodeGenerator where
-  return = pure
-  generatorA >>= makeGeneratorB = BytecodeGenerator $ \state1 ->
-    let (state2, a) = runGenerator generatorA state1
-     in runGenerator (makeGeneratorB a) state2
+type BytecodeGenerator a = State BytecodeGeneratorState a
 
 initialState :: BytecodeGeneratorState
-initialState = BytecodeGeneratorState {scopes = Empty, constants = Empty}
+initialState = BytecodeGeneratorState {identifierIndexMap = Map.empty, stackSize = 0, constants = Empty}
 
 addConstant :: Constant -> BytecodeGenerator Int
-addConstant value = BytecodeGenerator $ \(BytecodeGeneratorState {scopes, constants}) ->
-  (BytecodeGeneratorState {scopes, constants = constants |> value}, fromIntegral $ length constants)
+addConstant value = do
+  BytecodeGeneratorState {constants} <- get
+  setConstants $ constants |> value
+  return $ length constants
 
-withNewScope :: BytecodeGenerator BB.Builder -> BytecodeGenerator BB.Builder
-withNewScope generator = do
-  pushNewScope
-  result <- generator
-  endedScope <- popScope
-  let popLocalVariables = popMultipleInstruction $ fromIntegral . Seq.length . variables $ endedScope
-  return $ result <> popLocalVariables <> nilInstruction
+addVariable :: ValueIdentifierIndex -> BytecodeGenerator ()
+addVariable newVariable = do
+  BytecodeGeneratorState {identifierIndexMap, stackSize} <- get
+  setIdentifierIndexMap $ Map.insert newVariable (stackSize - 1) identifierIndexMap
 
-withFunctionScope :: Seq ValueIdentifierIndex -> BytecodeGenerator BB.Builder -> BytecodeGenerator BB.Builder
-withFunctionScope parameters generator = do
-  pushNewScope
-  traverse_ addVariableToScope parameters
-  result <- generator
-  _ <- popScope
-  return result
-
-pushNewScope :: BytecodeGenerator ()
-pushNewScope = BytecodeGenerator $ \BytecodeGeneratorState {scopes, constants} ->
-  (BytecodeGeneratorState {scopes = scopes |> Scope {variables = Empty}, constants}, ())
-
-popScope :: BytecodeGenerator Scope
-popScope = BytecodeGenerator $ \BytecodeGeneratorState {scopes, constants} -> case scopes of
-  initScopes :|> finalScope -> (BytecodeGeneratorState {scopes = initScopes, constants}, finalScope)
-  Empty -> undefined -- Should not get here
-
-addVariableToScope :: ValueIdentifierIndex -> BytecodeGenerator ()
-addVariableToScope newVariable = BytecodeGenerator run
-  where
-    run (BytecodeGeneratorState {scopes = initScopes :|> (Scope {variables}), constants}) =
-      (BytecodeGeneratorState {scopes = initScopes |> Scope {variables = variables |> newVariable}, constants}, ())
-    run _ = undefined
+initializeFunction :: Seq ValueIdentifierIndex -> BytecodeGenerator ()
+initializeFunction parameters = do
+  BytecodeGeneratorState {identifierIndexMap} <- get
+  let (updatedIdentifierIndexMap, _) = foldl' (\(indexMap, index) parameter -> (Map.insert parameter index indexMap, index + 1)) (identifierIndexMap, 0) parameters
+  setIdentifierIndexMap updatedIdentifierIndexMap
+  setStackSize $ Seq.length parameters
 
 getVariableIndex :: ValueIdentifierIndex -> BytecodeGenerator Int
-getVariableIndex variable = BytecodeGenerator $ \state -> (state, fromIntegral $ getVariableIndexInScopes $ scopes state)
-  where
-    getVariableIndexInScopes ((Scope {variables}) :<| tailScopes) = case elemIndexL variable variables of
-      Just i -> i
-      Nothing -> length variables + getVariableIndexInScopes tailScopes
-    {- Should not get here, as the identifier binding step checks if an identifier is used while not in scope. This is
-      undefined rather an ShouldNotGetHereError, as bytecode generation shouldn't throw errors unless there is a
-      compiler but, so it doesn't use WithErrors.
-    -}
-    getVariableIndexInScopes _ = undefined
+getVariableIndex variable = do
+  BytecodeGeneratorState {identifierIndexMap} <- get
+  return $ identifierIndexMap ! variable
+
+getStackSize :: BytecodeGenerator Int
+getStackSize = stackSize <$> get
+
+adjustStackSize :: Int -> BytecodeGenerator ()
+adjustStackSize adjustment = do
+  BytecodeGeneratorState {stackSize} <- get
+  setStackSize $ stackSize + adjustment
+
+setIdentifierIndexMap :: Map ValueIdentifierIndex Int -> BytecodeGenerator ()
+setIdentifierIndexMap identifierIndexMap = do
+  state <- get
+  put state {identifierIndexMap}
+
+setStackSize :: Int -> BytecodeGenerator ()
+setStackSize stackSize = do
+  state <- get
+  put state {stackSize}
+
+setConstants :: Seq Constant -> BytecodeGenerator ()
+setConstants constants = do
+  state <- get
+  put state {constants}

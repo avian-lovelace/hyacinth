@@ -23,7 +23,7 @@ import System.Process
 import TypeChecking.TypeChecker
 
 debug :: Bool
-debug = True
+debug = False
 
 standardBytecodeFilePath :: FilePath
 standardBytecodeFilePath = "../byte.code"
