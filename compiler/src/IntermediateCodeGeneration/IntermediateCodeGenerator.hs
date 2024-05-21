@@ -1,6 +1,6 @@
 module IntermediateCodeGeneration.IntermediateCodeGenerator (runIntermediateCodeGeneration) where
 
-import Control.Monad (foldM, unless)
+import Control.Monad (foldM, forM, unless)
 import Core.ErrorState
 import Core.Errors
 import Core.Graph
@@ -154,11 +154,27 @@ expressionGenerator (RecordExpression _ recordName fieldValueMap) = do
 expressionGenerator (FieldAccessExpression _ inner fieldName) = do
   encodedInner <- expressionGenerator inner
   let innerType = expressionType . getExpressionData $ inner
-  recordName <- case innerType of
-    RecordType recordName -> return recordName
+  recordNames <- case innerType of
+    RecordUnionType recordNames -> return recordNames
     _ -> throwError $ ShouldNotGetHereError "Inner expression of FieldAccessExpression was not a record in expressionGenerator"
-  fieldIndex <- getRecordFieldIndex recordName fieldName
-  return $ FieldExpr encodedInner fieldIndex
+  recordIndexPairs <- forM (Set.toList recordNames) $ \recordName -> do
+    fieldIndex <- getRecordFieldIndex recordName fieldName
+    return (recordName, fieldIndex)
+  let firstFieldIndex = snd . head $ recordIndexPairs
+  if all (\(_, index) -> index == firstFieldIndex) recordIndexPairs
+    then return $ FieldExpr encodedInner firstFieldIndex
+    else do
+      encodedCases <- forM (Seq.fromList recordIndexPairs) $ \(recordName, fieldIndex) -> do
+        caseParameter <- getNewValueIdentifierIndex
+        return (getRecordIdentifierIndex recordName, caseParameter, FieldExpr (IdentifierExpr caseParameter) fieldIndex)
+      return $ CaseExpr encodedInner encodedCases
+expressionGenerator (CaseExpression _ switch cases) = do
+  encodedSwitch <- expressionGenerator switch
+  let caseGenerator (recordName, (caseParameter, caseValue)) = do
+        encodedCaseValue <- expressionGenerator caseValue
+        return (getRecordIdentifierIndex recordName, getValueIdentifierIndex caseParameter, encodedCaseValue)
+  encodedCases <- mapM caseGenerator $ Seq.fromList . Map.toList $ cases
+  return $ CaseExpr encodedSwitch encodedCases
 -- Standard cases
 expressionGenerator (IntLiteralExpression _ value) = return $ LiteralExpr (IntLiteral value)
 expressionGenerator (FloatLiteralExpression _ value) = return $ LiteralExpr (FloatLiteral value)

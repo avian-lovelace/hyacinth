@@ -1,7 +1,7 @@
 module IdentifierBinding.IdentifierBinding
   ( IdentifierBinder,
     IdentifierBindingState (IdentifierBindingState, boundValueIdentifierCounter, boundFunctionIdentifierCounter),
-    IdentifierInfo (VariableIdentifierInfo, ParameterIdentifierInfo, FunctionIdentifierInfo, RecordIdentifierInfo),
+    IdentifierInfo (VariableIdentifierInfo, ParameterIdentifierInfo, FunctionIdentifierInfo, RecordIdentifierInfo, CaseParameterInfo),
     VariableUsability (BeforeDeclaration, InDeclaration, Usable),
     addVariable,
     initialBindingState,
@@ -16,6 +16,7 @@ module IdentifierBinding.IdentifierBinding
     getFunctionNameBinding,
     addRecord,
     getRecordNameBinding,
+    withNewCaseScope,
   )
 where
 
@@ -43,12 +44,14 @@ data IdentifierBindingState = IdentifierBindingState
 data ScopeInfo
   = ExpressionScope {scopeIdentifiers :: Map UnboundIdentifier IdentifierInfo}
   | FunctionScope {parameters :: Map UnboundIdentifier IdentifierInfo, capturedIdentifiers :: Set IdentifierInfo}
+  | CaseScope {caseParameter :: (UnboundIdentifier, IdentifierInfo)}
 
 data IdentifierInfo
   = VariableIdentifierInfo Range BoundValueIdentifier Mutability VariableUsability
   | ParameterIdentifierInfo Range BoundValueIdentifier
   | FunctionIdentifierInfo Range BoundFunctionIdentifier
   | RecordIdentifierInfo Range BoundRecordIdentifier
+  | CaseParameterInfo Range BoundValueIdentifier
   deriving (Eq, Ord)
 
 asBoundIdentifier :: IdentifierInfo -> Maybe IBIdentifier
@@ -56,12 +59,14 @@ asBoundIdentifier (VariableIdentifierInfo _ boundValueIdentifier _ _) = Just . L
 asBoundIdentifier (ParameterIdentifierInfo _ boundValueIdentifier) = Just . Left $ boundValueIdentifier
 asBoundIdentifier (FunctionIdentifierInfo _ boundFunctionIdentifier) = Just . Right $ boundFunctionIdentifier
 asBoundIdentifier (RecordIdentifierInfo _ _) = Nothing
+asBoundIdentifier (CaseParameterInfo _ boundValueIdentifier) = Just . Left $ boundValueIdentifier
 
 instance WithRange IdentifierInfo where
   getRange (VariableIdentifierInfo range _ _ _) = range
   getRange (ParameterIdentifierInfo range _) = range
   getRange (FunctionIdentifierInfo range _) = range
   getRange (RecordIdentifierInfo range _) = range
+  getRange (CaseParameterInfo range _) = range
 
 data VariableUsability = BeforeDeclaration | InDeclaration | Usable deriving (Eq, Ord)
 
@@ -86,6 +91,17 @@ withNewFunctionScope binder =
   do
     pushScope FunctionScope {parameters = Map.empty, capturedIdentifiers = Set.empty}
     binder
+    `andFinally` popScope
+
+withNewCaseScope :: Range -> UnboundIdentifier -> IdentifierBinder a -> IdentifierBinder (BoundValueIdentifier, a)
+withNewCaseScope caseParameterRange unboundCaseParameter binder =
+  do
+    checkForInvalidShadow caseParameterRange unboundCaseParameter
+    boundCaseSwitchValue <- getNewValueBinding unboundCaseParameter
+    let caseParameterInfo = CaseParameterInfo caseParameterRange boundCaseSwitchValue
+    pushScope CaseScope {caseParameter = (unboundCaseParameter, caseParameterInfo)}
+    result <- binder
+    return (boundCaseSwitchValue, result)
     `andFinally` popScope
 
 addVariable :: Range -> Mutability -> UnboundIdentifier -> IdentifierBinder ()
@@ -164,7 +180,12 @@ checkForInvalidShadowInScopes :: Range -> UnboundIdentifier -> [ScopeInfo] -> Id
 checkForInvalidShadowInScopes _ _ [] = return ()
 checkForInvalidShadowInScopes shadowRange unboundIdentifier (FunctionScope {parameters} : restScopes) =
   if Map.member unboundIdentifier parameters
-    -- Parameters are always usable if they are in scope, and if a variable is captured, we have already confirmed it is usable
+    -- Parameters are always usable if they are in scope
+    then return ()
+    else checkForInvalidShadowInScopes shadowRange unboundIdentifier restScopes
+checkForInvalidShadowInScopes shadowRange unboundIdentifier (CaseScope {caseParameter} : restScopes) =
+  if unboundIdentifier == fst caseParameter
+    -- Case values are always usable if they are in scope
     then return ()
     else checkForInvalidShadowInScopes shadowRange unboundIdentifier restScopes
 checkForInvalidShadowInScopes shadowRange unboundIdentifier (ExpressionScope {scopeIdentifiers} : restScopes) =
@@ -193,6 +214,13 @@ getIdentifierBindingInScopes usageRange unboundIdentifier scopes = case scopes o
     Nothing -> do
       (info, updatedRestScopes) <- getIdentifierBindingInScopes usageRange unboundIdentifier restScopes
       return (info, ExpressionScope {scopeIdentifiers} : updatedRestScopes)
+  CaseScope {caseParameter} : restScopes ->
+    if unboundIdentifier == fst caseParameter
+      then
+        return (snd caseParameter, scopes)
+      else do
+        (info, updatedRestScopes) <- getIdentifierBindingInScopes usageRange unboundIdentifier restScopes
+        return (info, CaseScope {caseParameter} : updatedRestScopes)
   FunctionScope {parameters, capturedIdentifiers} : restScopes -> case Map.lookup unboundIdentifier parameters of
     Just info -> return (info, scopes)
     Nothing -> do

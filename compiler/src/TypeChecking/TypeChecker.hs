@@ -1,17 +1,19 @@
 module TypeChecking.TypeChecker (runTypeChecking) where
 
-import Control.Monad (foldM, unless)
+import Control.Monad (foldM, forM_, unless)
 import Core.ErrorState
 import Core.Errors
 import Core.FilePositions
 import Core.SyntaxTree
 import Core.Type
 import Core.Utils
+import Data.Bifunctor (Bifunctor (first), second)
 import Data.Foldable (fold)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
 import IdentifierBinding.SyntaxTree
 import Parsing.SyntaxTree
 import TypeChecking.SyntaxTree
@@ -46,17 +48,18 @@ initializeNonPositionalStatement :: IBNonPositionalStatement -> TypeChecker ()
 initializeNonPositionalStatement (FunctionStatement statementRange functionName (FunctionDefinition _ parameters (WithTypeAnnotation _ returnTypeAnnotation))) = do
   parameterTypes <- mapM getParameterType parameters
   returnType <- case returnTypeAnnotation of
-    Just returnType -> return $ fromTypeExpression returnType
+    Just returnType -> liftWithErrors $ fromTypeExpression returnType
     Nothing -> throwError $ FunctionMissingReturnTypeAnnotation statementRange
   setFunctionType functionName (FunctionType parameterTypes returnType)
   where
     getParameterType :: IBWithTypeAnnotation IBValueIdentifier -> TypeChecker Type
     getParameterType (WithTypeAnnotation _ parameterTypeAnnotation) = case parameterTypeAnnotation of
-      Just typeExpression -> return $ fromTypeExpression typeExpression
+      Just typeExpression -> liftWithErrors $ fromTypeExpression typeExpression
       Nothing -> throwError $ FunctionMissingParameterTypeAnnotation statementRange
 initializeNonPositionalStatement (RecordStatement _ recordName fieldTypePairs) = do
-  fieldTypeMap <- foldM addFieldType Map.empty fieldTypePairs
-  setRecordFieldTypes recordName (fromTypeExpression <$> fieldTypeMap)
+  fieldTypeExpressionMap <- foldM addFieldType Map.empty fieldTypePairs
+  fieldTypeMap <- liftWithErrors $ mapM fromTypeExpression fieldTypeExpressionMap
+  setRecordFieldTypes recordName fieldTypeMap
   addRecordFieldOrder recordName (fst <$> fieldTypePairs)
   where
     addFieldType :: Map IBFieldIdentifier IBTypeExpression -> (IBFieldIdentifier, IBTypeExpression) -> TypeChecker (Map IBFieldIdentifier IBTypeExpression)
@@ -82,7 +85,9 @@ typeCheckFunctionDefinition
     ) = do
     (checkedParameters, parameterTypes) <- Seq.unzip <$> mapM initializeParameter parameters
     (returnType, returnTypeRange) <- case returnTypeAnnotation of
-      Just returnType -> return $ (fromTypeExpression returnType, getRange returnType)
+      Just returnTypeExpression -> do
+        returnType <- liftWithErrors $ fromTypeExpression returnTypeExpression
+        return $ (returnType, getRange returnTypeExpression)
       Nothing -> throwError $ FunctionMissingReturnTypeAnnotation ibFunctionDefinitionRange
     let functionContext = FunctionContext {contextReturnType = returnType, contextReturnTypeRange = returnTypeRange}
     checkedBody <- withFunctionContext functionContext $ typeCheckExpression body
@@ -94,7 +99,7 @@ typeCheckFunctionDefinition
     --   -}
     let bodyReturnInfo = expressionReturnInfo . getExpressionData $ checkedBody
     let bodyType = expressionType . getExpressionData $ checkedBody
-    unless (bodyReturnInfo == AlwaysReturns || bodyType == returnType) $
+    unless (bodyReturnInfo == AlwaysReturns || bodyType `subTypes` returnType) $
       throwError (FunctionReturnTypeError returnTypeRange returnType (getRange body) bodyType)
     let functionDefinitionType = FunctionType parameterTypes returnType
     let functionDefinitionData =
@@ -108,7 +113,7 @@ typeCheckFunctionDefinition
       initializeParameter :: IBWithTypeAnnotation IBValueIdentifier -> TypeChecker (TCWithTypeAnnotation TCValueIdentifier, Type)
       initializeParameter (WithTypeAnnotation parameter parameterTypeAnnotation) = do
         parameterType <- case parameterTypeAnnotation of
-          Just typeExpression -> return $ fromTypeExpression typeExpression
+          Just typeExpression -> liftWithErrors $ fromTypeExpression typeExpression
           Nothing -> throwError $ FunctionMissingParameterTypeAnnotation ibFunctionDefinitionRange
         setValueIdentifierType parameter parameterType
         return (WithTypeAnnotation parameter (), parameterType)
@@ -121,19 +126,21 @@ typeCheckStatement (PrintStatement statementRange expression) = do
 typeCheckStatement (VariableDeclarationStatement statementRange mutability (WithTypeAnnotation variableName typeAnnotation) value) = do
   checkedValue <- typeCheckExpression value
   let valueType = expressionType . getExpressionData $ checkedValue
-  case typeAnnotation of
-    Just expectedType ->
-      unless (fromTypeExpression expectedType == valueType) $
-        throwError (VariableDeclarationTypeError statementRange (fromTypeExpression expectedType) valueType)
-    Nothing -> return ()
-  setValueIdentifierType variableName valueType
+  variableType <- case typeAnnotation of
+    Just expectedTypeExpression -> do
+      expectedType <- liftWithErrors $ fromTypeExpression expectedTypeExpression
+      unless (valueType `subTypes` expectedType) $
+        throwError (VariableDeclarationTypeError statementRange expectedType valueType)
+      return expectedType
+    Nothing -> return valueType
+  setValueIdentifierType variableName variableType
   let statementReturnInfo = expressionReturnInfo . getExpressionData $ checkedValue
   return $ VariableDeclarationStatement (TCStatementData statementRange statementReturnInfo) mutability (WithTypeAnnotation variableName ()) checkedValue
 typeCheckStatement (VariableMutationStatement statementRange variableName value) = do
   checkedValue <- typeCheckExpression value
   let valueType = expressionType . getExpressionData $ checkedValue
   variableType <- getValueIdentifierType variableName
-  unless (variableType == valueType) $
+  unless (valueType `subTypes` variableType) $
     throwError (VariableMutationTypeError statementRange variableType valueType)
   let statementReturnInfo = expressionReturnInfo . getExpressionData $ checkedValue
   return $ VariableMutationStatement (TCStatementData statementRange statementReturnInfo) variableName checkedValue
@@ -160,7 +167,7 @@ typeCheckStatement (ReturnStatement statementRange returnValue) = do
       unless (returnValueType == NilType) $
         throwError (MainFunctionReturnTypeError statementRange returnValueType)
     Just (FunctionContext {contextReturnType, contextReturnTypeRange}) ->
-      unless (returnValueType == contextReturnType) $
+      unless (returnValueType `subTypes` contextReturnType) $
         throwError (FunctionReturnTypeError contextReturnTypeRange contextReturnType statementRange returnValueType)
   return $ ReturnStatement (TCStatementData statementRange AlwaysReturns) checkedReturnValue
 
@@ -343,9 +350,9 @@ typeCheckExpression (IfThenElseExpression expressionRange condition trueBranch f
         then return NilType
         else throwError $ IfThenExpressionBranchesTypeError expressionRange trueBranchType
     Just falseBranchType ->
-      if trueBranchType == falseBranchType
-        then return trueBranchType
-        else throwError $ IfThenElseExpressionBranchesTypeError expressionRange trueBranchType falseBranchType
+      case getCombinedType trueBranchType falseBranchType of
+        Nothing -> throwError $ IfThenElseExpressionBranchesTypeError expressionRange trueBranchType falseBranchType
+        Just combinedType -> return combinedType
   let returnInfo = conditionReturnInfo `riAnd` (trueBranchReturnInfo `riOr` falseBranchReturnInfo)
   return $ IfThenElseExpression (TCExpresionData expressionRange expressionType returnInfo) checkedCondition checkedTrueBranch checkedFalseBranch
 typeCheckExpression (ScopeExpression expressionRange scope) = do
@@ -382,19 +389,52 @@ typeCheckExpression (RecordExpression expressionRange recordName fieldValueMap) 
           throwError (RecordExpressionMissingFieldError (getTextName recordName) fieldName expressionRange)
   mapM_ checkRecordHasField (Map.keys recordTypeMap)
   let returnInfo = fold $ expressionReturnInfo . getExpressionData <$> checkedFieldValueMap
-  return $ RecordExpression (TCExpresionData expressionRange (RecordType recordName) returnInfo) recordName checkedFieldValueMap
+  return $ RecordExpression (TCExpresionData expressionRange (RecordUnionType (Set.singleton recordName)) returnInfo) recordName checkedFieldValueMap
 typeCheckExpression (FieldAccessExpression expressionRange inner fieldName) = do
   checkedInner <- typeCheckExpression inner
   let innerExpressionType = expressionType . getExpressionData $ checkedInner
-  innerExpressionRecordName <- case innerExpressionType of
-    RecordType recordName -> return recordName
+  innerExpressionRecordNames <- case innerExpressionType of
+    RecordUnionType recordNames -> return recordNames
     otherType -> throwError $ AccessedFieldOfNonRecordValueError otherType expressionRange
-  recordTypeMap <- getRecordFieldTypes innerExpressionRecordName
-  expressionType <- case Map.lookup fieldName recordTypeMap of
-    Nothing -> throwError $ AccessedFieldNotInRecordError (getTextName innerExpressionRecordName) fieldName expressionRange
-    Just fieldType -> return fieldType
+  recordFieldTypePairs <- mapM (getRecordFieldType innerExpressionType) (Set.toList innerExpressionRecordNames)
+  expressionType <- case getCombinedTypeF $ snd <$> recordFieldTypePairs of
+    Nothing -> throwError $ FieldTypesAreNotCompatibleError fieldName (first getTextName <$> recordFieldTypePairs) expressionRange
+    Just expressionType -> return expressionType
   let returnInfo = expressionReturnInfo . getExpressionData $ checkedInner
   return $ FieldAccessExpression (TCExpresionData expressionRange expressionType returnInfo) checkedInner fieldName
+  where
+    getRecordFieldType innerExpressionType recordName = do
+      fieldTypeMap <- getRecordFieldTypes recordName
+      case Map.lookup fieldName fieldTypeMap of
+        Nothing -> throwError $ AccessedFieldNotInRecordError (getTextName recordName) fieldName innerExpressionType expressionRange
+        Just fieldType -> return (recordName, fieldType)
+typeCheckExpression (CaseExpression expressionRange switch cases) = do
+  checkedSwitch <- typeCheckExpression switch
+  let switchType = expressionType . getExpressionData $ checkedSwitch
+  switchPossibleRecords <- case switchType of
+    RecordUnionType recordNames -> return recordNames
+    nonRecordType -> throwError $ CaseSwitchHasNonRecordTypeError (getRange switch) nonRecordType
+  mapM_
+    ( \recordName ->
+        unless (Map.member recordName cases) $
+          throwError (CaseExpressionMisingCaseError expressionRange (getTextName recordName))
+    )
+    switchPossibleRecords
+  mapM_
+    ( \recordName ->
+        unless
+          (Set.member recordName switchPossibleRecords)
+          $ throwError (CaseExpressionExtraneousCaseError expressionRange (getTextName recordName))
+    )
+    (Map.keys cases)
+  forM_ (Map.toList cases) $ \(recordName, (caseParameter, _)) -> setValueIdentifierType caseParameter (RecordUnionType $ Set.singleton recordName)
+  checkedCases <- mapM (secondM typeCheckExpression) cases
+  let caseRecordTypePairs = second (expressionType . getExpressionData . snd) <$> Map.toList checkedCases
+  expressionType <- case getCombinedTypeF $ snd <$> caseRecordTypePairs of
+    Nothing -> throwError $ CaseTypesAreNotCompatibleError (first getTextName <$> caseRecordTypePairs) expressionRange
+    Just expressionType -> return expressionType
+  let returnInfo = (expressionReturnInfo . getExpressionData $ checkedSwitch) `riAnd` foldl1 riOr (expressionReturnInfo . getExpressionData . snd <$> Map.elems checkedCases)
+  return $ CaseExpression (TCExpresionData expressionRange expressionType returnInfo) checkedSwitch checkedCases
 
 checkArgumentType :: (Type, TCExpression) -> TypeChecker ()
 checkArgumentType (parameterType, argument) = do

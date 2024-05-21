@@ -325,6 +325,26 @@ impl VM {
                     },
                     value => panic!("Attempted to access a field of non-record value {}", value),
                 },
+                Instruction::JumpIfDoesntMatchRecordId(record_id, offset) => {
+                    let switch_value = self.peek_from_top(0);
+                    match switch_value {
+                        Value::Object(object_index) => match self.heap.get(object_index) {
+                            Object::RecordObj {
+                                record_id: switch_record_id,
+                                fields: _,
+                            } => {
+                                if *switch_record_id != record_id {
+                                    self.jump(offset);
+                                }
+                            }
+                            obj => panic!("Attempted to switch on a non-record object {}", obj),
+                        },
+                        value => panic!("Attempted to switch on a non-record value {}", value),
+                    }
+                }
+                Instruction::RemoveFromStack(stack_index) => {
+                    self.remove_at_index_from_top(stack_index)
+                }
             };
             if self.heap.should_garbage_collect {
                 self.garbage_collect()
@@ -431,6 +451,8 @@ impl VM {
             32 => Instruction::Call(self.read_byte()),
             33 => Instruction::Record(self.read_u16(), self.read_byte()),
             34 => Instruction::Field(self.read_byte()),
+            35 => Instruction::JumpIfDoesntMatchRecordId(self.read_u16(), self.read_i16()),
+            36 => Instruction::RemoveFromStack(self.read_u16()),
             op => panic!("Got invalid op code {}", op),
         }
     }
@@ -472,6 +494,10 @@ impl VM {
 
     fn set_from_frame_bottom(&mut self, index: StackIndex, value: Value) {
         self.stack[(self.stack_index + index) as usize] = value
+    }
+
+    fn remove_at_index_from_top(&mut self, index: StackIndex) {
+        self.stack.remove(self.stack.len() - index as usize - 1);
     }
 
     fn jump(&mut self, offset: i16) {
@@ -571,6 +597,8 @@ enum Instruction {
     Call(u8),
     Record(RecordId, u8),
     Field(u8),
+    JumpIfDoesntMatchRecordId(RecordId, InstructionOffset),
+    RemoveFromStack(StackIndex),
 }
 
 impl fmt::Display for Instruction {
@@ -618,6 +646,12 @@ impl fmt::Display for Instruction {
                 write!(f, "Record {} {}", record_id, num_fields)
             }
             Instruction::Field(field_index) => write!(f, "Field {}", field_index),
+            Instruction::JumpIfDoesntMatchRecordId(record_id, offset) => {
+                write!(f, "JumpIfDoesntMatchRecordId {} {}", record_id, offset)
+            }
+            Instruction::RemoveFromStack(stack_index) => {
+                write!(f, "RemoveFromStack {}", stack_index)
+            }
         }
     }
 }

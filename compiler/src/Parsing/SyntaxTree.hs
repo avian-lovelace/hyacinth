@@ -15,6 +15,7 @@ module Parsing.SyntaxTree
     PWithTypeAnnotation,
     PRecordIdentifier,
     PFieldIdentifier,
+    PValueIdentifier,
   )
 where
 

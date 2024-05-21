@@ -54,6 +54,42 @@ testRecords = do
       "rec Foo [a: Int, b: Float]; let notFoo = 5; print notFoo.a;" `failsToCompileWithError` accessedFieldOfNonRecordValueError
     it "Fields that do not exist on a value cannot be accessed" $
       "rec Foo [a: Int, b: Float]; let foo = Foo[a = 1, b = 2.3]; print foo.c;" `failsToCompileWithError` accessedFieldNotInRecordError
+  describe "Record unions" $ do
+    it "Record unions can be deconstructed with case expressions" $ do
+      "rec Foo []; rec Bar []; let x: Foo | Bar = Foo; print case x of [Foo: p -> \"foo\", Bar: p -> \"bar\"];" `runsSuccessfullyWithOutput` "foo\n"
+      "rec Foo []; rec Bar []; let x: Foo | Bar = Bar; print case x of [Foo: p -> \"foo\", Bar: p -> \"bar\"];" `runsSuccessfullyWithOutput` "bar\n"
+    it "Record fields can be accessed inside of a case expression" $ do
+      "rec Foo [a: Int]; rec Bar [b: Int]; let x: Foo | Bar = Foo[a = 1]; print case x of [Foo: p -> p.a, Bar: p -> p.b];" `runsSuccessfullyWithOutput` "1\n"
+      "rec Foo [a: Int]; rec Bar [b: Int]; let x: Foo | Bar = Bar[b = 2]; print case x of [Foo: p -> p.a, Bar: p -> p.b];" `runsSuccessfullyWithOutput` "2\n"
+    it "Non-matching cases of case expressions are not evaluated" $ do
+      "rec Foo []; rec Bar []; let x: Foo | Bar = Foo; case x of [Foo: p -> { print \"foo\"; }, Bar: p -> { print \"bar\"; }];" `runsSuccessfullyWithOutput` "foo\n"
+      "rec Foo []; rec Bar []; let x: Foo | Bar = Bar; case x of [Foo: p -> { print \"foo\"; }, Bar: p -> { print \"bar\"; }];" `runsSuccessfullyWithOutput` "bar\n"
+    it "If all records of a record union share a field type, that field can be accessed" $ do
+      "rec Foo [ a: Int ]; rec Bar [ a: Int ]; let x: Foo | Bar = Foo [a = 1]; print x.a;" `runsSuccessfullyWithOutput` "1\n"
+      "rec Foo [ a: Int ]; rec Bar [ a: Int ]; let x: Foo | Bar = Bar [a = 2]; print x.a;" `runsSuccessfullyWithOutput` "2\n"
+    it "Cases may have different types if they are all record types" $ do
+      "rec Foo [ a: Int ]; rec Bar [ a: Int ]; let x: Foo | Bar = Foo [a = 0]; let y = case x of [Foo: p -> Foo[a = p.a + 1], Bar: p -> Bar[a = p.a + 2]]; print y.a;" `runsSuccessfullyWithOutput` "1\n"
+      "rec Foo [ a: Int ]; rec Bar [ a: Int ]; let x: Foo | Bar = Bar [a = 0]; let y = case x of [Foo: p -> Foo[a = p.a + 1], Bar: p -> Bar[a = p.a + 2]]; print y.a;" `runsSuccessfullyWithOutput` "2\n"
+    it "Fields of a union type can be accessed even if the field is at a different index in the component records" $ do
+      "rec Foo [ b: Int ]; rec Bar [ a: Int, b: Int ]; let x: Foo | Bar = Foo [b = 1]; print x.b;" `runsSuccessfullyWithOutput` "1\n"
+      "rec Foo [ b: Int ]; rec Bar [ a: Int, b: Int ]; let x: Foo | Bar = Bar [a = 1, b = 2]; print x.b;" `runsSuccessfullyWithOutput` "2\n"
+  describe "Record union errors" $ do
+    it "A case expression cannot have multiple cases for the same record" $
+      "rec Foo []; rec Bar []; let x: Foo | Bar = Foo; print case x of [Foo: p -> 1, Bar: p -> 2, Foo: p -> 3];" `failsToCompileWithError` caseExpressionDuplicatedCasesError
+    it "A field of a record union cannot be accessed if the field is not on all the component records" $
+      "rec Foo [a: Int]; rec Bar [b: Int]; let x: Foo | Bar = Foo[a = 1]; print x.a;" `failsToCompileWithError` accessedFieldNotInRecordError
+    it "Non-record types cannot be used in unions" $
+      "rec Foo [a: Int]; let x: Foo | Int = Foo[a = 1];" `failsToCompileWithError` nonRecordTypeInUnionError
+    it "If a field of a record union has different possible non-record types, that field cannot be accessed" $
+      "rec Foo [a: Int]; rec Bar [a: Char]; let x: Foo | Bar = Foo[a = 1]; print x.a;" `failsToCompileWithError` fieldTypesAreNotCompatibleError
+    it "The switch of a case expression must be of a record union type" $
+      "rec Foo []; rec Bar []; print case 10 of [Foo: p -> \"foo\", Bar: p -> \"bar\"];" `failsToCompileWithError` caseSwitchHasNonRecordTypeError
+    it "A case expression must include cases for all possible record types the switch could be" $
+      "rec Foo []; rec Bar []; let x: Foo | Bar = Foo; print case x of [Foo: p -> \"foo\"];" `failsToCompileWithError` caseExpressionMisingCaseError
+    it "A case expression not included cases for record types the switch cannot be" $
+      "rec Foo []; rec Bar []; let x: Foo = Foo; print case x of [Foo: p -> \"foo\", Bar: p -> \"bar\"];" `failsToCompileWithError` caseExpressionExtraneousCaseError
+    it "The case values of a case expression cannot be different if they are non-record types" $
+      "rec Foo []; rec Bar []; let x: Foo | Bar = Foo; print case x of [Foo: p -> \"foo\", Bar: p -> 3];" `failsToCompileWithError` caseTypesAreNotCompatibleError
 
 conflictingIdentifierDefinitionsError :: Error -> Bool
 conflictingIdentifierDefinitionsError (ConflictingIdentifierDefinitionsError {}) = True
@@ -90,3 +126,31 @@ accessedFieldOfNonRecordValueError _ = False
 accessedFieldNotInRecordError :: Error -> Bool
 accessedFieldNotInRecordError (AccessedFieldNotInRecordError {}) = True
 accessedFieldNotInRecordError _ = False
+
+caseExpressionDuplicatedCasesError :: Error -> Bool
+caseExpressionDuplicatedCasesError (CaseExpressionDuplicatedCasesError {}) = True
+caseExpressionDuplicatedCasesError _ = False
+
+nonRecordTypeInUnionError :: Error -> Bool
+nonRecordTypeInUnionError (NonRecordTypeInUnionError {}) = True
+nonRecordTypeInUnionError _ = False
+
+fieldTypesAreNotCompatibleError :: Error -> Bool
+fieldTypesAreNotCompatibleError (FieldTypesAreNotCompatibleError {}) = True
+fieldTypesAreNotCompatibleError _ = False
+
+caseSwitchHasNonRecordTypeError :: Error -> Bool
+caseSwitchHasNonRecordTypeError (CaseSwitchHasNonRecordTypeError {}) = True
+caseSwitchHasNonRecordTypeError _ = False
+
+caseExpressionMisingCaseError :: Error -> Bool
+caseExpressionMisingCaseError (CaseExpressionMisingCaseError {}) = True
+caseExpressionMisingCaseError _ = False
+
+caseExpressionExtraneousCaseError :: Error -> Bool
+caseExpressionExtraneousCaseError (CaseExpressionExtraneousCaseError {}) = True
+caseExpressionExtraneousCaseError _ = False
+
+caseTypesAreNotCompatibleError :: Error -> Bool
+caseTypesAreNotCompatibleError (CaseTypesAreNotCompatibleError {}) = True
+caseTypesAreNotCompatibleError _ = False

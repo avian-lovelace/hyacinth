@@ -14,6 +14,7 @@ module IntermediateCodeGeneration.IntermediateCodeGeneration
     setIdentifierIsUsable,
     getRecordFieldOrder,
     getRecordFieldIndex,
+    getNewValueIdentifierIndex,
   )
 where
 
@@ -156,9 +157,14 @@ getSubFunctions = do
 
 getCapturedValueBinding :: BoundValueIdentifier -> IntermediateCodeGenerator BoundValueIdentifier
 getCapturedValueBinding (BoundValueIdentifier _ identifierName) = do
+  valueIdentifierIndex <- getNewValueIdentifierIndex
+  return $ BoundValueIdentifier valueIdentifierIndex identifierName
+
+getNewValueIdentifierIndex :: IntermediateCodeGenerator ValueIdentifierIndex
+getNewValueIdentifierIndex = do
   valueIdentifierIndex <- boundValueIdentifierCounter <$> getState
   setBoundValueIdentifierCounter $ valueIdentifierIndex + 1
-  return $ BoundValueIdentifier valueIdentifierIndex identifierName
+  return valueIdentifierIndex
 
 getNewFunctionIndex :: IntermediateCodeGenerator FunctionIndex
 getNewFunctionIndex = do

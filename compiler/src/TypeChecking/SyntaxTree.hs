@@ -28,14 +28,17 @@ module TypeChecking.SyntaxTree
         tcFunctionDefinitionType,
         tcFunctionDefinitionCapturedIdentifiers
       ),
+    fromTypeExpression,
   )
 where
 
+import Core.Errors
 import Core.FilePositions
 import Core.SyntaxTree
-import Core.Type (Type)
+import Core.Type
 import Data.Map (Map)
 import Data.Set (Set)
+import qualified Data.Set as Set
 import IdentifierBinding.SyntaxTree
 import Parsing.SyntaxTree (UnboundIdentifier)
 
@@ -163,3 +166,26 @@ type instance TypeAnnotation TypeCheckingPhase = ()
 type TCTypeExpression = TypeExpression TypeCheckingPhase
 
 type instance TypeExpressionData TypeCheckingPhase = Range
+
+fromTypeExpression :: IBTypeExpression -> WithErrors Type
+fromTypeExpression (IntTypeExpression _) = return IntType
+fromTypeExpression (FloatTypeExpression _) = return FloatType
+fromTypeExpression (CharTypeExpression _) = return CharType
+fromTypeExpression (StringTypeExpression _) = return StringType
+fromTypeExpression (BoolTypeExpression _) = return BoolType
+fromTypeExpression (NilTypeExpression _) = return NilType
+fromTypeExpression (FunctionTypeExpression _ parameterTypeExpressions returnTypeExpression) = do
+  parameterTypes <- mapM fromTypeExpression parameterTypeExpressions
+  returnType <- fromTypeExpression returnTypeExpression
+  return $ FunctionType parameterTypes returnType
+fromTypeExpression (RecordTypeExpression _ recordName) = return $ RecordUnionType (Set.singleton recordName)
+fromTypeExpression (UnionTypeExpression _ left right) = do
+  leftRecords <- getRecordSet left
+  rightRecords <- getRecordSet right
+  return $ RecordUnionType (Set.union leftRecords rightRecords)
+  where
+    getRecordSet sideTypeExpression = do
+      sideType <- fromTypeExpression sideTypeExpression
+      case sideType of
+        (RecordUnionType records) -> return records
+        nonRecordType -> singleError $ NonRecordTypeInUnionError nonRecordType (getRange sideTypeExpression)

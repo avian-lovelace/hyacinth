@@ -85,6 +85,7 @@ statementBinder (BindingReady (VariableMutationStatement statementRange unboundV
     ParameterIdentifierInfo declarationRange _ -> throwError $ MutatedParameterError unboundVariableName declarationRange statementRange
     FunctionIdentifierInfo declarationRange _ -> throwError $ MutatedFunctionError unboundVariableName declarationRange statementRange
     RecordIdentifierInfo declarationRange _ -> throwError $ MutatedRecordError unboundVariableName declarationRange statementRange
+    CaseParameterInfo declarationRange _ -> throwError $ MutatedCaseParameterError unboundVariableName declarationRange statementRange
     VariableIdentifierInfo declarationRange boundValueIdentifier mutability usability -> do
       case usability of
         BeforeDeclaration -> throwError $ VariableDefinedAfterReferenceError unboundVariableName statementRange declarationRange
@@ -124,6 +125,7 @@ expressionBinder (IdentifierExpression expressionRange unboundIdentifier) = do
       BeforeDeclaration -> throwError $ VariableDefinedAfterReferenceError unboundIdentifier expressionRange declarationRange
       InDeclaration -> throwError $ VariableReferencedInDeclarationError unboundIdentifier declarationRange expressionRange
       Usable -> return $ IdentifierExpression expressionRange $ Left boundValueIdentifier
+    CaseParameterInfo _ boundValueIdentifier -> return $ IdentifierExpression expressionRange $ Left boundValueIdentifier
 expressionBinder (ScopeExpression d scope) = withNewExpressionScope $ do
   boundScope <- bindScope scope
   return $ ScopeExpression d boundScope
@@ -142,6 +144,10 @@ expressionBinder (RecordExpression expressionRange recordName fieldValueMap) = d
     valueIdentifier -> throwError $ ValueIdentifierUsedAsRecordNameError recordName (getRange valueIdentifier) expressionRange
   boundFieldValueMap <- mapM expressionBinder fieldValueMap
   return $ RecordExpression expressionRange boundRecordName boundFieldValueMap
+expressionBinder (CaseExpression expressionRange switch caseMap) = do
+  boundSwitch <- expressionBinder switch
+  caseList <- mapM (bindCase expressionRange) $ Map.toList caseMap
+  return $ CaseExpression expressionRange boundSwitch (Map.fromList caseList)
 -- Standard cases
 expressionBinder (IntLiteralExpression d value) = return $ IntLiteralExpression d value
 expressionBinder (FloatLiteralExpression d value) = return $ FloatLiteralExpression d value
@@ -238,9 +244,14 @@ bindParameter definitionRange (WithTypeAnnotation unboundParameter typeAnnotatio
   boundTypeAnnotation <- mapM typeExpressionBinder typeAnnotation
   return $ WithTypeAnnotation boundParameter boundTypeAnnotation
 
--- Note that this function uses the identifier declaration range as its range, so this should not be used for most identifier uses
--- toAstIdentifier :: IdentifierInfo -> IBIdentifier
--- toAstIdentifier (IdentifierInfo {boundIdentifier, declarationRange}) = Identifier declarationRange boundIdentifier
+bindCase :: Range -> (PRecordIdentifier, (PValueIdentifier, PExpression)) -> IdentifierBinder (IBRecordIdentifier, (IBValueIdentifier, IBExpression))
+bindCase caseExpressionRange (recordName, (caseParameter, caseValue)) = do
+  identifierInfo <- getIdentifierBinding caseExpressionRange recordName
+  boundRecordName <- case identifierInfo of
+    RecordIdentifierInfo _ boundRecordName -> return boundRecordName
+    valueIdentifier -> throwError $ ValueIdentifierUsedAsCaseError recordName (getRange valueIdentifier) caseExpressionRange
+  (boundCaseParameter, boundCaseValue) <- withNewCaseScope caseExpressionRange caseParameter $ expressionBinder caseValue
+  return (boundRecordName, (boundCaseParameter, boundCaseValue))
 
 typeExpressionBinder :: PTypeExpression -> IdentifierBinder IBTypeExpression
 typeExpressionBinder (IntTypeExpression typeExpressionRange) = return $ IntTypeExpression typeExpressionRange
@@ -258,3 +269,7 @@ typeExpressionBinder (RecordTypeExpression typeExpressionRange recordName) = do
   case identifierInfo of
     RecordIdentifierInfo _ boundRecordName -> return $ RecordTypeExpression typeExpressionRange boundRecordName
     valueIdentifier -> throwError $ ValueIdentifierUsedAsTypeError recordName (getRange valueIdentifier) typeExpressionRange
+typeExpressionBinder (UnionTypeExpression typeExpressionRange left right) = do
+  boundLeft <- typeExpressionBinder left
+  boundRight <- typeExpressionBinder right
+  return $ UnionTypeExpression typeExpressionRange boundLeft boundRight

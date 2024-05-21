@@ -5,10 +5,12 @@ where
 
 import BytecodeGeneration.Bytecode
 import BytecodeGeneration.BytecodeGeneration
+import Control.Monad (forM)
 import Control.Monad.State (runState)
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as LB
 import Data.Foldable
+import Data.Sequence (Seq (Empty, (:<|)))
 import qualified Data.Sequence as Seq
 import IdentifierBinding.SyntaxTree
 import IntermediateCodeGeneration.IntermediateCode
@@ -147,6 +149,31 @@ encodeExpression (RecordExpr recordIndex fields) = do
 encodeExpression (FieldExpr inner fieldIndex) = do
   encodedInner <- encodeExpression inner
   return $ encodedInner <> fieldInstruction (fromIntegral fieldIndex)
+encodeExpression (CaseExpr switch cases) = do
+  startingStackSize <- getStackSize
+  encodedSwitch <- encodeExpression switch
+  caseRecordValuePairs <- forM cases $ \(caseRecord, caseParameter, caseValue) -> do
+    addVariable caseParameter
+    return (caseRecord, caseValue)
+  encodedCases <- encodeCases caseRecordValuePairs
+  setStackSize $ startingStackSize + 1
+  return $ encodedSwitch <> encodedCases <> removeFromStackInstruction 1
+  where
+    encodeCases :: Seq (RecordIndex, Expr) -> BytecodeGenerator BB.Builder
+    encodeCases Empty = undefined
+    encodeCases ((_, caseValue) :<| Empty) = encodeExpression caseValue
+    encodeCases ((caseRecord, caseValue) :<| restCases) = do
+      startingStackSize <- getStackSize
+      encodedCaseValue <- encodeExpression caseValue
+      let caseValueBytestring = BB.toLazyByteString encodedCaseValue
+      setStackSize startingStackSize
+      encodedRestCases <- encodeCases restCases
+      let restCasesBytestring = BB.toLazyByteString encodedRestCases
+      return $
+        jumpIfDoesntMatchRecordIdInstruction (fromIntegral caseRecord) (fromIntegral $ LB.length caseValueBytestring + jumpIfFalseInstructionNumBytes)
+          <> BB.lazyByteString caseValueBytestring
+          <> jumpInstruction (fromIntegral $ LB.length restCasesBytestring)
+          <> BB.lazyByteString restCasesBytestring
 
 pushIdentifierValue :: ValueIdentifierIndex -> BytecodeGenerator BB.Builder
 pushIdentifierValue identifier = do

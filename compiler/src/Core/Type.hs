@@ -7,17 +7,21 @@ module Core.Type
         BoolType,
         NilType,
         FunctionType,
-        RecordType
+        RecordUnionType
       ),
-    fromTypeExpression,
+    subTypes,
+    getCombinedType,
+    getCombinedTypeF,
   )
 where
 
-import Core.SyntaxTree
 import Core.Utils
 import Data.Foldable (fold)
+import Data.List (intersperse)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import Data.Set (Set)
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 import IdentifierBinding.SyntaxTree
 
@@ -29,7 +33,7 @@ data Type
   | BoolType
   | NilType
   | FunctionType (Seq Type) Type
-  | RecordType BoundRecordIdentifier
+  | RecordUnionType (Set BoundRecordIdentifier)
   deriving (Eq)
 
 instance Pretty Type where
@@ -41,14 +45,21 @@ instance Pretty Type where
   pretty NilType = "Nil"
   pretty (FunctionType parameterTypes returnType) =
     "[" ++ (fold . Seq.intersperse ", " $ pretty <$> parameterTypes) ++ "] -> " ++ pretty returnType
-  pretty (RecordType recordName) = Text.unpack . getTextName $ recordName
+  pretty (RecordUnionType recordNames) = fold . intersperse " | " $ (Text.unpack . getTextName <$> Set.toList recordNames)
 
-fromTypeExpression :: IBTypeExpression -> Type
-fromTypeExpression (IntTypeExpression _) = IntType
-fromTypeExpression (FloatTypeExpression _) = FloatType
-fromTypeExpression (CharTypeExpression _) = CharType
-fromTypeExpression (StringTypeExpression _) = StringType
-fromTypeExpression (BoolTypeExpression _) = BoolType
-fromTypeExpression (NilTypeExpression _) = NilType
-fromTypeExpression (FunctionTypeExpression _ parameterTypes returnType) = FunctionType (fromTypeExpression <$> parameterTypes) (fromTypeExpression returnType)
-fromTypeExpression (RecordTypeExpression _ recordName) = RecordType recordName
+subTypes :: Type -> Type -> Bool
+(RecordUnionType records1) `subTypes` (RecordUnionType records2) = records1 `Set.isSubsetOf` records2
+type1 `subTypes` type2 = type1 == type2
+
+getCombinedType :: Type -> Type -> Maybe Type
+getCombinedType (RecordUnionType records1) (RecordUnionType records2) = Just $ RecordUnionType (Set.union records1 records2)
+getCombinedType type1 type2 = if type1 == type2 then Just type1 else Nothing
+
+getCombinedTypeF :: (Foldable t, Functor t) => t Type -> Maybe Type
+getCombinedTypeF types = foldr1 getCombinedTypeM (Just <$> types)
+  where
+    getCombinedTypeM m1 m2 =
+      do
+        t1 <- m1
+        t2 <- m2
+        getCombinedType t1 t2

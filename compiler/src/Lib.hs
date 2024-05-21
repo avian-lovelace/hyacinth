@@ -63,7 +63,7 @@ compileCode logger code = do
   logger $ pretty tcAst
   flAst <- liftWithErrors $ runIntermediateCodeGeneration boundValueIdentifierCounter boundFunctionIdentifierCounter recordFieldOrders tcAst
   logger "Completed function lifting"
-  -- logger $ pretty flAst
+  logger $ show flAst
   let bytecode = encodeFile flAst
   logger "Completed bytecode generation"
   logger $ show $ BB.toLazyByteString bytecode

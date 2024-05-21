@@ -51,6 +51,11 @@ module Core.Errors
         RecordStatementMalformedFieldError,
         RecordStatementEmptyFieldTypeError,
         RecordStatementMalformedFieldValueError,
+        CaseExpressionEmptyCaseError,
+        CaseExpressionMalformedCaseError,
+        CaseExpressionEmptyCaseValueError,
+        CaseExpressionMalformedCaseValueError,
+        CaseExpressionDuplicatedCasesError,
         ConflictingIdentifierDefinitionsError,
         IdentifierUndefinedAtReferenceError,
         VariableDefinedAfterReferenceError,
@@ -61,9 +66,11 @@ module Core.Errors
         MutatedParameterError,
         MutatedFunctionError,
         MutatedRecordError,
+        MutatedCaseParameterError,
         IdentifierConflictsWithRecordError,
         ValueIdentifierUsedAsTypeError,
         ValueIdentifierUsedAsRecordNameError,
+        ValueIdentifierUsedAsCaseError,
         MutatedCapturedIdentifierError,
         IdentifierUndefinedBeforeCaptureError,
         VariableDeclarationTypeError,
@@ -100,6 +107,12 @@ module Core.Errors
         RecordExpressionFieldTypeError,
         AccessedFieldOfNonRecordValueError,
         AccessedFieldNotInRecordError,
+        NonRecordTypeInUnionError,
+        FieldTypesAreNotCompatibleError,
+        CaseSwitchHasNonRecordTypeError,
+        CaseExpressionMisingCaseError,
+        CaseExpressionExtraneousCaseError,
+        CaseTypesAreNotCompatibleError,
         RuntimeError
       ),
     WithErrors (Error, Success),
@@ -174,6 +187,11 @@ data Error
   | RecordStatementMalformedFieldError Range
   | RecordStatementEmptyFieldTypeError Text Range
   | RecordStatementMalformedFieldValueError Text Range
+  | CaseExpressionEmptyCaseError Range
+  | CaseExpressionMalformedCaseError Range
+  | CaseExpressionEmptyCaseValueError Text Range
+  | CaseExpressionMalformedCaseValueError Text Range
+  | CaseExpressionDuplicatedCasesError Text Range Range
   | -- Identifier binding
     ConflictingIdentifierDefinitionsError Text Range Range
   | IdentifierUndefinedAtReferenceError Text Range
@@ -185,9 +203,11 @@ data Error
   | MutatedParameterError Text Range Range
   | MutatedFunctionError Text Range Range
   | MutatedRecordError Text Range Range
+  | MutatedCaseParameterError Text Range Range
   | IdentifierConflictsWithRecordError Text Range Range
   | ValueIdentifierUsedAsTypeError Text Range Range
   | ValueIdentifierUsedAsRecordNameError Text Range Range
+  | ValueIdentifierUsedAsCaseError Text Range Range
   | -- Type checking
     VariableDeclarationTypeError Range Type Type
   | VariableMutationTypeError Range Type Type
@@ -222,7 +242,13 @@ data Error
   | RecordExpressionMissingFieldError Text Text Range
   | RecordExpressionFieldTypeError Text Text Type Type Range
   | AccessedFieldOfNonRecordValueError Type Range
-  | AccessedFieldNotInRecordError Text Text Range
+  | AccessedFieldNotInRecordError Text Text Type Range
+  | NonRecordTypeInUnionError Type Range
+  | FieldTypesAreNotCompatibleError Text [(Text, Type)] Range
+  | CaseSwitchHasNonRecordTypeError Range Type
+  | CaseExpressionMisingCaseError Range Text
+  | CaseExpressionExtraneousCaseError Range Text
+  | CaseTypesAreNotCompatibleError [(Text, Type)] Range
   | -- Function lifting
     MutatedCapturedIdentifierError Text Range
   | IdentifierUndefinedBeforeCaptureError Text Text Range
@@ -290,6 +316,13 @@ instance Pretty Error where
   pretty (RecordStatementEmptyFieldTypeError fieldName range) = "Field " ++ pretty fieldName ++ " of record definition had not type annotation at " ++ pretty range
   pretty (RecordStatementMalformedFieldValueError fieldName range) =
     "Failed to parse type annotation of field " ++ pretty fieldName ++ " in record definition at " ++ pretty range
+  pretty (CaseExpressionEmptyCaseError range) = "Case expresison had an empty case at " ++ pretty range
+  pretty (CaseExpressionMalformedCaseError range) = "Failed to parse case at " ++ pretty range
+  pretty (CaseExpressionEmptyCaseValueError caseRecordName range) = "Case " ++ pretty caseRecordName ++ " of case expression had no value at " ++ pretty range
+  pretty (CaseExpressionMalformedCaseValueError caseRecordName range) =
+    "Failed to parse value of case " ++ pretty caseRecordName ++ " as an expression at " ++ pretty range
+  pretty (CaseExpressionDuplicatedCasesError caseRecordName range1 range2) =
+    "Case expression has duplicate cases for record " ++ pretty caseRecordName ++ " at " ++ pretty range1 ++ " and " ++ pretty range2
   pretty (ConflictingIdentifierDefinitionsError variableName declarationRange1 declarationRange2) =
     "Identifier " ++ Text.unpack variableName ++ " has conflicting definitions at " ++ pretty declarationRange1 ++ " and " ++ pretty declarationRange2
   pretty (IdentifierUndefinedAtReferenceError variableName range) =
@@ -310,12 +343,16 @@ instance Pretty Error where
     "Function " ++ Text.unpack functionName ++ " defined at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
   pretty (MutatedRecordError recordName definitionRange mutationRange) =
     "Record " ++ Text.unpack recordName ++ " defined at " ++ pretty definitionRange ++ " is mutated at " ++ pretty mutationRange
+  pretty (MutatedCaseParameterError recordName definitionRange mutationRange) =
+    "Case parameter " ++ Text.unpack recordName ++ " defined at " ++ pretty definitionRange ++ " is mutated at " ++ pretty mutationRange
   pretty (IdentifierConflictsWithRecordError recordName definitionRange shadowRange) =
     "Record " ++ Text.unpack recordName ++ " defined at " ++ pretty definitionRange ++ " cannot be shadowed " ++ pretty shadowRange
   pretty (ValueIdentifierUsedAsTypeError identifier definitionRange usageRange) =
     "Value identifier " ++ Text.unpack identifier ++ " defined at " ++ pretty definitionRange ++ " cannot be used as a type at " ++ pretty usageRange
   pretty (ValueIdentifierUsedAsRecordNameError identifier definitionRange usageRange) =
     "Value identifier " ++ Text.unpack identifier ++ " defined at " ++ pretty definitionRange ++ " cannot be used as a record name at " ++ pretty usageRange
+  pretty (ValueIdentifierUsedAsCaseError identifier definitionRange usageRange) =
+    "Value identifier " ++ Text.unpack identifier ++ " defined at " ++ pretty definitionRange ++ " cannot be used as a case pattern at " ++ pretty usageRange
   pretty (IdentifierUndefinedBeforeCaptureError functionName identifier captureRange) =
     "Function " ++ pretty functionName ++ " cannot be called at " ++ pretty captureRange ++ ", as it captured identifier " ++ pretty identifier ++ " which is not yet defined"
   pretty (VariableDeclarationTypeError range expectedType actualType) =
@@ -382,10 +419,28 @@ instance Pretty Error where
     "In record expression of type " ++ pretty recordName ++ " field " ++ pretty fieldName ++ " should have type " ++ pretty exectedType ++ " but the assigned value has type " ++ pretty actualType ++ " at " ++ pretty range
   pretty (AccessedFieldOfNonRecordValueError actualType range) =
     "Attempted to access a field of non-record type " ++ pretty actualType ++ " at " ++ pretty range
-  pretty (AccessedFieldNotInRecordError recordName fieldName range) =
-    "Attempted to access non-existent field " ++ pretty fieldName ++ " of value with type " ++ pretty recordName ++ " at " ++ pretty range
+  pretty (AccessedFieldNotInRecordError recordName fieldName valueType range) =
+    "Attempted to access field " ++ pretty fieldName ++ " that does not exist on record " ++ pretty recordName ++ " of value with type " ++ pretty valueType ++ " at " ++ pretty range
   pretty (MutatedCapturedIdentifierError identifierName mutationRange) =
     "Identifier " ++ Text.unpack identifierName ++ " cannot be mutated at " ++ pretty mutationRange ++ " in a nested function"
+  pretty (NonRecordTypeInUnionError nonRecordType range) =
+    "Type expression at " ++ pretty range ++ " has non-record type " ++ pretty nonRecordType ++ " and so cannot be used in a type union"
+  pretty (FieldTypesAreNotCompatibleError fieldName recordFieldTypePairs range) =
+    "Could not find a unified type for field "
+      ++ pretty fieldName
+      ++ " in field access at "
+      ++ pretty range
+      ++ foldMap (\(recordName, fieldType) -> "\n" ++ pretty recordName ++ "." ++ pretty fieldName ++ ": " ++ pretty fieldType) recordFieldTypePairs
+  pretty (CaseSwitchHasNonRecordTypeError range nonRecordType) =
+    "Switch of case expression has non-record-union type " ++ pretty nonRecordType ++ " at " ++ pretty range
+  pretty (CaseExpressionMisingCaseError range recordName) =
+    "Case expression does not have a case for possible record type " ++ pretty recordName ++ " that the switch may be at " ++ pretty range
+  pretty (CaseExpressionExtraneousCaseError range recordName) =
+    "Case expression has an extraneous case for record type " ++ pretty recordName ++ " that the swtich cannot be at " ++ pretty range
+  pretty (CaseTypesAreNotCompatibleError recordCaseValueTypePairs range) =
+    "Could not find a unified type for case expression at "
+      ++ pretty range
+      ++ foldMap (\(recordName, caseValueType) -> "\n" ++ pretty recordName ++ ": " ++ pretty caseValueType) recordCaseValueTypePairs
   pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
 
 instance Show Error where

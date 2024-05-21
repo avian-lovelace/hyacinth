@@ -18,7 +18,8 @@ module IntermediateCodeGeneration.IntermediateCode
         FunctionExpr,
         CallExpr,
         RecordExpr,
-        FieldExpr
+        FieldExpr,
+        CaseExpr
       ),
     FieldIndex,
     LiteralValue
@@ -55,10 +56,13 @@ import IdentifierBinding.SyntaxTree
 
 -- Module
 data Mod = Mod MainFunc (Seq SubFunc)
+  deriving (Show)
 
-data MainFunc = MainFunc (Seq Stmt)
+newtype MainFunc = MainFunc (Seq Stmt)
+  deriving (Show)
 
 data SubFunc = SubFunc (Seq ValueIdentifierIndex) Expr
+  deriving (Show)
 
 -- Statement
 data Stmt
@@ -67,6 +71,7 @@ data Stmt
   | ExpressionStmt Expr
   | WhileLoopStmt Expr Expr
   | ReturnStmt Expr
+  deriving (Show)
 
 -- Expression
 data Expr
@@ -79,6 +84,8 @@ data Expr
   | CallExpr Expr (Seq Expr)
   | RecordExpr RecordIndex (Seq Expr)
   | FieldExpr Expr FieldIndex
+  | CaseExpr Expr (Seq (RecordIndex, ValueIdentifierIndex, Expr))
+  deriving (Show)
 
 type FieldIndex = Int
 
@@ -89,6 +96,7 @@ data LiteralValue
   | StringLiteral Text
   | BoolLiteral Bool
   | NilLiteral
+  deriving (Show)
 
 data BuiltInFunction
   = NegateFn
@@ -105,3 +113,4 @@ data BuiltInFunction
   | GreaterEqualFn
   | LessEqualFn
   | PrintFn
+  deriving (Show)

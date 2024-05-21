@@ -35,6 +35,8 @@ module BytecodeGeneration.Bytecode
     callInstruction,
     recordInstruction,
     fieldInstruction,
+    jumpIfDoesntMatchRecordIdInstruction,
+    removeFromStackInstruction,
     Constant (StringConstant),
     encodeConstant,
   )
@@ -170,6 +172,12 @@ recordInstruction recordId numFields = BB.word8 33 <> BB.word16BE recordId <> BB
 
 fieldInstruction :: Word8 -> BB.Builder
 fieldInstruction fieldIndex = BB.word8 34 <> BB.word8 fieldIndex
+
+jumpIfDoesntMatchRecordIdInstruction :: RecordId -> InstructionOffset -> BB.Builder
+jumpIfDoesntMatchRecordIdInstruction recordId offset = BB.word8 35 <> BB.word16BE recordId <> BB.int16BE offset
+
+removeFromStackInstruction :: StackIndex -> BB.Builder
+removeFromStackInstruction stackIndex = BB.word8 36 <> BB.word16BE stackIndex
 
 -- Constants
 data Constant

@@ -195,7 +195,7 @@ lexKeywordOrIdentifier = do
                 "then" -> ThenToken
                 "else" -> ElseToken
                 "func" -> FuncToken
-                "match" -> MatchToken
+                "case" -> CaseToken
                 "of" -> OfToken
                 "print" -> PrintToken
                 "while" -> WhileToken

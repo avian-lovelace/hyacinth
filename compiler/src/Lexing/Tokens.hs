@@ -7,7 +7,7 @@ module Lexing.Tokens
         ThenToken,
         ElseToken,
         FuncToken,
-        MatchToken,
+        CaseToken,
         OfToken,
         PrintToken,
         WhileToken,
@@ -73,7 +73,7 @@ data Token
   | ThenToken Range
   | ElseToken Range
   | FuncToken Range
-  | MatchToken Range
+  | CaseToken Range
   | OfToken Range
   | PrintToken Range
   | WhileToken Range
@@ -138,7 +138,7 @@ instance Pretty Token where
   pretty (ThenToken _) = "then"
   pretty (ElseToken _) = "else"
   pretty (FuncToken _) = "fn"
-  pretty (MatchToken _) = "match"
+  pretty (CaseToken _) = "case"
   pretty (OfToken _) = "of"
   pretty (PrintToken _) = "print"
   pretty (WhileToken _) = "while"
@@ -196,7 +196,7 @@ instance WithRange Token where
   getRange (ThenToken range) = range
   getRange (ElseToken range) = range
   getRange (FuncToken range) = range
-  getRange (MatchToken range) = range
+  getRange (CaseToken range) = range
   getRange (OfToken range) = range
   getRange (PrintToken range) = range
   getRange (WhileToken range) = range

@@ -377,6 +377,7 @@ primaryExpressionParser =
     <|> functionExpressionParser
     <|> scopeExpressionParser
     <|> ifExpressionParser
+    <|> caseExpressionParser
     <|> recordExpressionParser
     <|> literalOrVariableExpressionParser
 
@@ -539,10 +540,79 @@ parseFieldValueList fieldValueListRange sections = do
           singleError $ RecordExpressionConflictingFieldsError fieldName (getRange fieldValue) (getRange conflictingValue)
         Nothing -> return updatedRecordMap
 
+caseExpressionParser :: Parser PExpression
+caseExpressionParser = do
+  caseRange <- pNext <&&> matchCaseSection
+  switch <- expressionParser
+  pNext <&&> matchOfSection
+  (caseListRange, caseListSections) <- pNext <&&> matchSquareBracketSection
+  caseList <- returnWithErrors $ parseCaseList caseListRange caseListSections
+  return $ CaseExpression (caseRange <> caseListRange) switch caseList
+
+parseCaseList :: Range -> ParseFunction (Map PRecordIdentifier (PIdentifier, PExpression))
+parseCaseList _ Empty = Success Map.empty
+parseCaseList caseListRange sections = do
+  let caseSectionLists = seqSplitOn isCommaSection sections
+  recordValuePairs <- consolidateErrors $ parseCase <$> caseSectionLists
+  foldM addCase Map.empty recordValuePairs
+  where
+    parseCase :: ParseFunction (PRecordIdentifier, PIdentifier, PExpression)
+    parseCase Empty = singleError $ CaseExpressionEmptyCaseError caseListRange
+    parseCase (TokenSection (IdentifierToken _ recordName) :<| TokenSection (SingleRightArrowToken _) :<| Empty) =
+      singleError $ CaseExpressionEmptyCaseValueError recordName caseListRange
+    parseCase
+      ( TokenSection (IdentifierToken _ recordName)
+          :<| TokenSection (ColonToken _)
+          :<| TokenSection (IdentifierToken _ switchValueName)
+          :<| TokenSection (SingleRightArrowToken _)
+          :<| valueSections
+        ) = do
+        caseValue <-
+          catchUnboundError (CaseExpressionMalformedCaseValueError recordName (getRange valueSections)) $
+            runParserToEnd expressionParser valueSections
+        return (recordName, switchValueName, caseValue)
+    parseCase fieldSections = singleError $ CaseExpressionMalformedCaseError (getRange fieldSections)
+    addCase ::
+      Map PRecordIdentifier (PIdentifier, PExpression) ->
+      (PRecordIdentifier, PIdentifier, PExpression) ->
+      WithErrors (Map PRecordIdentifier (PIdentifier, PExpression))
+    addCase caseMap (recordName, switchValueName, caseValue) = do
+      let (maybeConflictingValue, updatedCaseMap) = Map.insertLookupWithKey (\_ a _ -> a) recordName (switchValueName, caseValue) caseMap
+      case maybeConflictingValue of
+        Just conflictingValue ->
+          singleError $ CaseExpressionDuplicatedCasesError recordName (getRange caseValue) (getRange . snd $ conflictingValue)
+        Nothing -> return updatedCaseMap
+
+matchCaseSection :: Section -> Maybe Range
+matchCaseSection (TokenSection (CaseToken range)) = Just range
+matchCaseSection _ = Nothing
+
+matchOfSection :: Section -> Maybe ()
+matchOfSection (TokenSection (OfToken _)) = Just ()
+matchOfSection _ = Nothing
+
 -- Types
 
 typeExpressionParser :: Parser PTypeExpression
-typeExpressionParser = functionTypeParser <|> primaryTypeParser <|> parenthesesTypeExpressionParser
+typeExpressionParser = operatorTypeExpressionParser
+
+operatorTypeExpressionParser :: Parser PTypeExpression
+operatorTypeExpressionParser = do
+  leftTypeExpression <- primaryTypeParser
+  rightTypeExpressions <- pZeroOrMore $ do
+    operator <- pNext <&&> toTypeOperator
+    rightExpression <- primaryTypeParser
+    return (operator, rightExpression)
+  return $ foldl' makeTypeExpression leftTypeExpression rightTypeExpressions
+  where
+    makeTypeExpression left (operator, right) = operator (getRange (left, right)) left right
+
+toTypeOperator :: Section -> Maybe (Range -> PTypeExpression -> PTypeExpression -> PTypeExpression)
+toTypeOperator (TokenSection (PipeToken _)) = Just UnionTypeExpression
+toTypeOperator _ = Nothing
+
+primaryTypeParser :: Parser PTypeExpression
+primaryTypeParser = functionTypeParser <|> simpleTypeParser <|> parenthesesTypeExpressionParser
 
 functionTypeParser :: Parser PTypeExpression
 functionTypeParser = do
@@ -564,18 +634,18 @@ parseParameterTypes parameterListRange sections = do
       catchUnboundError (FunctionTypeMalformedParameterError $ getRange parameterSections) $
         runParserToEnd typeExpressionParser parameterSections
 
-primaryTypeParser :: Parser PTypeExpression
-primaryTypeParser = pNext <&&> asPrimaryType
+simpleTypeParser :: Parser PTypeExpression
+simpleTypeParser = pNext <&&> asSimpleType
 
-asPrimaryType :: Section -> Maybe PTypeExpression
-asPrimaryType (TokenSection (IntToken range)) = Just $ IntTypeExpression range
-asPrimaryType (TokenSection (FloatToken range)) = Just $ FloatTypeExpression range
-asPrimaryType (TokenSection (CharToken range)) = Just $ CharTypeExpression range
-asPrimaryType (TokenSection (StringToken range)) = Just $ StringTypeExpression range
-asPrimaryType (TokenSection (BoolToken range)) = Just $ BoolTypeExpression range
-asPrimaryType (TokenSection (NilToken range)) = Just $ NilTypeExpression range
-asPrimaryType (TokenSection (IdentifierToken range identifier)) = Just $ RecordTypeExpression range identifier
-asPrimaryType _ = Nothing
+asSimpleType :: Section -> Maybe PTypeExpression
+asSimpleType (TokenSection (IntToken range)) = Just $ IntTypeExpression range
+asSimpleType (TokenSection (FloatToken range)) = Just $ FloatTypeExpression range
+asSimpleType (TokenSection (CharToken range)) = Just $ CharTypeExpression range
+asSimpleType (TokenSection (StringToken range)) = Just $ StringTypeExpression range
+asSimpleType (TokenSection (BoolToken range)) = Just $ BoolTypeExpression range
+asSimpleType (TokenSection (NilToken range)) = Just $ NilTypeExpression range
+asSimpleType (TokenSection (IdentifierToken range identifier)) = Just $ RecordTypeExpression range identifier
+asSimpleType _ = Nothing
 
 parenthesesTypeExpressionParser :: Parser PTypeExpression
 parenthesesTypeExpressionParser = do
