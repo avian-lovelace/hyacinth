@@ -19,6 +19,7 @@ where
 import Core.ErrorState
 import Core.Errors
 import Core.FilePositions
+import Core.SyntaxTree
 import Core.Type
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -30,7 +31,7 @@ import Parsing.SyntaxTree
 data TypeCheckingState = TypeCheckingState
   { valueIdentifierTypes :: Map BoundValueIdentifier Type,
     functionTypes :: Map BoundFunctionIdentifier Type,
-    recordTypes :: Map BoundRecordIdentifier (Map UnboundIdentifier Type),
+    recordTypes :: Map BoundRecordIdentifier (Map UnboundIdentifier (Mutability -> Type)),
     functionContextStack :: [FunctionContext],
     recordFieldOrders :: Map BoundRecordIdentifier (Seq UnboundIdentifier)
   }
@@ -75,13 +76,13 @@ getFunctionType functionName = do
     Just functionType -> return functionType
     Nothing -> throwError $ ShouldNotGetHereError "Called getFunctionType before function was initialized"
 
-setRecordFieldTypes :: BoundRecordIdentifier -> Map UnboundIdentifier Type -> TypeChecker ()
+setRecordFieldTypes :: BoundRecordIdentifier -> Map UnboundIdentifier (Mutability -> Type) -> TypeChecker ()
 setRecordFieldTypes recordName fieldTypeMap = do
   recordTypes <- recordTypes <$> getState
   let updatedRecordTypes = Map.insert recordName fieldTypeMap recordTypes
   setRecordTypes updatedRecordTypes
 
-getRecordFieldTypes :: BoundRecordIdentifier -> TypeChecker (Map UnboundIdentifier Type)
+getRecordFieldTypes :: BoundRecordIdentifier -> TypeChecker (Map UnboundIdentifier (Mutability -> Type))
 getRecordFieldTypes recordName = do
   recordTypes <- recordTypes <$> getState
   case Map.lookup recordName recordTypes of
@@ -126,7 +127,7 @@ setFunctionTypes functionTypes = do
   TypeCheckingState {valueIdentifierTypes, functionContextStack, recordTypes, recordFieldOrders} <- getState
   setState TypeCheckingState {valueIdentifierTypes, functionTypes, functionContextStack, recordTypes, recordFieldOrders}
 
-setRecordTypes :: Map BoundRecordIdentifier (Map UnboundIdentifier Type) -> TypeChecker ()
+setRecordTypes :: Map BoundRecordIdentifier (Map UnboundIdentifier (Mutability -> Type)) -> TypeChecker ()
 setRecordTypes recordTypes = do
   TypeCheckingState {valueIdentifierTypes, functionTypes, functionContextStack, recordFieldOrders} <- getState
   setState TypeCheckingState {valueIdentifierTypes, functionTypes, functionContextStack, recordTypes, recordFieldOrders}

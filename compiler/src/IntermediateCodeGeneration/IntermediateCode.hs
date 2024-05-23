@@ -5,6 +5,7 @@ module IntermediateCodeGeneration.IntermediateCode
     Stmt
       ( VariableDeclarationStmt,
         VariableMutationStmt,
+        FieldMutationStmt,
         ExpressionStmt,
         WhileLoopStmt,
         ReturnStmt
@@ -68,6 +69,7 @@ data SubFunc = SubFunc (Seq ValueIdentifierIndex) Expr
 data Stmt
   = VariableDeclarationStmt ValueIdentifierIndex Expr
   | VariableMutationStmt ValueIdentifierIndex Expr
+  | FieldMutationStmt Expr FieldIndex Expr
   | ExpressionStmt Expr
   | WhileLoopStmt Expr Expr
   | ReturnStmt Expr

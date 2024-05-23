@@ -53,6 +53,11 @@ encodeStatement (VariableMutationStmt variableName variableValue) = do
   variableIndex <- getVariableIndex variableName
   adjustStackSize (-1)
   return $ encodedVariableValue <> mutateVariableInstruction (fromIntegral variableIndex)
+encodeStatement (FieldMutationStmt record fieldIndex value) = do
+  encodedRecord <- encodeExpression record
+  encodedValue <- encodeExpression value
+  adjustStackSize (-2)
+  return $ encodedRecord <> encodedValue <> mutateFieldInstruction (fromIntegral fieldIndex)
 encodeStatement (ExpressionStmt expression) = do
   encodedExpression <- encodeExpression expression
   adjustStackSize (-1)

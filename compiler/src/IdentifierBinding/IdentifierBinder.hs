@@ -98,6 +98,10 @@ statementBinder (BindingReady (VariableMutationStatement statementRange unboundV
   boundExpression <- expressionBinder expression
   return $ VariableMutationStatement statementRange boundValueIdentifier boundExpression
 -- Standard cases
+statementBinder (BindingReady (FieldMutationStatement statementRange record field value)) = do
+  boundRecord <- expressionBinder record
+  boundValue <- expressionBinder value
+  return $ FieldMutationStatement statementRange boundRecord field boundValue
 statementBinder (BindingReady (PrintStatement range expression)) = do
   boundExpression <- expressionBinder expression
   return $ PrintStatement range boundExpression
@@ -120,7 +124,11 @@ expressionBinder (IdentifierExpression expressionRange unboundIdentifier) = do
   case identifierInfo of
     ParameterIdentifierInfo _ boundValueIdentifier -> return $ IdentifierExpression expressionRange $ Left boundValueIdentifier
     FunctionIdentifierInfo _ boundFunctionIdentifier -> return $ IdentifierExpression expressionRange $ Right boundFunctionIdentifier
-    RecordIdentifierInfo _ boundRecordIdentifier -> return $ RecordExpression expressionRange boundRecordIdentifier Map.empty
+    {- A record with no fields gets interpreted as a mutable, rather than immutable record. The mutability of a record
+      with no fields doesn't matter directly. However, if the record ends up as part of a record union, being immutable
+      would force the whole record union to be immutable. So, we make it mutable to improve flexibility.
+    -}
+    RecordIdentifierInfo _ boundRecordIdentifier -> return $ RecordExpression expressionRange Mutable boundRecordIdentifier Map.empty
     VariableIdentifierInfo declarationRange boundValueIdentifier _ usability -> case usability of
       BeforeDeclaration -> throwError $ VariableDefinedAfterReferenceError unboundIdentifier expressionRange declarationRange
       InDeclaration -> throwError $ VariableReferencedInDeclarationError unboundIdentifier declarationRange expressionRange
@@ -137,13 +145,13 @@ expressionBinder (FunctionExpression expressionRange (FunctionDefinition definit
   let functionDefinitionData = IBFunctionDefinitionData {ibFunctionDefinitionRange = definitionRange, ibFunctionDefinitionCapturedIdentifiers = capturedIdentifiers}
   let functionDefinition = FunctionDefinition functionDefinitionData boundParameters (WithTypeAnnotation boundBody boundReturnTypeAnnotation)
   return $ FunctionExpression expressionRange functionDefinition
-expressionBinder (RecordExpression expressionRange recordName fieldValueMap) = do
+expressionBinder (RecordExpression expressionRange mutability recordName fieldValueMap) = do
   identifierInfo <- getIdentifierBinding expressionRange recordName
   boundRecordName <- case identifierInfo of
     RecordIdentifierInfo _ boundRecordIdentifier -> return boundRecordIdentifier
     valueIdentifier -> throwError $ ValueIdentifierUsedAsRecordNameError recordName (getRange valueIdentifier) expressionRange
   boundFieldValueMap <- mapM expressionBinder fieldValueMap
-  return $ RecordExpression expressionRange boundRecordName boundFieldValueMap
+  return $ RecordExpression expressionRange mutability boundRecordName boundFieldValueMap
 expressionBinder (CaseExpression expressionRange switch caseMap) = do
   boundSwitch <- expressionBinder switch
   caseList <- mapM (bindCase expressionRange) $ Map.toList caseMap
@@ -273,3 +281,6 @@ typeExpressionBinder (UnionTypeExpression typeExpressionRange left right) = do
   boundLeft <- typeExpressionBinder left
   boundRight <- typeExpressionBinder right
   return $ UnionTypeExpression typeExpressionRange boundLeft boundRight
+typeExpressionBinder (MutTypeExpression typeExpressionRange inner) = do
+  boundInner <- typeExpressionBinder inner
+  return $ MutTypeExpression typeExpressionRange boundInner

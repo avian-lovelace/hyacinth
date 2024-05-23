@@ -97,6 +97,25 @@ statementGenerator (VariableMutationStatement TCStatementData {statementRange} v
   assertIdentifierIsNotCaptured mutatedCapturedIdentifierError variableName
   encodedVariableValue <- expressionGenerator variableValue
   return $ VariableMutationStmt (getValueIdentifierIndex variableName) encodedVariableValue
+statementGenerator (FieldMutationStatement _ record field value) = do
+  encodedRecord <- expressionGenerator record
+  encodedValue <- expressionGenerator value
+  let recordType = expressionType . getExpressionData $ record
+  recordNames <- case recordType of
+    RecordUnionType _ recordNames -> return recordNames
+    _ -> throwError $ ShouldNotGetHereError "Inner expression of FieldAccessExpression was not a record in statementGenerator"
+  recordIndexPairs <- forM (Set.toList recordNames) $ \recordName -> do
+    fieldIndex <- getRecordFieldIndex recordName field
+    return (recordName, fieldIndex)
+  let firstFieldIndex = snd . head $ recordIndexPairs
+  if all (\(_, index) -> index == firstFieldIndex) recordIndexPairs
+    then return $ FieldMutationStmt encodedRecord firstFieldIndex encodedValue
+    else do
+      encodedCases <- forM (Seq.fromList recordIndexPairs) $ \(recordName, fieldIndex) -> do
+        caseParameter <- getNewValueIdentifierIndex
+        let fieldMutationStatement = FieldMutationStmt (IdentifierExpr caseParameter) fieldIndex encodedValue
+        return (getRecordIdentifierIndex recordName, caseParameter, ScopeExpr $ Seq.singleton fieldMutationStatement)
+      return $ ExpressionStmt $ CaseExpr encodedRecord encodedCases
 statementGenerator (PrintStatement _ expression) = do
   encodedExpression <- expressionGenerator expression
   return $ ExpressionStmt (BuiltInFunctionExpr PrintFn $ Seq.singleton encodedExpression)
@@ -146,7 +165,7 @@ expressionGenerator (FunctionExpression _ functionDefinition) = do
   let subFunction = makeSubFunc (getValueIdentifierIndex <$> capturedIdentifierInnerValues)
   addSubFunction functionIndex subFunction
   return $ FunctionExpr functionIndex (getValueIdentifierIndex <$> Seq.fromList capturedFunctionIdentifierContextValues)
-expressionGenerator (RecordExpression _ recordName fieldValueMap) = do
+expressionGenerator (RecordExpression _ _ recordName fieldValueMap) = do
   recordFieldOrder <- getRecordFieldOrder recordName
   let recordFields = (\fieldName -> fromJust $ Map.lookup fieldName fieldValueMap) <$> recordFieldOrder
   encodedRecordFields <- mapM expressionGenerator recordFields
@@ -155,7 +174,7 @@ expressionGenerator (FieldAccessExpression _ inner fieldName) = do
   encodedInner <- expressionGenerator inner
   let innerType = expressionType . getExpressionData $ inner
   recordNames <- case innerType of
-    RecordUnionType recordNames -> return recordNames
+    RecordUnionType _ recordNames -> return recordNames
     _ -> throwError $ ShouldNotGetHereError "Inner expression of FieldAccessExpression was not a record in expressionGenerator"
   recordIndexPairs <- forM (Set.toList recordNames) $ \recordName -> do
     fieldIndex <- getRecordFieldIndex recordName fieldName

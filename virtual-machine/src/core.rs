@@ -110,6 +110,12 @@ impl Heap {
             .expect("Attempted to get invalid object")
     }
 
+    pub fn get_mut(&mut self, key: ObjectKey) -> &mut Object {
+        self.objects
+            .get_mut(&key)
+            .expect("Attempted to get invalid object")
+    }
+
     pub fn garbage_collect(&mut self, reachable_keys: &HashSet<ObjectKey>) {
         self.objects.retain(|k, _| reachable_keys.contains(k));
         self.garbage_collection_threshold *= GC_THRESHOLD_MULTIPLIER;
@@ -129,3 +135,4 @@ pub type InstructionOffset = i16;
 pub type InstructionIndex = usize;
 pub type FunctionIndex = u16;
 pub type RecordId = u16;
+pub type FieldIndex = u8;

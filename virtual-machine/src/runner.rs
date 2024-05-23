@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use std::str;
 
 use crate::core::{
-    ConstIndex, FloatValue, Frame, FunctionIndex, InstructionOffset, IntValue, Object, ObjectKey,
-    RecordId, StackIndex, Value, VM,
+    ConstIndex, FieldIndex, FloatValue, Frame, FunctionIndex, InstructionOffset, IntValue, Object,
+    ObjectKey, RecordId, StackIndex, Value, VM,
 };
 
 impl VM {
@@ -345,6 +345,23 @@ impl VM {
                 Instruction::RemoveFromStack(stack_index) => {
                     self.remove_at_index_from_top(stack_index)
                 }
+                Instruction::MutateField(field_index) => {
+                    let value = self.pop();
+                    match self.pop() {
+                        Value::Object(object_index) => match self.heap.get_mut(object_index) {
+                            Object::RecordObj {
+                                record_id: _,
+                                fields,
+                            } => fields[field_index as usize] = value,
+                            obj => {
+                                panic!("Attempted to mutate a field of non-record object {}", obj)
+                            }
+                        },
+                        value => {
+                            panic!("Attempted to mutate a field of non-record value {}", value)
+                        }
+                    }
+                }
             };
             if self.heap.should_garbage_collect {
                 self.garbage_collect()
@@ -453,6 +470,7 @@ impl VM {
             34 => Instruction::Field(self.read_byte()),
             35 => Instruction::JumpIfDoesntMatchRecordId(self.read_u16(), self.read_i16()),
             36 => Instruction::RemoveFromStack(self.read_u16()),
+            37 => Instruction::MutateField(self.read_byte()),
             op => panic!("Got invalid op code {}", op),
         }
     }
@@ -596,9 +614,10 @@ enum Instruction {
     Function(FunctionIndex, u8),
     Call(u8),
     Record(RecordId, u8),
-    Field(u8),
+    Field(FieldIndex),
     JumpIfDoesntMatchRecordId(RecordId, InstructionOffset),
     RemoveFromStack(StackIndex),
+    MutateField(FieldIndex),
 }
 
 impl fmt::Display for Instruction {
@@ -652,6 +671,7 @@ impl fmt::Display for Instruction {
             Instruction::RemoveFromStack(stack_index) => {
                 write!(f, "RemoveFromStack {}", stack_index)
             }
+            Instruction::MutateField(field_index) => write!(f, "MutateField {}", field_index),
         }
     }
 }

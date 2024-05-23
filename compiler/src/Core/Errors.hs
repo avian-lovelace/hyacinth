@@ -17,9 +17,11 @@ module Core.Errors
         VariableDeclarationInvalidExpressionError,
         VariableDeclarationEmptyTypeError,
         VariableDeclarationMalformedTypeError,
-        VariableMutationMalformedError,
-        VariableMutationEmptyExpressionError,
-        VariableMutationInvalidExpressionError,
+        MutationStatementMalformedError,
+        MutationStatementEmptyValueError,
+        MutationStatementMalformedValueError,
+        FieldMutationStatementEmptyRecordError,
+        FieldMutationStatementMalformedRecordError,
         ExpressionStatementInvalidExpressionError,
         WhileStatementNoLoopError,
         WhileStatementEmptyConditionError,
@@ -113,6 +115,14 @@ module Core.Errors
         CaseExpressionMisingCaseError,
         CaseExpressionExtraneousCaseError,
         CaseTypesAreNotCompatibleError,
+        NonRecordTypeMarkedAsMutableError,
+        FieldTypeMarkedAsMutableError,
+        UnionTypeDifferentMutabilitiesError,
+        MutatedFieldOfNonRecordTypeError,
+        MutatedFieldOfImmutableRecordError,
+        MutatedFieldNotInRecordError,
+        FieldTypesHaveEmptyIntersectionError,
+        FieldMutationValueTypeError,
         RuntimeError
       ),
     WithErrors (Error, Success),
@@ -124,6 +134,7 @@ module Core.Errors
 where
 
 import Core.FilePositions
+import Core.SyntaxTree (Mutability)
 import Core.Type
 import Core.Utils
 import Data.Sequence (Seq (Empty), singleton, (<|), (><))
@@ -153,9 +164,11 @@ data Error
   | VariableDeclarationInvalidExpressionError Range
   | VariableDeclarationEmptyTypeError Range
   | VariableDeclarationMalformedTypeError Range
-  | VariableMutationMalformedError Range
-  | VariableMutationEmptyExpressionError Range
-  | VariableMutationInvalidExpressionError Range
+  | MutationStatementMalformedError Range
+  | MutationStatementEmptyValueError Range
+  | MutationStatementMalformedValueError Range
+  | FieldMutationStatementEmptyRecordError Range
+  | FieldMutationStatementMalformedRecordError Range
   | ExpressionStatementInvalidExpressionError Range
   | WhileStatementNoLoopError Range
   | WhileStatementEmptyConditionError Range
@@ -249,6 +262,14 @@ data Error
   | CaseExpressionMisingCaseError Range Text
   | CaseExpressionExtraneousCaseError Range Text
   | CaseTypesAreNotCompatibleError [(Text, Type)] Range
+  | NonRecordTypeMarkedAsMutableError Range Type
+  | FieldTypeMarkedAsMutableError Range
+  | UnionTypeDifferentMutabilitiesError Range Mutability Mutability
+  | MutatedFieldOfNonRecordTypeError Range Type
+  | MutatedFieldOfImmutableRecordError Range Type
+  | MutatedFieldNotInRecordError Text Text Type Range
+  | FieldTypesHaveEmptyIntersectionError Text [(Text, Type)] Range
+  | FieldMutationValueTypeError Range Type Type
   | -- Function lifting
     MutatedCapturedIdentifierError Text Range
   | IdentifierUndefinedBeforeCaptureError Text Text Range
@@ -278,9 +299,11 @@ instance Pretty Error where
   pretty (VariableDeclarationMalformedError range) = "Failed to parse variable declaration statement at " ++ pretty range
   pretty (VariableDeclarationEmptyExpressionError range) = "Variable declaration must have an expression at " ++ pretty range
   pretty (VariableDeclarationInvalidExpressionError range) = "Failed to parse variable declaration value as an expression at " ++ pretty range
-  pretty (VariableMutationMalformedError range) = "Failed to parse variable mutation statement at " ++ pretty range
-  pretty (VariableMutationEmptyExpressionError range) = "Variable mutation must have an expression at " ++ pretty range
-  pretty (VariableMutationInvalidExpressionError range) = "Failed to parse variable mutation value as an expression at " ++ pretty range
+  pretty (MutationStatementMalformedError range) = "Failed to parse mutation statement at " ++ pretty range
+  pretty (MutationStatementEmptyValueError range) = "Mutation statement must have an expression at " ++ pretty range
+  pretty (MutationStatementMalformedValueError range) = "Failed to parse mutation mutation statement value as an expression at " ++ pretty range
+  pretty (FieldMutationStatementEmptyRecordError range) = "Field mutation must have a record expression at " ++ pretty range
+  pretty (FieldMutationStatementMalformedRecordError range) = "Failed to parse field mutation record as an expression at " ++ pretty range
   pretty (VariableDeclarationEmptyTypeError range) = "Variable type annotation must have a type at " ++ pretty range
   pretty (VariableDeclarationMalformedTypeError range) = "Failed to parse variable type annotation as a type at " ++ pretty range
   pretty (ExpressionStatementInvalidExpressionError range) = "Failed to parse statement as an expression at " ++ pretty range
@@ -441,6 +464,26 @@ instance Pretty Error where
     "Could not find a unified type for case expression at "
       ++ pretty range
       ++ foldMap (\(recordName, caseValueType) -> "\n" ++ pretty recordName ++ ": " ++ pretty caseValueType) recordCaseValueTypePairs
+  pretty (NonRecordTypeMarkedAsMutableError range nonRecordType) =
+    "Non-record type " ++ pretty nonRecordType ++ " is marked as mutable in a type annotation at " ++ pretty range
+  pretty (FieldTypeMarkedAsMutableError range) =
+    "Field type annotation includes a mutability annotation at  " ++ pretty range
+  pretty (UnionTypeDifferentMutabilitiesError range leftMutability rightMutability) =
+    "The left and right sides of union type expression have different mutabilities " ++ pretty leftMutability ++ " and " ++ pretty rightMutability ++ " at " ++ pretty range
+  pretty (MutatedFieldOfNonRecordTypeError range nonRecordType) =
+    "Mutated field of non-record type " ++ pretty nonRecordType ++ " at " ++ pretty range
+  pretty (MutatedFieldOfImmutableRecordError range recordType) =
+    "Mutated field of immutable record type " ++ pretty recordType ++ " at " ++ pretty range
+  pretty (MutatedFieldNotInRecordError recordName field recordUnionType range) =
+    "Attempted to mutate field " ++ pretty field ++ " that does not exist on record " ++ pretty recordName ++ " of value with type " ++ pretty recordUnionType ++ " at " ++ pretty range
+  pretty (FieldTypesHaveEmptyIntersectionError fieldName recordFieldTypePairs range) =
+    "Record types have empty intersection for field "
+      ++ pretty fieldName
+      ++ " in field mutation at "
+      ++ pretty range
+      ++ foldMap (\(recordName, fieldType) -> "\n" ++ pretty recordName ++ "." ++ pretty fieldName ++ ": " ++ pretty fieldType) recordFieldTypePairs
+  pretty (FieldMutationValueTypeError range fieldType valueType) =
+    "In field mutation at " ++ pretty range ++ ", the variable has type " ++ pretty fieldType ++ ", but the value has type " ++ pretty valueType
   pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
 
 instance Show Error where

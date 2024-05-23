@@ -22,6 +22,7 @@ module Core.SyntaxTree
       ( PrintStatement,
         VariableDeclarationStatement,
         VariableMutationStatement,
+        FieldMutationStatement,
         ExpressionStatement,
         WhileLoopStatement,
         ReturnStatement
@@ -86,7 +87,8 @@ module Core.SyntaxTree
         NilTypeExpression,
         FunctionTypeExpression,
         RecordTypeExpression,
-        UnionTypeExpression
+        UnionTypeExpression,
+        MutTypeExpression
       ),
     TypeExpressionData,
     getTypeExpressionData,
@@ -191,6 +193,7 @@ data Statement phase
   = PrintStatement (StatementData phase) (Expression phase)
   | VariableDeclarationStatement (StatementData phase) Mutability (WithTypeAnnotation phase (ValueIdentifier phase)) (Expression phase)
   | VariableMutationStatement (StatementData phase) (ValueIdentifier phase) (Expression phase)
+  | FieldMutationStatement (StatementData phase) (Expression phase) (FieldIdentifier phase) (Expression phase)
   | ExpressionStatement (StatementData phase) (Expression phase)
   | {- The body of a while loop statement could really be a statement rather than an expression. However, this would
       require a while loop statement to create a new scope for its body. For now, to avoid having to implement the
@@ -210,7 +213,8 @@ instance Pretty Mutability where
 instance
   ( Pretty (TypeAnnotation phase),
     Pretty (Expression phase),
-    Pretty (ValueIdentifier phase)
+    Pretty (ValueIdentifier phase),
+    Pretty (FieldIdentifier phase)
   ) =>
   Pretty (Statement phase)
   where
@@ -218,6 +222,8 @@ instance
   pretty (VariableDeclarationStatement _ mutability variableName value) =
     "(VariableDeclarationStatement " ++ pretty mutability ++ " " ++ pretty variableName ++ " " ++ pretty value ++ ")"
   pretty (VariableMutationStatement _ variableName value) = "(VariableMutationStatement " ++ pretty variableName ++ " " ++ pretty value ++ ")"
+  pretty (FieldMutationStatement _ record fieldName value) =
+    "(FieldMutationStatement " ++ pretty record ++ " " ++ pretty fieldName ++ " " ++ pretty value ++ ")"
   pretty (ExpressionStatement _ expression) = "(ExpressionStatement " ++ pretty expression ++ ")"
   pretty (WhileLoopStatement _ condition statement) = "(WhileLoopStatement " ++ pretty condition ++ " " ++ pretty statement ++ ")"
   pretty (ReturnStatement _ (Just expression)) = "(ReturnStatement " ++ pretty expression ++ ")"
@@ -227,6 +233,7 @@ getStatementData :: Statement phase -> StatementData phase
 getStatementData (PrintStatement d _) = d
 getStatementData (VariableDeclarationStatement d _ _ _) = d
 getStatementData (VariableMutationStatement d _ _) = d
+getStatementData (FieldMutationStatement d _ _ _) = d
 getStatementData (ExpressionStatement d _) = d
 getStatementData (WhileLoopStatement d _ _) = d
 getStatementData (ReturnStatement d _) = d
@@ -290,7 +297,7 @@ data Expression phase
   | ScopeExpression (ExpressionData phase) (Scope phase)
   | FunctionExpression (ExpressionData phase) (FunctionExpressionContent phase)
   | FunctionCallExpression (ExpressionData phase) (Expression phase) (Seq (Expression phase))
-  | RecordExpression (ExpressionData phase) (RecordIdentifier phase) (RecordFieldValues phase)
+  | RecordExpression (ExpressionData phase) Mutability (RecordIdentifier phase) (RecordFieldValues phase)
   | FieldAccessExpression (ExpressionData phase) (Expression phase) (FieldIdentifier phase)
   | CaseExpression (ExpressionData phase) (Expression phase) (Map (RecordIdentifier phase) (ValueIdentifier phase, Expression phase))
 
@@ -341,7 +348,7 @@ instance
   pretty (ScopeExpression _ scope) = "(ScopeExpression " ++ pretty scope ++ ")"
   pretty (FunctionExpression _ content) = "(FunctionExpression" ++ pretty content ++ ")"
   pretty (FunctionCallExpression _ function arguments) = "(FunctionCallExpression " ++ pretty function ++ " (" ++ pretty arguments ++ "))"
-  pretty (RecordExpression _ recordName fields) = "(RecordExpression " ++ pretty recordName ++ " " ++ pretty fields ++ ")"
+  pretty (RecordExpression _ mutability recordName fields) = "(RecordExpression " ++ pretty mutability ++ " " ++ pretty recordName ++ " " ++ pretty fields ++ ")"
   pretty (FieldAccessExpression _ inner field) = "(FieldAccessExpression " ++ pretty inner ++ " " ++ pretty field ++ ")"
   pretty (CaseExpression _ switch cases) = "(CaseExpression " ++ pretty switch ++ " " ++ pretty cases ++ ")"
 
@@ -372,7 +379,7 @@ getExpressionData (IfThenElseExpression d _ _ _) = d
 getExpressionData (ScopeExpression d _) = d
 getExpressionData (FunctionExpression d _) = d
 getExpressionData (FunctionCallExpression d _ _) = d
-getExpressionData (RecordExpression d _ _) = d
+getExpressionData (RecordExpression d _ _ _) = d
 getExpressionData (FieldAccessExpression d _ _) = d
 getExpressionData (CaseExpression d _ _) = d
 
@@ -395,6 +402,7 @@ data TypeExpression phase
   | FunctionTypeExpression (TypeExpressionData phase) (Seq (TypeExpression phase)) (TypeExpression phase)
   | RecordTypeExpression (TypeExpressionData phase) (RecordIdentifier phase)
   | UnionTypeExpression (TypeExpressionData phase) (TypeExpression phase) (TypeExpression phase)
+  | MutTypeExpression (TypeExpressionData phase) (TypeExpression phase)
 
 type family TypeExpressionData phase
 
@@ -408,6 +416,7 @@ instance (Pretty (RecordIdentifier phase)) => Pretty (TypeExpression phase) wher
   pretty (FunctionTypeExpression _ argumentTypes returnType) = "(FunctionTypeExpression (" ++ pretty argumentTypes ++ ") " ++ pretty returnType ++ ")"
   pretty (RecordTypeExpression _ recordName) = "(RecordTypeExpression " ++ pretty recordName ++ ")"
   pretty (UnionTypeExpression _ left right) = "(UnionTypeExpresssion" ++ pretty left ++ " " ++ pretty right ++ ")"
+  pretty (MutTypeExpression _ inner) = "(MutTypeExpression " ++ pretty inner ++ ")"
 
 getTypeExpressionData :: TypeExpression phase -> TypeExpressionData phase
 getTypeExpressionData (IntTypeExpression d) = d
@@ -419,3 +428,4 @@ getTypeExpressionData (NilTypeExpression d) = d
 getTypeExpressionData (FunctionTypeExpression d _ _) = d
 getTypeExpressionData (RecordTypeExpression d _) = d
 getTypeExpressionData (UnionTypeExpression d _ _) = d
+getTypeExpressionData (MutTypeExpression d _) = d

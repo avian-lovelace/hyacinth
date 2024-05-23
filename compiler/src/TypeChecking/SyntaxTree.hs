@@ -29,9 +29,11 @@ module TypeChecking.SyntaxTree
         tcFunctionDefinitionCapturedIdentifiers
       ),
     fromTypeExpression,
+    asFieldType,
   )
 where
 
+import Control.Monad (unless)
 import Core.Errors
 import Core.FilePositions
 import Core.SyntaxTree
@@ -168,24 +170,59 @@ type TCTypeExpression = TypeExpression TypeCheckingPhase
 type instance TypeExpressionData TypeCheckingPhase = Range
 
 fromTypeExpression :: IBTypeExpression -> WithErrors Type
-fromTypeExpression (IntTypeExpression _) = return IntType
-fromTypeExpression (FloatTypeExpression _) = return FloatType
-fromTypeExpression (CharTypeExpression _) = return CharType
-fromTypeExpression (StringTypeExpression _) = return StringType
-fromTypeExpression (BoolTypeExpression _) = return BoolType
-fromTypeExpression (NilTypeExpression _) = return NilType
-fromTypeExpression (FunctionTypeExpression _ parameterTypeExpressions returnTypeExpression) = do
+fromTypeExpression = fromTypeExpressionHelper False
+
+fromTypeExpressionHelper :: Bool -> IBTypeExpression -> WithErrors Type
+fromTypeExpressionHelper _ (IntTypeExpression _) = return IntType
+fromTypeExpressionHelper _ (FloatTypeExpression _) = return FloatType
+fromTypeExpressionHelper _ (CharTypeExpression _) = return CharType
+fromTypeExpressionHelper _ (StringTypeExpression _) = return StringType
+fromTypeExpressionHelper _ (BoolTypeExpression _) = return BoolType
+fromTypeExpressionHelper _ (NilTypeExpression _) = return NilType
+fromTypeExpressionHelper _ (FunctionTypeExpression _ parameterTypeExpressions returnTypeExpression) = do
   parameterTypes <- mapM fromTypeExpression parameterTypeExpressions
   returnType <- fromTypeExpression returnTypeExpression
   return $ FunctionType parameterTypes returnType
-fromTypeExpression (RecordTypeExpression _ recordName) = return $ RecordUnionType (Set.singleton recordName)
-fromTypeExpression (UnionTypeExpression _ left right) = do
-  leftRecords <- getRecordSet left
-  rightRecords <- getRecordSet right
-  return $ RecordUnionType (Set.union leftRecords rightRecords)
+fromTypeExpressionHelper inMutableContext (RecordTypeExpression _ recordName) =
+  return $ RecordUnionType (if inMutableContext then Mutable else Immutable) (Set.singleton recordName)
+fromTypeExpressionHelper inMutableContext (UnionTypeExpression expressionRange left right) = do
+  (leftMutability, leftRecords) <- getRecordSet left
+  (rightMutability, rightRecords) <- getRecordSet right
+  unless (leftMutability == rightMutability) $ singleError (UnionTypeDifferentMutabilitiesError expressionRange leftMutability rightMutability)
+  return $ RecordUnionType leftMutability (Set.union leftRecords rightRecords)
   where
     getRecordSet sideTypeExpression = do
-      sideType <- fromTypeExpression sideTypeExpression
+      sideType <- fromTypeExpressionHelper inMutableContext sideTypeExpression
       case sideType of
-        (RecordUnionType records) -> return records
+        (RecordUnionType mutability records) -> return (mutability, records)
         nonRecordType -> singleError $ NonRecordTypeInUnionError nonRecordType (getRange sideTypeExpression)
+fromTypeExpressionHelper _ (MutTypeExpression expressionRange inner) = do
+  innerType <- fromTypeExpressionHelper True inner
+  case innerType of
+    RecordUnionType {} -> return ()
+    _ -> singleError $ NonRecordTypeMarkedAsMutableError expressionRange innerType
+  return innerType
+
+asFieldType :: IBTypeExpression -> WithErrors (Mutability -> Type)
+asFieldType (IntTypeExpression _) = return $ const IntType
+asFieldType (FloatTypeExpression _) = return $ const FloatType
+asFieldType (CharTypeExpression _) = return $ const CharType
+asFieldType (StringTypeExpression _) = return $ const StringType
+asFieldType (BoolTypeExpression _) = return $ const BoolType
+asFieldType (NilTypeExpression _) = return $ const NilType
+asFieldType (FunctionTypeExpression _ parameterTypeExpressions returnTypeExpression) = do
+  parameterTypes <- mapM fromTypeExpression parameterTypeExpressions
+  returnType <- fromTypeExpression returnTypeExpression
+  return $ const $ FunctionType parameterTypes returnType
+asFieldType (RecordTypeExpression _ recordName) = return $ \mutability -> RecordUnionType mutability (Set.singleton recordName)
+asFieldType (UnionTypeExpression _ left right) = do
+  leftRecords <- getRecordSet left
+  rightRecords <- getRecordSet right
+  return $ \mutability -> RecordUnionType mutability (Set.union leftRecords rightRecords)
+  where
+    getRecordSet sideTypeExpression = do
+      sideType <- asFieldType sideTypeExpression
+      case sideType Immutable of
+        (RecordUnionType _ records) -> return records
+        nonRecordType -> singleError $ NonRecordTypeInUnionError nonRecordType (getRange sideTypeExpression)
+asFieldType (MutTypeExpression expressionRange _) = singleError $ FieldTypeMarkedAsMutableError expressionRange
