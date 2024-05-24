@@ -27,6 +27,8 @@ module Lexing.Tokens
         RightCurlyBraceToken,
         LeftSquareBracketToken,
         RightSquareBracketToken,
+        LeftAngleBracketToken,
+        RightAngleBracketToken,
         IdentifierToken,
         IntToken,
         FloatToken,
@@ -95,6 +97,8 @@ data Token
   | RightCurlyBraceToken Range
   | LeftSquareBracketToken Range
   | RightSquareBracketToken Range
+  | LeftAngleBracketToken Range
+  | RightAngleBracketToken Range
   | -- Identifiers
     IdentifierToken Range Text
   | -- Primitive types
@@ -158,6 +162,8 @@ instance Pretty Token where
   pretty (RightCurlyBraceToken _) = "}"
   pretty (LeftSquareBracketToken _) = "["
   pretty (RightSquareBracketToken _) = "]"
+  pretty (LeftAngleBracketToken _) = "⟨"
+  pretty (RightAngleBracketToken _) = "⟩"
   pretty (IdentifierToken _ identifier) = "identifier:" ++ show identifier
   pretty (IntToken _) = "Int"
   pretty (FloatToken _) = "Float"
@@ -216,6 +222,8 @@ instance WithRange Token where
   getRange (RightCurlyBraceToken range) = range
   getRange (LeftSquareBracketToken range) = range
   getRange (RightSquareBracketToken range) = range
+  getRange (LeftAngleBracketToken range) = range
+  getRange (RightAngleBracketToken range) = range
   getRange (IdentifierToken range _) = range
   getRange (IntToken range) = range
   getRange (FloatToken range) = range

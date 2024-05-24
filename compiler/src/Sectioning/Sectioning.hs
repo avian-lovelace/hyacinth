@@ -2,15 +2,20 @@
 
 {-# HLINT ignore "Use tuple-section" #-}
 module Sectioning.Sectioning
-  ( Section (TokenSection, ParenSection, CurlyBraceSection, SquareBracketSection),
-    SectioningParser (SectioningParser, runParser),
+  ( Section (TokenSection, ParenSection, CurlyBraceSection, SquareBracketSection, AngleBracketSection),
+    Sectioner,
+    getNextToken,
+    Grouping (Parentheses, CurlyBraces, SquareBrackets, AngleBrackets),
+    Side (Opening, Closing),
+    tokenGroupingInfo,
+    makeGroupingSection,
   )
 where
 
-import Core.Errors
+import Core.ErrorState
 import Core.FilePositions
 import Core.Utils
-import Data.Sequence (Seq)
+import Data.Sequence (Seq (..))
 import Lexing.Tokens
 
 data Section
@@ -18,6 +23,7 @@ data Section
   | ParenSection Range (Seq Section)
   | CurlyBraceSection Range (Seq Section)
   | SquareBracketSection Range (Seq Section)
+  | AngleBracketSection Range (Seq Section)
   deriving (Show)
 
 instance WithRange Section where
@@ -25,30 +31,43 @@ instance WithRange Section where
   getRange (ParenSection range _) = range
   getRange (CurlyBraceSection range _) = range
   getRange (SquareBracketSection range _) = range
+  getRange (AngleBracketSection range _) = range
 
 instance Pretty Section where
   pretty (TokenSection token) = pretty token
   pretty (ParenSection _ inner) = "( " ++ foldMap (\section -> pretty section ++ " ") inner ++ " )"
   pretty (CurlyBraceSection _ inner) = "{ " ++ foldMap (\section -> pretty section ++ " ") inner ++ " }"
   pretty (SquareBracketSection _ inner) = "[ " ++ foldMap (\section -> pretty section ++ " ") inner ++ " ]"
+  pretty (AngleBracketSection _ inner) = "⟨ " ++ foldMap (\section -> pretty section ++ " ") inner ++ " ⟩"
 
-newtype SectioningParser a = SectioningParser {runParser :: Seq Token -> (Seq Token, WithErrors a)}
+type Sectioner = ErrorState (Seq Token)
 
-instance Functor SectioningParser where
-  fmap f parser = SectioningParser $ \tokens ->
-    case runParser parser tokens of
-      (restTokens, Success a) -> (restTokens, Success $ f a)
-      (restTokens, Error e) -> (restTokens, Error e)
+getNextToken :: Sectioner (Maybe Token)
+getNextToken = do
+  tokens <- getState
+  case tokens of
+    Empty -> return Nothing
+    nextToken :<| restTokens -> do
+      setState restTokens
+      return $ Just nextToken
 
-instance Applicative SectioningParser where
-  pure a = SectioningParser $ \tokens -> (tokens, Success a)
-  (<*>) parserF parserA = SectioningParser $ \tokens ->
-    case runParser parserF tokens of
-      (restTokens, Success f) -> runParser (fmap f parserA) restTokens
-      (restTokens, Error e) -> (restTokens, Error e)
+data Grouping = Parentheses | CurlyBraces | SquareBrackets | AngleBrackets deriving (Eq)
 
-instance Monad SectioningParser where
-  parserA >>= makeParserB = SectioningParser $ \tokens ->
-    case runParser parserA tokens of
-      (restTokens, Success a) -> runParser (makeParserB a) restTokens
-      (restTokens, Error e) -> (restTokens, Error e)
+data Side = Opening | Closing
+
+tokenGroupingInfo :: Token -> Maybe (Side, Grouping)
+tokenGroupingInfo (LeftParenToken _) = Just (Opening, Parentheses)
+tokenGroupingInfo (RightParenToken _) = Just (Closing, Parentheses)
+tokenGroupingInfo (LeftCurlyBraceToken _) = Just (Opening, CurlyBraces)
+tokenGroupingInfo (RightCurlyBraceToken _) = Just (Closing, CurlyBraces)
+tokenGroupingInfo (LeftSquareBracketToken _) = Just (Opening, SquareBrackets)
+tokenGroupingInfo (RightSquareBracketToken _) = Just (Closing, SquareBrackets)
+tokenGroupingInfo (LeftAngleBracketToken _) = Just (Opening, AngleBrackets)
+tokenGroupingInfo (RightAngleBracketToken _) = Just (Closing, AngleBrackets)
+tokenGroupingInfo _ = Nothing
+
+makeGroupingSection :: Range -> Grouping -> Seq Section -> Section
+makeGroupingSection range Parentheses innerSections = ParenSection range innerSections
+makeGroupingSection range CurlyBraces innerSections = CurlyBraceSection range innerSections
+makeGroupingSection range SquareBrackets innerSections = SquareBracketSection range innerSections
+makeGroupingSection range AngleBrackets innerSections = AngleBracketSection range innerSections

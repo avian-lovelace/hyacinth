@@ -72,6 +72,8 @@ lexers =
     lexSymbol '}' RightCurlyBraceToken,
     lexSymbol '[' LeftSquareBracketToken,
     lexSymbol ']' RightSquareBracketToken,
+    lexSymbol '⟨' LeftAngleBracketToken,
+    lexSymbol '⟩' RightAngleBracketToken,
     -- Operators
     lexSymbol '+' PlusToken,
     lexSymbol '-' MinusToken,
