@@ -157,7 +157,7 @@ parseReturnStatement returnTokenSection expressionSections = case expressionSect
 parseFunctionStatement :: Section -> ParseFunction PNonPositionalStatement
 parseFunctionStatement funcTokenSection restSections1 = do
   (functionName, parameters, restSections2) <- case restSections1 of
-    ((TokenSection (IdentifierToken _ functionName)) :<| (SquareBracketSection parameterListRange parameterListSections) :<| restSections2) -> do
+    ((TokenSection (IdentifierToken _ functionName)) :<| (TokenSection (EqualsToken _)) :<| (SquareBracketSection parameterListRange parameterListSections) :<| restSections2) -> do
       parameters <- parseParameterList parameterListRange parameterListSections
       return (functionName, parameters, restSections2)
     _ -> singleError $ FunctionStatementMalformedError statementRange
@@ -191,6 +191,7 @@ parseRecordStatement :: Section -> ParseFunction PNonPositionalStatement
 parseRecordStatement
   recTokenSection
   ( (TokenSection (IdentifierToken _ recordName))
+      :<| (TokenSection (EqualsToken _))
       :<| (SquareBracketSection fieldTypeListRange fieldTypeListSections)
       :<| Empty
     ) = do

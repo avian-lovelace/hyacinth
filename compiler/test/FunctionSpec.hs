@@ -42,28 +42,28 @@ testFunctions = do
       "let foo = []: Nil -> { let x = 2; print x; }; let x = 1; print x; foo[];" `runsSuccessfullyWithOutput` "1\n2\n"
   describe "Function statements" $ do
     it "Functions can be created as statements and called" $
-      "func foo[]: Int -> 5; print foo[];" `runsSuccessfullyWithOutput` "5\n"
+      "func foo = []: Int -> 5; print foo[];" `runsSuccessfullyWithOutput` "5\n"
     it "Functions defined by statement can be used in their scope before their definition" $
-      "print foo[]; func foo[]: Int -> 5;" `runsSuccessfullyWithOutput` "5\n"
+      "print foo[]; func foo = []: Int -> 5;" `runsSuccessfullyWithOutput` "5\n"
     it "Functions defined by statement can call other functions defined by statement" $
-      "foo[4]; func foo[x: Int]: Nil -> { print plusOne[x]; }; func plusOne[x: Int]: Int -> x + 1;" `runsSuccessfullyWithOutput` "5\n"
+      "foo[4]; func foo = [x: Int]: Nil -> { print plusOne[x]; }; func  plusOne = [x: Int]: Int -> x + 1;" `runsSuccessfullyWithOutput` "5\n"
     it "A function defined by statement can call itself" $
-      "print fib[4]; func fib[x: Int]: Int -> if x <= 1 then x else fib[x - 1] + fib[x - 2];" `runsSuccessfullyWithOutput` "3\n"
+      "print fib[4]; func fib = [x: Int]: Int -> if x <= 1 then x else fib[x - 1] + fib[x - 2];" `runsSuccessfullyWithOutput` "3\n"
     it "Functions defined by statement can call each other cyclically" $
-      "foo[4]; func foo[x: Int]: Nil -> { if x == 0 then { return; }; print \"foo\"; bar[x - 1]; }; func bar[x: Int]: Nil -> { if x == 0 then { return; }; print \"bar\"; foo[x - 1]; };" `runsSuccessfullyWithOutput` "foo\nbar\nfoo\nbar\n"
+      "foo[4]; func foo = [x: Int]: Nil -> { if x == 0 then { return; }; print \"foo\"; bar[x - 1]; }; func bar = [x: Int]: Nil -> { if x == 0 then { return; }; print \"bar\"; foo[x - 1]; };" `runsSuccessfullyWithOutput` "foo\nbar\nfoo\nbar\n"
 
     it "Functions defined by statement can capture variables" $
-      "let cap = 5; print foo[]; func foo[]: Int -> cap;" `runsSuccessfullyWithOutput` "5\n"
+      "let cap = 5; print foo[]; func foo = []: Int -> cap;" `runsSuccessfullyWithOutput` "5\n"
     it "Functions defined by statement can capture variables defined later in scope, as long as they are defined by the first function call" $
-      "func foo[]: Int -> cap; let cap = 5; print foo[];" `runsSuccessfullyWithOutput` "5\n"
+      "func foo = []: Int -> cap; let cap = 5; print foo[];" `runsSuccessfullyWithOutput` "5\n"
     it "Variables captured by a function statement have their captured values set when the function is referenced" $
-      "let mut cap = 1; printCap[]; mut cap = 2; printCap[]; func printCap[]: Nil -> { print cap; };" `runsSuccessfullyWithOutput` "1\n2\n"
+      "let mut cap = 1; printCap[]; mut cap = 2; printCap[]; func printCap = []: Nil -> { print cap; };" `runsSuccessfullyWithOutput` "1\n2\n"
     it "Variables can be transitively captured in function statements by inner function expressions" $
-      "let cap = 1; foo[][]; func foo[]: ([] -> Nil) -> []: Nil -> { print cap; };" `runsSuccessfullyWithOutput` "1\n"
+      "let cap = 1; foo[][]; func foo = []: ([] -> Nil) -> []: Nil -> { print cap; };" `runsSuccessfullyWithOutput` "1\n"
     it "Variables can be transitively captured in function statements by calling other function statements" $
-      "let cap = 1; foo[]; func foo[]: Nil -> bar[]; func bar[]: Nil -> { print cap; };" `runsSuccessfullyWithOutput` "1\n"
+      "let cap = 1; foo[]; func foo = []: Nil -> bar[]; func bar = []: Nil -> { print cap; };" `runsSuccessfullyWithOutput` "1\n"
     it "Functions defined by statement that call each other cyclically can capture variables transitively" $
-      "let fooCap = \"foo\"; let barCap = \"bar\"; foo[4]; func foo[x: Int]: Nil -> { if x == 0 then { return; }; print fooCap; bar[x - 1]; }; func bar[x: Int]: Nil -> { if x == 0 then { return; }; print barCap; foo[x - 1]; };" `runsSuccessfullyWithOutput` "foo\nbar\nfoo\nbar\n"
+      "let fooCap = \"foo\"; let barCap = \"bar\"; foo[4]; func foo = [x: Int]: Nil -> { if x == 0 then { return; }; print fooCap; bar[x - 1]; }; func bar = [x: Int]: Nil -> { if x == 0 then { return; }; print barCap; foo[x - 1]; };" `runsSuccessfullyWithOutput` "foo\nbar\nfoo\nbar\n"
 
   describe "Function errors" $ do
     it "Functions cannot have multiple parameters with the same name" $
