@@ -9,7 +9,7 @@ import Test.Hspec
 
 testFunctions :: Spec
 testFunctions = do
-  describe "Functions" $ do
+  describe "Functions:" $ do
     it "Functions can be created and called" $
       "let foo = []: Int -> 5; print foo[];" `runsSuccessfullyWithOutput` "5\n"
     it "Functions can have parameters" $
@@ -40,7 +40,7 @@ testFunctions = do
       "let x = 1; let foo = []: Nil -> { let x = 2; print x; }; print x; foo[];" `runsSuccessfullyWithOutput` "1\n2\n"
     it "Functions bodies can shadow variables from before they are declared in a scope" $
       "let foo = []: Nil -> { let x = 2; print x; }; let x = 1; print x; foo[];" `runsSuccessfullyWithOutput` "1\n2\n"
-  describe "Function statements" $ do
+  describe "Function statements:" $ do
     it "Functions can be created as statements and called" $
       "func foo = []: Int -> 5; print foo[];" `runsSuccessfullyWithOutput` "5\n"
     it "Functions defined by statement can be used in their scope before their definition" $
@@ -51,7 +51,6 @@ testFunctions = do
       "print fib[4]; func fib = [x: Int]: Int -> if x <= 1 then x else fib[x - 1] + fib[x - 2];" `runsSuccessfullyWithOutput` "3\n"
     it "Functions defined by statement can call each other cyclically" $
       "foo[4]; func foo = [x: Int]: Nil -> { if x == 0 then { return; }; print \"foo\"; bar[x - 1]; }; func bar = [x: Int]: Nil -> { if x == 0 then { return; }; print \"bar\"; foo[x - 1]; };" `runsSuccessfullyWithOutput` "foo\nbar\nfoo\nbar\n"
-
     it "Functions defined by statement can capture variables" $
       "let cap = 5; print foo[]; func foo = []: Int -> cap;" `runsSuccessfullyWithOutput` "5\n"
     it "Functions defined by statement can capture variables defined later in scope, as long as they are defined by the first function call" $
@@ -64,8 +63,7 @@ testFunctions = do
       "let cap = 1; foo[]; func foo = []: Nil -> bar[]; func bar = []: Nil -> { print cap; };" `runsSuccessfullyWithOutput` "1\n"
     it "Functions defined by statement that call each other cyclically can capture variables transitively" $
       "let fooCap = \"foo\"; let barCap = \"bar\"; foo[4]; func foo = [x: Int]: Nil -> { if x == 0 then { return; }; print fooCap; bar[x - 1]; }; func bar = [x: Int]: Nil -> { if x == 0 then { return; }; print barCap; foo[x - 1]; };" `runsSuccessfullyWithOutput` "foo\nbar\nfoo\nbar\n"
-
-  describe "Function errors" $ do
+  describe "Function errors:" $ do
     it "Functions cannot have multiple parameters with the same name" $
       "let foo = [x, y, x] -> x + y + x;" `failsToCompileWithError` conflictingParameterNamesError
     it "Functions parameters cannot shadow a variable in its declaration" $
@@ -81,17 +79,17 @@ testFunctions = do
     it "Functions must have return type annotations" $
       "let foo = [x: Int] -> x + 1;" `failsToCompileWithError` functionMissingReturnTypeAnnotation
     it "Return statement values in a function must match the function return type" $
-      "let foo = []: Char -> { return 5; };" `failsToCompileWithError` functionReturnTypeError
+      "let foo = []: Char -> { return 5; };" `failsToCompileWithError` typeExpectationError
     it "If a function body never returns, its type must match the return type" $
-      "let foo = []: Nil -> 5;" `failsToCompileWithError` functionReturnTypeError
+      "let foo = []: Nil -> 5;" `failsToCompileWithError` typeExpectationError
     it "If a function body only sometimes returns, its type must match the return type" $
-      "let foo = [x: Bool]: Int -> { if x then { return 0; }; };" `failsToCompileWithError` functionReturnTypeError
+      "let foo = [x: Bool]: Int -> { if x then { return 0; }; };" `failsToCompileWithError` functionBodyTypeError
     it "Return statements not in a function must return Nil" $
-      "let foo = 5; return foo;" `failsToCompileWithError` mainFunctionReturnTypeError
+      "let foo = 5; return foo;" `failsToCompileWithError` typeExpectationError
     it "Non-function values cannot be called" $
       "let foo = true; return foo[];" `failsToCompileWithError` functionCallExpressionNotAFunctionTypeError
     it "Function arguments must match their corresponding parameter type" $
-      "let foo = [x: Int, y: Int]: Int -> x + y; foo[3, 'a'];" `failsToCompileWithError` functionCallExpressionArgumentTypeError
+      "let foo = [x: Int, y: Int]: Int -> x + y; foo[3, 'a'];" `failsToCompileWithError` typeExpectationError
     it "The number of arguments in a function call cannot be less than the number of parameters" $
       "let foo = [x: Int, y: Int]: Int -> x + y; foo[1];" `failsToCompileWithError` functionCallExpressionArityError
     it "The number of arguments in a function call cannot be more than the number of parameters" $
@@ -121,13 +119,13 @@ functionMissingReturnTypeAnnotation :: Error -> Bool
 functionMissingReturnTypeAnnotation (FunctionMissingReturnTypeAnnotation {}) = True
 functionMissingReturnTypeAnnotation _ = False
 
-functionReturnTypeError :: Error -> Bool
-functionReturnTypeError (FunctionReturnTypeError {}) = True
-functionReturnTypeError _ = False
+functionBodyTypeError :: Error -> Bool
+functionBodyTypeError (FunctionBodyTypeError {}) = True
+functionBodyTypeError _ = False
 
-mainFunctionReturnTypeError :: Error -> Bool
-mainFunctionReturnTypeError (MainFunctionReturnTypeError {}) = True
-mainFunctionReturnTypeError _ = False
+typeExpectationError :: Error -> Bool
+typeExpectationError (TypeExpectationError {}) = True
+typeExpectationError _ = False
 
 functionCallExpressionNotAFunctionTypeError :: Error -> Bool
 functionCallExpressionNotAFunctionTypeError (FunctionCallExpressionNotAFunctionTypeError {}) = True

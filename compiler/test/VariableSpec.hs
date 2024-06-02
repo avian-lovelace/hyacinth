@@ -9,7 +9,7 @@ import Test.Hspec
 
 testVariables :: Spec
 testVariables = do
-  describe "Variables" $ do
+  describe "Variables:" $ do
     it "Variables can be defined and used" $
       "let foo = 4; print foo;" `runsSuccessfullyWithOutput` "4\n"
     it "Variable declarations can have type annotations" $
@@ -31,7 +31,7 @@ testVariables = do
       "{ let foo = 3; print foo; }; let foo = 5; print foo;" `runsSuccessfullyWithOutput` "3\n5\n"
     it "Variables can be defined and used from a nested scope at a point in an expression where the stack is not empty" $
       "nil == { let foo = 1; print foo; };" `runsSuccessfullyWithOutput` "1\n"
-  describe "Variable errors" $ do
+  describe "Variable errors:" $ do
     it "Multiple variables with the same name cannot be declared in the same scope" $
       "let foo = 3; let foo = 5;" `failsToCompileWithError` conflictingIdentifierDefinitionsError
     it "Variables cannot be mutated without being declared" $
@@ -51,40 +51,36 @@ testVariables = do
     it "Variables declared as immutable cannot be mutated" $
       "let foo = 5; mut foo = 2;" `failsToCompileWithError` mutatedImmutableVariableError
     it "Variables declared with a type must have their value match that type" $
-      "let foo: String = 5; print foo;" `failsToCompileWithError` variableDeclarationTypeError
+      "let foo: String = 5; print foo;" `failsToCompileWithError` typeExpectationError
     it "Variable mutation values must match the variable type when declared" $
-      "let mut foo: Bool = true; mut foo = 7;" `failsToCompileWithError` variableMutationTypeError
+      "let mut foo: Bool = true; mut foo = 7;" `failsToCompileWithError` typeExpectationError
     it "Variable mutation values must match the variable type when inferred" $
-      "let mut foo = true; mut foo = 7;" `failsToCompileWithError` variableMutationTypeError
+      "let mut foo = true; mut foo = 7;" `failsToCompileWithError` typeExpectationError
 
 conflictingIdentifierDefinitionsError :: Error -> Bool
-conflictingIdentifierDefinitionsError (ConflictingIdentifierDefinitionsError _ _ _) = True
+conflictingIdentifierDefinitionsError (ConflictingIdentifierDefinitionsError {}) = True
 conflictingIdentifierDefinitionsError _ = False
 
 identifierUndefinedAtReferenceError :: Error -> Bool
-identifierUndefinedAtReferenceError (IdentifierUndefinedAtReferenceError _ _) = True
+identifierUndefinedAtReferenceError (IdentifierUndefinedAtReferenceError {}) = True
 identifierUndefinedAtReferenceError _ = False
 
 variableDefinedAfterReferenceError :: Error -> Bool
-variableDefinedAfterReferenceError (VariableDefinedAfterReferenceError _ _ _) = True
+variableDefinedAfterReferenceError (VariableDefinedAfterReferenceError {}) = True
 variableDefinedAfterReferenceError _ = False
 
 variableReferencedInDeclarationError :: Error -> Bool
-variableReferencedInDeclarationError (VariableReferencedInDeclarationError _ _ _) = True
+variableReferencedInDeclarationError (VariableReferencedInDeclarationError {}) = True
 variableReferencedInDeclarationError _ = False
 
 variableShadowedInDeclarationError :: Error -> Bool
-variableShadowedInDeclarationError (VariableShadowedInDeclarationError _ _ _) = True
+variableShadowedInDeclarationError (VariableShadowedInDeclarationError {}) = True
 variableShadowedInDeclarationError _ = False
 
 mutatedImmutableVariableError :: Error -> Bool
-mutatedImmutableVariableError (MutatedImmutableVariableError _ _ _) = True
+mutatedImmutableVariableError (MutatedImmutableVariableError {}) = True
 mutatedImmutableVariableError _ = False
 
-variableDeclarationTypeError :: Error -> Bool
-variableDeclarationTypeError (VariableDeclarationTypeError _ _ _) = True
-variableDeclarationTypeError _ = False
-
-variableMutationTypeError :: Error -> Bool
-variableMutationTypeError (VariableMutationTypeError _ _ _) = True
-variableMutationTypeError _ = False
+typeExpectationError :: Error -> Bool
+typeExpectationError (TypeExpectationError {}) = True
+typeExpectationError _ = False

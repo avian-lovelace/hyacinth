@@ -1,13 +1,22 @@
 module IdentifierBinding.IdentifierBinding
   ( IdentifierBinder,
     IdentifierBindingState (IdentifierBindingState, boundValueIdentifierCounter, boundFunctionIdentifierCounter),
-    IdentifierInfo (VariableIdentifierInfo, ParameterIdentifierInfo, FunctionIdentifierInfo, RecordIdentifierInfo, CaseParameterInfo),
+    IdentifierInfo
+      ( VariableIdentifierInfo,
+        ParameterIdentifierInfo,
+        FunctionIdentifierInfo,
+        RecordIdentifierInfo,
+        CaseParameterInfo,
+        TypeParameterInfo,
+        MutabilityParameterInfo
+      ),
     VariableUsability (BeforeDeclaration, InDeclaration, Usable),
     addVariable,
     initialBindingState,
     andFinally,
     withNewExpressionScope,
     withNewFunctionScope,
+    withNewRecordScope,
     getIdentifierBinding,
     setVariableUsability,
     addParameter,
@@ -17,6 +26,7 @@ module IdentifierBinding.IdentifierBinding
     addRecord,
     getRecordNameBinding,
     withNewCaseScope,
+    addRecordTypeParameter,
   )
 where
 
@@ -38,13 +48,16 @@ data IdentifierBindingState = IdentifierBindingState
   { scopes :: [ScopeInfo],
     boundValueIdentifierCounter :: Int,
     boundFunctionIdentifierCounter :: Int,
-    boundRecordIdentifierCounter :: Int
+    boundRecordIdentifierCounter :: Int,
+    boundTypeParameterCounter :: Int,
+    boundMutabilityParameterCounter :: Int
   }
 
 data ScopeInfo
   = ExpressionScope {scopeIdentifiers :: Map UnboundIdentifier IdentifierInfo}
   | FunctionScope {parameters :: Map UnboundIdentifier IdentifierInfo, capturedIdentifiers :: Set IdentifierInfo}
   | CaseScope {caseParameter :: (UnboundIdentifier, IdentifierInfo)}
+  | RecordScope {recordMutabilityParameter :: Maybe (UnboundIdentifier, IdentifierInfo), recordTypeParameters :: Map UnboundIdentifier IdentifierInfo}
 
 data IdentifierInfo
   = VariableIdentifierInfo Range BoundValueIdentifier Mutability VariableUsability
@@ -52,6 +65,8 @@ data IdentifierInfo
   | FunctionIdentifierInfo Range BoundFunctionIdentifier
   | RecordIdentifierInfo Range BoundRecordIdentifier
   | CaseParameterInfo Range BoundValueIdentifier
+  | TypeParameterInfo Range BoundTypeParameter
+  | MutabilityParameterInfo Range BoundMutabilityParameter
   deriving (Eq, Ord)
 
 asBoundIdentifier :: IdentifierInfo -> Maybe IBIdentifier
@@ -60,6 +75,8 @@ asBoundIdentifier (ParameterIdentifierInfo _ boundValueIdentifier) = Just . Left
 asBoundIdentifier (FunctionIdentifierInfo _ boundFunctionIdentifier) = Just . Right $ boundFunctionIdentifier
 asBoundIdentifier (RecordIdentifierInfo _ _) = Nothing
 asBoundIdentifier (CaseParameterInfo _ boundValueIdentifier) = Just . Left $ boundValueIdentifier
+asBoundIdentifier (TypeParameterInfo _ _) = Nothing
+asBoundIdentifier (MutabilityParameterInfo _ _) = Nothing
 
 instance WithRange IdentifierInfo where
   getRange (VariableIdentifierInfo range _ _ _) = range
@@ -67,6 +84,8 @@ instance WithRange IdentifierInfo where
   getRange (FunctionIdentifierInfo range _) = range
   getRange (RecordIdentifierInfo range _) = range
   getRange (CaseParameterInfo range _) = range
+  getRange (TypeParameterInfo range _) = range
+  getRange (MutabilityParameterInfo range _) = range
 
 data VariableUsability = BeforeDeclaration | InDeclaration | Usable deriving (Eq, Ord)
 
@@ -76,7 +95,9 @@ initialBindingState =
     { scopes = [],
       boundValueIdentifierCounter = 0,
       boundFunctionIdentifierCounter = 1,
-      boundRecordIdentifierCounter = 0
+      boundRecordIdentifierCounter = 0,
+      boundTypeParameterCounter = 0,
+      boundMutabilityParameterCounter = 0
     }
 
 withNewExpressionScope :: IdentifierBinder a -> IdentifierBinder a
@@ -91,6 +112,23 @@ withNewFunctionScope binder =
   do
     pushScope FunctionScope {parameters = Map.empty, capturedIdentifiers = Set.empty}
     binder
+    `andFinally` popScope
+
+withNewRecordScope :: Range -> Maybe UnboundIdentifier -> IdentifierBinder a -> IdentifierBinder (Maybe BoundMutabilityParameter, a)
+withNewRecordScope mutabilityParameterRange maybeUnboundMutabilityParameter binder =
+  do
+    case maybeUnboundMutabilityParameter of
+      Nothing -> do
+        pushScope RecordScope {recordMutabilityParameter = Nothing, recordTypeParameters = Map.empty}
+        result <- binder
+        return (Nothing, result)
+      Just unboundMutabilityParameter -> do
+        checkForInvalidShadow mutabilityParameterRange unboundMutabilityParameter
+        boundMutabilityParameter <- getNewMutabilityParameterBinding unboundMutabilityParameter
+        let mutabilityParameterInfo = MutabilityParameterInfo mutabilityParameterRange boundMutabilityParameter
+        pushScope RecordScope {recordMutabilityParameter = Just (unboundMutabilityParameter, mutabilityParameterInfo), recordTypeParameters = Map.empty}
+        result <- binder
+        return (Just boundMutabilityParameter, result)
     `andFinally` popScope
 
 withNewCaseScope :: Range -> UnboundIdentifier -> IdentifierBinder a -> IdentifierBinder (BoundValueIdentifier, a)
@@ -171,6 +209,19 @@ addParameter parameterRange unboundParameter = do
       setCurrentScope $ FunctionScope {parameters = Map.insert unboundParameter parameterInfo parameters, capturedIdentifiers}
       return boundValueIdentifier
 
+addRecordTypeParameter :: Range -> UnboundIdentifier -> UnboundIdentifier -> IdentifierBinder BoundTypeParameter
+addRecordTypeParameter typeParameterRange recordName unboundTypeParameter = do
+  currentScope <- getCurrentScope
+  recordTypeParameters <- liftWithErrors $ expectRecordScope currentScope
+  case Map.lookup unboundTypeParameter recordTypeParameters of
+    Just conflictingInfo -> throwError $ ConflictingTypeParametersError recordName unboundTypeParameter (getRange conflictingInfo) typeParameterRange
+    Nothing -> do
+      checkForInvalidShadow typeParameterRange unboundTypeParameter
+      boundTypeParameter <- getNewTypeParameterBinding unboundTypeParameter
+      let typeParameterInfo = TypeParameterInfo typeParameterRange boundTypeParameter
+      setCurrentScope $ currentScope {recordTypeParameters = Map.insert unboundTypeParameter typeParameterInfo recordTypeParameters}
+      return boundTypeParameter
+
 checkForInvalidShadow :: Range -> UnboundIdentifier -> IdentifierBinder ()
 checkForInvalidShadow shadowRange unboundIdentifier = do
   scopes <- scopes <$> getState
@@ -183,6 +234,14 @@ checkForInvalidShadowInScopes shadowRange unboundIdentifier (FunctionScope {para
     -- Parameters are always usable if they are in scope
     then return ()
     else checkForInvalidShadowInScopes shadowRange unboundIdentifier restScopes
+checkForInvalidShadowInScopes shadowRange unboundIdentifier (RecordScope {recordMutabilityParameter, recordTypeParameters} : restScopes) =
+  if Map.member unboundIdentifier recordTypeParameters
+    -- Record type parameters are always usable if they are in scope
+    then return ()
+    else
+      if (Just unboundIdentifier) == (fst <$> recordMutabilityParameter)
+        then return ()
+        else checkForInvalidShadowInScopes shadowRange unboundIdentifier restScopes
 checkForInvalidShadowInScopes shadowRange unboundIdentifier (CaseScope {caseParameter} : restScopes) =
   if unboundIdentifier == fst caseParameter
     -- Case values are always usable if they are in scope
@@ -227,29 +286,58 @@ getIdentifierBindingInScopes usageRange unboundIdentifier scopes = case scopes o
       (info, updatedRestScopes) <- getIdentifierBindingInScopes usageRange unboundIdentifier restScopes
       let updatedCapturedIdentifiers = Set.insert info capturedIdentifiers
       return (info, FunctionScope {parameters, capturedIdentifiers = updatedCapturedIdentifiers} : updatedRestScopes)
+  RecordScope {recordMutabilityParameter, recordTypeParameters} : restScopes -> case Map.lookup unboundIdentifier recordTypeParameters of
+    Just info -> return (info, scopes)
+    Nothing -> case recordMutabilityParameter of
+      Just mutabilityParameter ->
+        if unboundIdentifier == fst mutabilityParameter
+          then return (snd mutabilityParameter, scopes)
+          else do
+            (info, updatedRestScopes) <- getIdentifierBindingInScopes usageRange unboundIdentifier restScopes
+            return (info, RecordScope {recordMutabilityParameter, recordTypeParameters} : updatedRestScopes)
+      Nothing -> do
+        (info, updatedRestScopes) <- getIdentifierBindingInScopes usageRange unboundIdentifier restScopes
+        return (info, RecordScope {recordMutabilityParameter, recordTypeParameters} : updatedRestScopes)
 
 getNewValueBinding :: UnboundIdentifier -> IdentifierBinder BoundValueIdentifier
 getNewValueBinding unboundIdentifier = do
-  IdentifierBindingState {boundValueIdentifierCounter, scopes, boundFunctionIdentifierCounter, boundRecordIdentifierCounter} <- getState
-  setState $ IdentifierBindingState {boundValueIdentifierCounter = boundValueIdentifierCounter + 1, scopes, boundFunctionIdentifierCounter, boundRecordIdentifierCounter}
-  return $ BoundValueIdentifier boundValueIdentifierCounter unboundIdentifier
+  state <- getState
+  let currentBoundValueIdentifierCounter = boundValueIdentifierCounter state
+  setState $ state {boundValueIdentifierCounter = currentBoundValueIdentifierCounter + 1}
+  return $ BoundValueIdentifier currentBoundValueIdentifierCounter unboundIdentifier
 
 getNewFunctionBinding :: UnboundIdentifier -> IdentifierBinder BoundFunctionIdentifier
 getNewFunctionBinding unboundIdentifier = do
-  IdentifierBindingState {boundFunctionIdentifierCounter, boundValueIdentifierCounter, scopes, boundRecordIdentifierCounter} <- getState
-  setState $ IdentifierBindingState {boundFunctionIdentifierCounter = boundFunctionIdentifierCounter + 1, boundValueIdentifierCounter, scopes, boundRecordIdentifierCounter}
-  return $ BoundFunctionIdentifier boundFunctionIdentifierCounter unboundIdentifier
+  state <- getState
+  let currentBoundFunctionIdentifierCounter = boundFunctionIdentifierCounter state
+  setState $ state {boundFunctionIdentifierCounter = currentBoundFunctionIdentifierCounter + 1}
+  return $ BoundFunctionIdentifier currentBoundFunctionIdentifierCounter unboundIdentifier
 
 getNewRecordBinding :: UnboundIdentifier -> IdentifierBinder BoundRecordIdentifier
 getNewRecordBinding unboundIdentifier = do
-  IdentifierBindingState {boundFunctionIdentifierCounter, boundValueIdentifierCounter, scopes, boundRecordIdentifierCounter} <- getState
-  setState $ IdentifierBindingState {boundRecordIdentifierCounter = boundRecordIdentifierCounter + 1, boundFunctionIdentifierCounter, boundValueIdentifierCounter, scopes}
-  return $ BoundRecordIdentifier boundRecordIdentifierCounter unboundIdentifier
+  state <- getState
+  let currentBoundRecordIdentifierCounter = boundRecordIdentifierCounter state
+  setState $ state {boundRecordIdentifierCounter = currentBoundRecordIdentifierCounter + 1}
+  return $ BoundRecordIdentifier currentBoundRecordIdentifierCounter unboundIdentifier
+
+getNewTypeParameterBinding :: UnboundIdentifier -> IdentifierBinder BoundTypeParameter
+getNewTypeParameterBinding unboundIdentifier = do
+  state <- getState
+  let currentBoundTypeParameterCounter = boundTypeParameterCounter state
+  setState $ state {boundTypeParameterCounter = currentBoundTypeParameterCounter + 1}
+  return $ BoundTypeParameter currentBoundTypeParameterCounter unboundIdentifier
+
+getNewMutabilityParameterBinding :: UnboundIdentifier -> IdentifierBinder BoundMutabilityParameter
+getNewMutabilityParameterBinding unboundIdentifier = do
+  state <- getState
+  let currentBoundMutabilityParameterCounter = boundMutabilityParameterCounter state
+  setState $ state {boundMutabilityParameterCounter = currentBoundMutabilityParameterCounter + 1}
+  return $ BoundMutabilityParameter currentBoundMutabilityParameterCounter unboundIdentifier
 
 setScopes :: [ScopeInfo] -> IdentifierBinder ()
 setScopes scopes = do
-  IdentifierBindingState {boundValueIdentifierCounter, boundFunctionIdentifierCounter, boundRecordIdentifierCounter} <- getState
-  setState IdentifierBindingState {scopes, boundValueIdentifierCounter, boundFunctionIdentifierCounter, boundRecordIdentifierCounter}
+  state <- getState
+  setState state {scopes}
 
 popScope :: IdentifierBinder ScopeInfo
 popScope = do
@@ -287,6 +375,10 @@ expectExpressionScope _ = singleError $ ShouldNotGetHereError "Expected expressi
 expectFunctionScope :: ScopeInfo -> WithErrors (Map UnboundIdentifier IdentifierInfo, Set IdentifierInfo)
 expectFunctionScope (FunctionScope {parameters, capturedIdentifiers}) = Success (parameters, capturedIdentifiers)
 expectFunctionScope _ = singleError $ ShouldNotGetHereError "Expected function scope"
+
+expectRecordScope :: ScopeInfo -> WithErrors (Map UnboundIdentifier IdentifierInfo)
+expectRecordScope (RecordScope {recordTypeParameters}) = Success recordTypeParameters
+expectRecordScope _ = singleError $ ShouldNotGetHereError "Expected function scope"
 
 getCapturedIdentifiers :: IdentifierBinder (Set IBIdentifier)
 getCapturedIdentifiers = do

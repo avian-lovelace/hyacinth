@@ -19,7 +19,7 @@ module Lexing.Tokens
         EqualsToken,
         PipeToken,
         SingleRightArrowToken,
-        FloatRightArrowToken,
+        DoubleRightArrowToken,
         CommaToken,
         LeftParenToken,
         RightParenToken,
@@ -88,7 +88,7 @@ data Token
   | EqualsToken Range
   | PipeToken Range
   | SingleRightArrowToken Range
-  | FloatRightArrowToken Range
+  | DoubleRightArrowToken Range
   | CommaToken Range
   | -- Grouping
     LeftParenToken Range
@@ -154,7 +154,7 @@ instance Pretty Token where
   pretty (EqualsToken _) = "="
   pretty (PipeToken _) = "|"
   pretty (SingleRightArrowToken _) = "->"
-  pretty (FloatRightArrowToken _) = "=>"
+  pretty (DoubleRightArrowToken _) = "=>"
   pretty (CommaToken _) = ","
   pretty (LeftParenToken _) = "("
   pretty (RightParenToken _) = ")"
@@ -214,7 +214,7 @@ instance WithRange Token where
   getRange (EqualsToken range) = range
   getRange (PipeToken range) = range
   getRange (SingleRightArrowToken range) = range
-  getRange (FloatRightArrowToken range) = range
+  getRange (DoubleRightArrowToken range) = range
   getRange (CommaToken range) = range
   getRange (LeftParenToken range) = range
   getRange (RightParenToken range) = range

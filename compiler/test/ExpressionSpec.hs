@@ -17,7 +17,7 @@ evaluatesTo expression value = code `runsSuccessfullyWithOutput` output
 
 testExpressions :: Spec
 testExpressions = do
-  describe "An expression" $ do
+  describe "Expressions:" $ do
     it "can be nil" $
       "nil" `evaluatesTo` "nil"
     it "negates" $

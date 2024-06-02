@@ -51,7 +51,7 @@ lexers =
   [ lexWhiteSpace,
     -- Multiple character symbols
     lexMultiCharSymbol "->" SingleRightArrowToken,
-    lexMultiCharSymbol "=>" FloatRightArrowToken,
+    lexMultiCharSymbol "=>" DoubleRightArrowToken,
     lexMultiCharSymbol "&&" AndToken,
     lexMultiCharSymbol "||" OrToken,
     lexMultiCharSymbol "++" PlusPlusToken,

@@ -188,29 +188,65 @@ isSingleRightArrowSection (TokenSection (SingleRightArrowToken _)) = True
 isSingleRightArrowSection _ = False
 
 parseRecordStatement :: Section -> ParseFunction PNonPositionalStatement
-parseRecordStatement
-  recTokenSection
-  ( (TokenSection (IdentifierToken _ recordName))
-      :<| (TokenSection (EqualsToken _))
-      :<| (SquareBracketSection fieldTypeListRange fieldTypeListSections)
-      :<| Empty
-    ) = do
-    let fieldSectionLists = seqSplitOn isCommaSection fieldTypeListSections
-    fieldTypePairs <- consolidateErrors $ parseFieldType <$> fieldSectionLists
-    return $ RecordStatement (getRange recTokenSection <> fieldTypeListRange) recordName fieldTypePairs
-    where
-      parseFieldType :: ParseFunction (PFieldIdentifier, PTypeExpression)
-      parseFieldType Empty = singleError $ RecordStatementEmptyFieldError fieldTypeListRange
-      parseFieldType ((TokenSection (IdentifierToken fieldNameRange fieldName)) :<| (TokenSection (ColonToken colonRange)) :<| Empty) =
-        singleError $ RecordStatementEmptyFieldTypeError fieldName (fieldNameRange <> colonRange)
-      parseFieldType ((TokenSection (IdentifierToken _ fieldName)) :<| (TokenSection (ColonToken _)) :<| typeSections) = do
-        fieldType <-
-          catchUnboundError (RecordStatementMalformedFieldValueError fieldName (getRange typeSections)) $
-            runParserToEnd typeExpressionParser typeSections
-        return (fieldName, fieldType)
-      parseFieldType sections = singleError $ RecordStatementMalformedFieldError (getRange sections)
 parseRecordStatement recTokenSection Empty = singleError $ RecordStatementMalformedError (getRange recTokenSection)
-parseRecordStatement recTokenSection restSections = singleError $ RecordStatementMalformedError (getRange recTokenSection <> getRange restSections)
+parseRecordStatement recTokenSection restSections1 = do
+  (recordName, restSections2) <- case restSections1 of
+    ( (TokenSection (IdentifierToken _ recordName))
+        :<| (TokenSection (EqualsToken _))
+        :<| restSections2
+      ) -> return (recordName, restSections2)
+    _ -> singleError $ RecordStatementMalformedError statementRange
+  (mutabilityParameter, typeParameters, restSections3) <- case restSections2 of
+    ( (AngleBracketSection typeParameterListRange typeParameterListSections)
+        :<| (TokenSection (DoubleRightArrowToken _))
+        :<| restSections3
+      ) -> do
+        (mutabilityParameter, typeParameters) <- parseTypeParameters typeParameterListRange typeParameterListSections
+        return (mutabilityParameter, typeParameters, restSections3)
+    _ -> return (Nothing, Empty, restSections2)
+  fieldTypePairs <- case restSections3 of
+    ( (SquareBracketSection fieldTypeListRange fieldTypeListSections)
+        :<| Empty
+      ) -> parseFieldTypes fieldTypeListRange fieldTypeListSections
+    _ -> singleError $ RecordStatementMalformedError statementRange
+  return $ RecordStatement statementRange recordName mutabilityParameter typeParameters fieldTypePairs
+  where
+    statementRange = getRange recTokenSection <> getRange restSections1
+
+parseTypeParameters :: Range -> ParseFunction (Maybe PMutabilityParameter, Seq PTypeParameter)
+parseTypeParameters typeParameterListRange typeParameterListSections = do
+  let typeAndMutabilityParameterSectionLists = seqSplitOn isCommaSection typeParameterListSections
+  (mutabilityParameter, typeParameterSectionLists) <- parseMutabilityParameter typeAndMutabilityParameterSectionLists
+  typeParameters <- consolidateErrors $ parseTypeParameter <$> typeParameterSectionLists
+  return (mutabilityParameter, typeParameters)
+  where
+    parseMutabilityParameter :: Seq (Seq Section) -> WithErrors (Maybe PMutabilityParameter, Seq (Seq Section))
+    parseMutabilityParameter Empty = return (Nothing, Empty)
+    parseMutabilityParameter (firstSectionList :<| restSectionLists) = case firstSectionList of
+      ((TokenSection (MutToken _)) :<| (TokenSection (IdentifierToken _ mutabilityParameter)) :<| Empty) -> return (Just mutabilityParameter, restSectionLists)
+      ((TokenSection (MutToken mutTokenRange)) :<| Empty) -> singleError $ MutabilityParameterMalformedError mutTokenRange
+      ((TokenSection (MutToken mutTokenRange)) :<| restSections) -> singleError $ MutabilityParameterMalformedError (mutTokenRange <> getRange restSections)
+      _ -> return (Nothing, firstSectionList :<| restSectionLists)
+    parseTypeParameter :: ParseFunction PTypeParameter
+    parseTypeParameter Empty = singleError $ TypeParameterEmptyError typeParameterListRange
+    parseTypeParameter ((TokenSection (IdentifierToken _ typeParameterName)) :<| Empty) = return typeParameterName
+    parseTypeParameter typeParameterSections = singleError $ TypeParameterMalformedError (getRange typeParameterSections)
+
+parseFieldTypes :: Range -> ParseFunction (Seq (PFieldIdentifier, PTypeExpression))
+parseFieldTypes fieldTypeListRange fieldTypeListSections = do
+  let fieldSectionLists = seqSplitOn isCommaSection fieldTypeListSections
+  consolidateErrors $ parseFieldType <$> fieldSectionLists
+  where
+    parseFieldType :: ParseFunction (PFieldIdentifier, PTypeExpression)
+    parseFieldType Empty = singleError $ RecordStatementEmptyFieldError fieldTypeListRange
+    parseFieldType ((TokenSection (IdentifierToken fieldNameRange fieldName)) :<| (TokenSection (ColonToken colonRange)) :<| Empty) =
+      singleError $ RecordStatementEmptyFieldTypeError fieldName (fieldNameRange <> colonRange)
+    parseFieldType ((TokenSection (IdentifierToken _ fieldName)) :<| (TokenSection (ColonToken _)) :<| typeSections) = do
+      fieldType <-
+        catchUnboundError (RecordStatementMalformedFieldValueError fieldName (getRange typeSections)) $
+          runParserToEnd typeExpressionParser typeSections
+      return (fieldName, fieldType)
+    parseFieldType sections = singleError $ RecordStatementMalformedFieldError (getRange sections)
 
 -- Expressions
 
@@ -510,13 +546,17 @@ recordExpressionParser :: Parser PExpression
 recordExpressionParser = do
   maybeMutRange <- pZeroOrOne $ pNext <&&> matchMutSection
   (recordNameRange, recordName) <- pNext <&&> matchIdentifierSection
+  maybeTypeArgumentInfo <- pZeroOrOne $ pNext <&&> matchAngleBracketSection
+  typeArguments <- case maybeTypeArgumentInfo of
+    Nothing -> return Empty
+    Just (typeArgumentsRange, typeArgumentsSections) -> returnWithErrors $ parseTypeArgumentList typeArgumentsRange typeArgumentsSections
   (fieldsRange, fieldsSections) <- pNext <&&> matchSquareBracketSection
   -- If there is a set of empty brackets, we want to parse it as a function call, not a record
   pExpect $ isNonEmpty fieldsSections
   fieldsMap <- returnWithErrors $ parseFieldValueList fieldsRange fieldsSections
   return $ case maybeMutRange of
-    Nothing -> RecordExpression (recordNameRange <> fieldsRange) Immutable recordName fieldsMap
-    Just mutRange -> RecordExpression (mutRange <> fieldsRange) Mutable recordName fieldsMap
+    Nothing -> RecordExpression (recordNameRange <> fieldsRange) Immutable recordName typeArguments fieldsMap
+    Just mutRange -> RecordExpression (mutRange <> fieldsRange) Mutable recordName typeArguments fieldsMap
   where
     isNonEmpty Empty = False
     isNonEmpty _ = True
@@ -544,15 +584,28 @@ parseFieldValueList fieldValueListRange sections = do
     parseFieldValue fieldSections = singleError $ RecordExpressionMalformedFieldError (getRange fieldSections)
     addFieldValue :: Map PFieldIdentifier PExpression -> (PFieldIdentifier, PExpression) -> WithErrors (Map PFieldIdentifier PExpression)
     addFieldValue recordMap (fieldName, fieldValue) = do
-      let (maybeConflictingValue, updatedRecordMap) = Map.insertLookupWithKey (\_ a _ -> a) fieldName fieldValue recordMap
+      let (maybeConflictingValue, updatedRecordMap) = insertAndReplace fieldName fieldValue recordMap
       case maybeConflictingValue of
         Just conflictingValue ->
           singleError $ RecordExpressionConflictingFieldsError fieldName (getRange fieldValue) (getRange conflictingValue)
         Nothing -> return updatedRecordMap
 
+parseTypeArgumentList :: Range -> ParseFunction (Seq PTypeExpression)
+parseTypeArgumentList typeArgumentListRange Empty = singleError $ TypeArgumentListEmptyError typeArgumentListRange
+parseTypeArgumentList typeArgumentListRange typeArgumentListSections = do
+  let typeArgumentSectionLists = seqSplitOn isCommaSection typeArgumentListSections
+  let parseTypeParameter sections = case sections of
+        Empty -> singleError $ TypeArgumentEmptyError typeArgumentListRange
+        _ -> catchUnboundError (TypeArgumentMalformedError $ getRange sections) $ runParserToEnd typeExpressionParser sections
+  consolidateErrors $ parseTypeParameter <$> typeArgumentSectionLists
+
 matchMutSection :: Section -> Maybe Range
 matchMutSection (TokenSection (MutToken range)) = Just range
 matchMutSection _ = Nothing
+
+matchAngleBracketSection :: Section -> Maybe (Range, Seq Section)
+matchAngleBracketSection (AngleBracketSection range innerSections) = Just (range, innerSections)
+matchAngleBracketSection _ = Nothing
 
 caseExpressionParser :: Parser PExpression
 caseExpressionParser = do
@@ -608,31 +661,7 @@ matchOfSection _ = Nothing
 -- Types
 
 typeExpressionParser :: Parser PTypeExpression
-typeExpressionParser = mutTypeParser <|> operatorTypeExpressionParser
-
-mutTypeParser :: Parser PTypeExpression
-mutTypeParser = do
-  mutRange <- pNext <&&> matchMutSection
-  innerTypeExpression <- operatorTypeExpressionParser
-  return $ MutTypeExpression (mutRange <> getRange innerTypeExpression) innerTypeExpression
-
-operatorTypeExpressionParser :: Parser PTypeExpression
-operatorTypeExpressionParser = do
-  leftTypeExpression <- primaryTypeParser
-  rightTypeExpressions <- pZeroOrMore $ do
-    operator <- pNext <&&> toTypeOperator
-    rightExpression <- primaryTypeParser
-    return (operator, rightExpression)
-  return $ foldl' makeTypeExpression leftTypeExpression rightTypeExpressions
-  where
-    makeTypeExpression left (operator, right) = operator (getRange (left, right)) left right
-
-toTypeOperator :: Section -> Maybe (Range -> PTypeExpression -> PTypeExpression -> PTypeExpression)
-toTypeOperator (TokenSection (PipeToken _)) = Just UnionTypeExpression
-toTypeOperator _ = Nothing
-
-primaryTypeParser :: Parser PTypeExpression
-primaryTypeParser = functionTypeParser <|> simpleTypeParser <|> parenthesesTypeExpressionParser <|> mutTypeParser
+typeExpressionParser = functionTypeParser <|> identifierOrRecordUnionTypeParser <|> simpleTypeParser <|> parenthesesTypeExpressionParser
 
 functionTypeParser :: Parser PTypeExpression
 functionTypeParser = do
@@ -654,6 +683,54 @@ parseParameterTypes parameterListRange sections = do
       catchUnboundError (FunctionTypeMalformedParameterError $ getRange parameterSections) $
         runParserToEnd typeExpressionParser parameterSections
 
+identifierOrRecordUnionTypeParser :: Parser PTypeExpression
+identifierOrRecordUnionTypeParser = do
+  (mutability, firstRecordName, startRange) <- mutabilityParameterParser <|> mutableParser <|> immutableParser
+  (firstRecordTypeArguments, maybeFirstRecordTypeArgumentsRange) <- typeArgumentParser
+  let firstRecordRange = case maybeFirstRecordTypeArgumentsRange of
+        Nothing -> startRange
+        Just firstRecordTypeArgumentsRange -> startRange <> firstRecordTypeArgumentsRange
+  restRecords <- pZeroOrMore $ do
+    _ <- pNext <&&> matchPipeSection
+    (recordNameRange, recordName) <- pNext <&&> matchIdentifierSection
+    (recordTypeArguments, maybeTypeArgumentsRange) <- typeArgumentParser
+    let recordRange = case maybeTypeArgumentsRange of
+          Nothing -> recordNameRange
+          Just typeArgumentsRange -> typeArgumentsRange
+    return ((recordName, recordTypeArguments), recordRange)
+  case (mutability, restRecords, firstRecordTypeArguments) of
+    {- This case is when we have a single identifier with no type arguments. It might be a record or it might be a type
+      parameter. This case is handled here rather than in simpleTypeParser because there would be issues telling a
+      mutability parameter from a standalone identifier type expression.
+    -}
+    (Left Immutable, Empty, Empty) -> return $ IdentifierTypeExpression firstRecordRange firstRecordName
+    _ -> do
+      let recordsWithRange = ((firstRecordName, firstRecordTypeArguments), firstRecordRange) <| restRecords
+      return $ RecordUnionTypeExpression (snd (seqHead recordsWithRange) <> snd (seqTail recordsWithRange)) mutability (fst <$> recordsWithRange)
+  where
+    mutableParser = do
+      mutSectionRange <- pNext <&&> matchMutSection
+      (firstRecordNameRange, firstRecordName) <- pNext <&&> matchIdentifierSection
+      return (Left Mutable, firstRecordName, mutSectionRange <> firstRecordNameRange)
+    immutableParser = do
+      (firstRecordNameRange, firstRecordName) <- pNext <&&> matchIdentifierSection
+      return (Left Immutable, firstRecordName, firstRecordNameRange)
+    mutabilityParameterParser = do
+      (mutabilityParameterRange, mutabilityParameterName) <- pNext <&&> matchIdentifierSection
+      (firstRecordNameRange, firstRecordName) <- pNext <&&> matchIdentifierSection
+      return (Right mutabilityParameterName, firstRecordName, mutabilityParameterRange <> firstRecordNameRange)
+    typeArgumentParser = do
+      typeArgumentListInfo <- pZeroOrOne $ pNext <&&> matchAngleBracketSection
+      case typeArgumentListInfo of
+        Nothing -> return (Empty, Nothing)
+        Just (typeArgumentsRange, typeArgumentsSections) -> do
+          typeArguments <- returnWithErrors $ parseTypeArgumentList typeArgumentsRange typeArgumentsSections
+          return (typeArguments, Just typeArgumentsRange)
+
+matchPipeSection :: Section -> Maybe Range
+matchPipeSection (TokenSection (PipeToken range)) = Just range
+matchPipeSection _ = Nothing
+
 simpleTypeParser :: Parser PTypeExpression
 simpleTypeParser = pNext <&&> asSimpleType
 
@@ -664,7 +741,6 @@ asSimpleType (TokenSection (CharToken range)) = Just $ CharTypeExpression range
 asSimpleType (TokenSection (StringToken range)) = Just $ StringTypeExpression range
 asSimpleType (TokenSection (BoolToken range)) = Just $ BoolTypeExpression range
 asSimpleType (TokenSection (NilToken range)) = Just $ NilTypeExpression range
-asSimpleType (TokenSection (IdentifierToken range identifier)) = Just $ RecordTypeExpression range identifier
 asSimpleType _ = Nothing
 
 parenthesesTypeExpressionParser :: Parser PTypeExpression

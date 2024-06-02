@@ -16,12 +16,16 @@ module Parsing.SyntaxTree
     PRecordIdentifier,
     PFieldIdentifier,
     PValueIdentifier,
+    PTypeIdentifier,
+    PTypeParameter,
+    PMutabilityParameter,
   )
 where
 
 import Core.FilePositions
 import Core.SyntaxTree
 import Data.Map (Map)
+import Data.Sequence (Seq)
 import Data.Text (Text)
 
 data ParsingPhase
@@ -82,6 +86,18 @@ type PFieldIdentifier = FieldIdentifier ParsingPhase
 
 type instance FieldIdentifier ParsingPhase = UnboundIdentifier
 
+type PTypeIdentifier = TypeIdentifier ParsingPhase
+
+type instance TypeIdentifier ParsingPhase = UnboundIdentifier
+
+type PTypeParameter = TypeParameter ParsingPhase
+
+type instance TypeParameter ParsingPhase = UnboundIdentifier
+
+type PMutabilityParameter = MutabilityParameter ParsingPhase
+
+type instance MutabilityParameter ParsingPhase = UnboundIdentifier
+
 -- Expression
 type PExpression = Expression ParsingPhase
 
@@ -90,6 +106,8 @@ type instance ExpressionData ParsingPhase = Range
 type instance FunctionExpressionContent ParsingPhase = PFunctionDefinition
 
 type instance RecordFieldValues ParsingPhase = Map PFieldIdentifier PExpression
+
+type instance TypeArguments ParsingPhase = Seq PTypeExpression
 
 instance WithRange PExpression where
   getRange = getExpressionData

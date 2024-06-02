@@ -8,11 +8,17 @@
  - Effects
  - Add compile-time optimizations
  - Importing and exporting from modules
+ - Function type parameters
+ - Type assertion expressions
 
 ## Technical debt
  - Improve error reporting in parts of the parser that use parser combinators
+ - Update identifier binding to separate out type identifiers and value identifiers
+ - Consolidate error messages for identifiers usage not matching their definition in identifier binding
+ - Add cases to typeCheckExpression for built-in expressions like the one for NegateExpression
 
 ## Bugs
  - [ ] [BUG-1] Parsing errors in record expression fields get eaten
  - [X] [BUG-2] Garbage collector doesn't look at object fields
  - [X] [BUG-3] If a scope is created when there are non-variable values on the stack, variables in that scope are not found correctly
+ - [ ] [BUG-4] The type checking phase assumes that immutable records are covariant in all their type parameters, and that mutable records are invariant in all their type parameters. This is unsound, but I think is correct more often than not. To make the type system sound, we should add variance annotations to type parameters and/or implement automatic variance determination in the type checking phase. Note that syntax for variance annotations may be inelegant, as even in simple cases, a type parameter may want a different variance depending on the record mutability.

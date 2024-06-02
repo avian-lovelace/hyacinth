@@ -58,6 +58,12 @@ module Core.Errors
         CaseExpressionEmptyCaseValueError,
         CaseExpressionMalformedCaseValueError,
         CaseExpressionDuplicatedCasesError,
+        MutabilityParameterMalformedError,
+        TypeParameterEmptyError,
+        TypeParameterMalformedError,
+        TypeArgumentListEmptyError,
+        TypeArgumentEmptyError,
+        TypeArgumentMalformedError,
         ConflictingIdentifierDefinitionsError,
         IdentifierUndefinedAtReferenceError,
         VariableDefinedAfterReferenceError,
@@ -69,17 +75,23 @@ module Core.Errors
         MutatedFunctionError,
         MutatedRecordError,
         MutatedCaseParameterError,
+        MutatedTypeParameterError,
+        MutatedMutabilityParameterError,
         IdentifierConflictsWithRecordError,
         ValueIdentifierUsedAsTypeError,
-        ValueIdentifierUsedAsRecordNameError,
+        IdentifierUsedAsRecordNameError,
         ValueIdentifierUsedAsCaseError,
+        ConflictingTypeParametersError,
+        TypeParameterUsedAsValueError,
+        MutabilityParameterUsedAsValueError,
+        IdentifierUsedAsMutabilityParameterError,
         MutatedCapturedIdentifierError,
         IdentifierUndefinedBeforeCaptureError,
         VariableDeclarationTypeError,
         VariableMutationTypeError,
         WhileLoopConditionTypeError,
-        MainFunctionReturnTypeError,
-        FunctionReturnTypeError,
+        FunctionNilReturnTypeError,
+        FunctionBodyTypeError,
         NegateExpressionTypeError,
         AddExpressionTypeError,
         SubtractExpressionTypeError,
@@ -98,15 +110,23 @@ module Core.Errors
         IfThenElseExpressionConditionTypeError,
         IfThenExpressionBranchesTypeError,
         IfThenElseExpressionBranchesTypeError,
+        IfThenExpressionNilTypeError,
         FunctionCallExpressionNotAFunctionTypeError,
         FunctionCallExpressionArityError,
         FunctionCallExpressionArgumentTypeError,
         FunctionMissingParameterTypeAnnotation,
         FunctionMissingReturnTypeAnnotation,
+        FunctionTypeError,
+        FunctionArityError,
+        FunctionParameterTypeError,
+        FunctionReturnTypeError,
         RecordStatementConflictingFieldsError,
         RecordExpressionExtraFieldError,
         RecordExpressionMissingFieldError,
         RecordExpressionFieldTypeError,
+        RecordExpresssionRecordNotInTypeError,
+        RecordExpresssionNumTypeArgumentsError,
+        RecordExpressionMutabilityTypeError,
         AccessedFieldOfNonRecordValueError,
         AccessedFieldNotInRecordError,
         NonRecordTypeInUnionError,
@@ -123,6 +143,9 @@ module Core.Errors
         MutatedFieldNotInRecordError,
         FieldTypesHaveEmptyIntersectionError,
         FieldMutationValueTypeError,
+        TypeExpectationError,
+        RecordUnionTypeExpressionDuplicateRecordsError,
+        RecordFieldExplicitMutabilityError,
         RuntimeError
       ),
     WithErrors (Error, Success),
@@ -135,12 +158,12 @@ where
 
 import Core.FilePositions
 import Core.SyntaxTree (Mutability)
-import Core.Type
 import Core.Utils
 import Data.Sequence (Seq (Empty), singleton, (<|), (><))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Lexing.Tokens
+import TypeChecking.Type
 
 data Error
   = -- Generic
@@ -205,6 +228,12 @@ data Error
   | CaseExpressionEmptyCaseValueError Text Range
   | CaseExpressionMalformedCaseValueError Text Range
   | CaseExpressionDuplicatedCasesError Text Range Range
+  | MutabilityParameterMalformedError Range
+  | TypeParameterEmptyError Range
+  | TypeParameterMalformedError Range
+  | TypeArgumentListEmptyError Range
+  | TypeArgumentEmptyError Range
+  | TypeArgumentMalformedError Range
   | -- Identifier binding
     ConflictingIdentifierDefinitionsError Text Range Range
   | IdentifierUndefinedAtReferenceError Text Range
@@ -217,16 +246,22 @@ data Error
   | MutatedFunctionError Text Range Range
   | MutatedRecordError Text Range Range
   | MutatedCaseParameterError Text Range Range
+  | MutatedTypeParameterError Text Range Range
+  | MutatedMutabilityParameterError Text Range Range
   | IdentifierConflictsWithRecordError Text Range Range
   | ValueIdentifierUsedAsTypeError Text Range Range
-  | ValueIdentifierUsedAsRecordNameError Text Range Range
+  | IdentifierUsedAsRecordNameError Text Range Range
   | ValueIdentifierUsedAsCaseError Text Range Range
+  | ConflictingTypeParametersError Text Text Range Range
+  | TypeParameterUsedAsValueError Text Range Range
+  | MutabilityParameterUsedAsValueError Text Range Range
+  | IdentifierUsedAsMutabilityParameterError Text Range Range
   | -- Type checking
     VariableDeclarationTypeError Range Type Type
   | VariableMutationTypeError Range Type Type
   | WhileLoopConditionTypeError Range Type
-  | MainFunctionReturnTypeError Range Type
-  | FunctionReturnTypeError Range Type Range Type
+  | FunctionNilReturnTypeError Range Type
+  | FunctionBodyTypeError Range Type Type
   | NegateExpressionTypeError Range Type
   | AddExpressionTypeError Range Type Type
   | SubtractExpressionTypeError Range Type Type
@@ -245,15 +280,23 @@ data Error
   | IfThenElseExpressionConditionTypeError Range Type
   | IfThenExpressionBranchesTypeError Range Type
   | IfThenElseExpressionBranchesTypeError Range Type Type
+  | IfThenExpressionNilTypeError Range Type
   | FunctionCallExpressionNotAFunctionTypeError Range Type
   | FunctionCallExpressionArityError Range Int Int
   | FunctionCallExpressionArgumentTypeError Range Type Type
   | FunctionMissingParameterTypeAnnotation Range
   | FunctionMissingReturnTypeAnnotation Range
+  | FunctionTypeError Range Type
+  | FunctionArityError Range Type Int
+  | FunctionParameterTypeError Range Text Type Type
+  | FunctionReturnTypeError Range Type Type
   | RecordStatementConflictingFieldsError Text Text Range Range
   | RecordExpressionExtraFieldError Text Text Range
   | RecordExpressionMissingFieldError Text Text Range
   | RecordExpressionFieldTypeError Text Text Type Type Range
+  | RecordExpresssionRecordNotInTypeError Range Type Text
+  | RecordExpresssionNumTypeArgumentsError Range Text Int Int
+  | RecordExpressionMutabilityTypeError Range
   | AccessedFieldOfNonRecordValueError Type Range
   | AccessedFieldNotInRecordError Text Text Type Range
   | NonRecordTypeInUnionError Type Range
@@ -270,6 +313,9 @@ data Error
   | MutatedFieldNotInRecordError Text Text Type Range
   | FieldTypesHaveEmptyIntersectionError Text [(Text, Type)] Range
   | FieldMutationValueTypeError Range Type Type
+  | TypeExpectationError Range Type Type
+  | RecordUnionTypeExpressionDuplicateRecordsError Range Text
+  | RecordFieldExplicitMutabilityError Range
   | -- Function lifting
     MutatedCapturedIdentifierError Text Range
   | IdentifierUndefinedBeforeCaptureError Text Text Range
@@ -346,6 +392,12 @@ instance Pretty Error where
     "Failed to parse value of case " ++ pretty caseRecordName ++ " as an expression at " ++ pretty range
   pretty (CaseExpressionDuplicatedCasesError caseRecordName range1 range2) =
     "Case expression has duplicate cases for record " ++ pretty caseRecordName ++ " at " ++ pretty range1 ++ " and " ++ pretty range2
+  pretty (MutabilityParameterMalformedError range) = "Failed to parse mutability parameter at " ++ pretty range
+  pretty (TypeParameterEmptyError range) = "Type parameter was empty at " ++ pretty range
+  pretty (TypeParameterMalformedError range) = "Failed to parse type parameter at " ++ pretty range
+  pretty (TypeArgumentListEmptyError range) = "Type argument list was empty at " ++ pretty range
+  pretty (TypeArgumentEmptyError range) = "Type argument was empty at " ++ pretty range
+  pretty (TypeArgumentMalformedError range) = "Failed to parse type argument at " ++ pretty range
   pretty (ConflictingIdentifierDefinitionsError variableName declarationRange1 declarationRange2) =
     "Identifier " ++ Text.unpack variableName ++ " has conflicting definitions at " ++ pretty declarationRange1 ++ " and " ++ pretty declarationRange2
   pretty (IdentifierUndefinedAtReferenceError variableName range) =
@@ -368,14 +420,26 @@ instance Pretty Error where
     "Record " ++ Text.unpack recordName ++ " defined at " ++ pretty definitionRange ++ " is mutated at " ++ pretty mutationRange
   pretty (MutatedCaseParameterError recordName definitionRange mutationRange) =
     "Case parameter " ++ Text.unpack recordName ++ " defined at " ++ pretty definitionRange ++ " is mutated at " ++ pretty mutationRange
+  pretty (MutatedTypeParameterError parameterName definitionRange mutationRange) =
+    "Type parameter " ++ Text.unpack parameterName ++ " defined at " ++ pretty definitionRange ++ " is mutated at " ++ pretty mutationRange
+  pretty (MutatedMutabilityParameterError parameterName definitionRange mutationRange) =
+    "Mutability parameter " ++ Text.unpack parameterName ++ " defined at " ++ pretty definitionRange ++ " is mutated at " ++ pretty mutationRange
   pretty (IdentifierConflictsWithRecordError recordName definitionRange shadowRange) =
     "Record " ++ Text.unpack recordName ++ " defined at " ++ pretty definitionRange ++ " cannot be shadowed " ++ pretty shadowRange
   pretty (ValueIdentifierUsedAsTypeError identifier definitionRange usageRange) =
     "Value identifier " ++ Text.unpack identifier ++ " defined at " ++ pretty definitionRange ++ " cannot be used as a type at " ++ pretty usageRange
-  pretty (ValueIdentifierUsedAsRecordNameError identifier definitionRange usageRange) =
-    "Value identifier " ++ Text.unpack identifier ++ " defined at " ++ pretty definitionRange ++ " cannot be used as a record name at " ++ pretty usageRange
+  pretty (IdentifierUsedAsRecordNameError identifier definitionRange usageRange) =
+    "Non-record identifier " ++ Text.unpack identifier ++ " defined at " ++ pretty definitionRange ++ " cannot be used as a record name at " ++ pretty usageRange
   pretty (ValueIdentifierUsedAsCaseError identifier definitionRange usageRange) =
     "Value identifier " ++ Text.unpack identifier ++ " defined at " ++ pretty definitionRange ++ " cannot be used as a case pattern at " ++ pretty usageRange
+  pretty (ConflictingTypeParametersError recordName parameterName range1 range2) =
+    "Record " ++ pretty recordName ++ "  has multiple type parameters named " ++ pretty parameterName ++ " at " ++ pretty range1 ++ " and " ++ pretty range2
+  pretty (TypeParameterUsedAsValueError parameterName usageRange definitionRange) =
+    "Type parameter " ++ pretty parameterName ++ " defined at " ++ pretty definitionRange ++ " is used as a value at " ++ pretty usageRange
+  pretty (MutabilityParameterUsedAsValueError parameterName usageRange definitionRange) =
+    "Mutability parameter " ++ pretty parameterName ++ " defined at " ++ pretty definitionRange ++ " is used as a value at " ++ pretty usageRange
+  pretty (IdentifierUsedAsMutabilityParameterError parameterName usageRange definitionRange) =
+    "Non-mutability-parameter " ++ pretty parameterName ++ " defined at " ++ pretty definitionRange ++ " is used as a mutability parameter at " ++ pretty usageRange
   pretty (IdentifierUndefinedBeforeCaptureError functionName identifier captureRange) =
     "Function " ++ pretty functionName ++ " cannot be called at " ++ pretty captureRange ++ ", as it captured identifier " ++ pretty identifier ++ " which is not yet defined"
   pretty (VariableDeclarationTypeError range expectedType actualType) =
@@ -384,10 +448,10 @@ instance Pretty Error where
     "In variable mutation at " ++ pretty range ++ ", the variable has type " ++ pretty expectedType ++ ", but the value has type " ++ pretty actualType
   pretty (WhileLoopConditionTypeError range conditionType) =
     "While loop condition should have type Bool, but is " ++ pretty conditionType ++ " at " ++ pretty range
-  pretty (MainFunctionReturnTypeError range returnType) =
-    "Return from main function should have type Nil, but is " ++ pretty returnType ++ " at " ++ pretty range
-  pretty (FunctionReturnTypeError expectedTypeRange expectedType returnStatementRange actualType) =
-    "Return from function should have type " ++ pretty expectedType ++ " set at " ++ pretty expectedTypeRange ++ ", but is " ++ pretty actualType ++ " at " ++ pretty returnStatementRange
+  pretty (FunctionNilReturnTypeError range expectedType) =
+    "Empty return statement at " ++ pretty range ++ " returns nil, which does not match the expected return type " ++ pretty expectedType
+  pretty (FunctionBodyTypeError range expectedType actualType) =
+    "Function body at " ++ pretty range ++ " has type " ++ pretty actualType ++ ", which does not match the expected return type " ++ pretty expectedType
   pretty (NegateExpressionTypeError range innerType) = "Cannot negate expression of type " ++ pretty innerType ++ " at " ++ pretty range
   pretty (AddExpressionTypeError range leftType rightType) =
     "Cannot add expressions of type " ++ pretty leftType ++ " and " ++ pretty rightType ++ " at " ++ pretty range
@@ -422,6 +486,8 @@ instance Pretty Error where
     "If expression true branch should have type Nil when there is no false branch, but has type" ++ pretty trueBranchType ++ " at " ++ pretty range
   pretty (IfThenElseExpressionBranchesTypeError range trueBranchType falseBranchType) =
     "Branches of if expression have differring types " ++ pretty trueBranchType ++ " and " ++ pretty falseBranchType ++ " at " ++ pretty range
+  pretty (IfThenExpressionNilTypeError range expectedType) =
+    "If-then expression without an else branch implicitly evaluates to nil, which is not compatible with expected type " ++ pretty expectedType ++ " at " ++ pretty range
   pretty (FunctionCallExpressionNotAFunctionTypeError range functionType) =
     "Attempted to call a value of non-function type " ++ pretty functionType ++ " at " ++ pretty range
   pretty (FunctionCallExpressionArityError range numParameters numArguments) =
@@ -432,6 +498,14 @@ instance Pretty Error where
     "Function parameter has no type annotation at " ++ pretty range
   pretty (FunctionMissingReturnTypeAnnotation range) =
     "Function has no return type annotation at " ++ pretty range
+  pretty (FunctionTypeError range expectedType) =
+    "Expected a value of non-function type " ++ pretty expectedType ++ " at " ++ pretty range ++ ", but found a function definition"
+  pretty (FunctionArityError range expectedType actualArity) =
+    "Expected a value of type " ++ pretty expectedType ++ " at " ++ pretty range ++ ", but found a function with arity " ++ pretty actualArity
+  pretty (FunctionParameterTypeError range parameterName expectedType actualType) =
+    "Function parameter " ++ pretty parameterName ++ " defined at " ++ pretty range ++ " with type annotation " ++ pretty actualType ++ " is not compatible with the expected type " ++ pretty expectedType
+  pretty (FunctionReturnTypeError range expectedType actualType) =
+    "Function at " ++ pretty range ++ " has return type annotation " ++ pretty actualType ++ ", which does not match the expected return type " ++ pretty expectedType
   pretty (RecordStatementConflictingFieldsError recordName fieldName range1 range2) =
     "Definition of record " ++ pretty recordName ++ " has multiple type annotations for field " ++ pretty fieldName ++ " at " ++ pretty range1 ++ " and " ++ pretty range2
   pretty (RecordExpressionExtraFieldError recordName fieldName range) =
@@ -440,6 +514,12 @@ instance Pretty Error where
     "Record expression at " ++ pretty range ++ " does not include field " ++ pretty fieldName ++ " which exists on record " ++ pretty recordName
   pretty (RecordExpressionFieldTypeError recordName fieldName exectedType actualType range) =
     "In record expression of type " ++ pretty recordName ++ " field " ++ pretty fieldName ++ " should have type " ++ pretty exectedType ++ " but the assigned value has type " ++ pretty actualType ++ " at " ++ pretty range
+  pretty (RecordExpresssionRecordNotInTypeError range expectedType recordName) =
+    "A record of type " ++ pretty recordName ++ " is not compatible with expected type " ++ pretty expectedType ++ " at " ++ pretty range
+  pretty (RecordExpresssionNumTypeArgumentsError range recordName expectedNumArguments actualNumArguments) =
+    "Record at " ++ pretty range ++ " has " ++ pretty actualNumArguments ++ " type arguments applied, but " ++ pretty recordName ++ " has " ++ pretty expectedNumArguments ++ " type parameters"
+  pretty (RecordExpressionMutabilityTypeError range) =
+    "Expected a mutable record at " ++ pretty range ++ ", but got an immutable record"
   pretty (AccessedFieldOfNonRecordValueError actualType range) =
     "Attempted to access a field of non-record type " ++ pretty actualType ++ " at " ++ pretty range
   pretty (AccessedFieldNotInRecordError recordName fieldName valueType range) =
@@ -484,6 +564,12 @@ instance Pretty Error where
       ++ foldMap (\(recordName, fieldType) -> "\n" ++ pretty recordName ++ "." ++ pretty fieldName ++ ": " ++ pretty fieldType) recordFieldTypePairs
   pretty (FieldMutationValueTypeError range fieldType valueType) =
     "In field mutation at " ++ pretty range ++ ", the variable has type " ++ pretty fieldType ++ ", but the value has type " ++ pretty valueType
+  pretty (TypeExpectationError range expectedType actualType) =
+    "Expected a value of type " ++ pretty expectedType ++ ", but got a value of type " ++ pretty actualType ++ " at " ++ pretty range
+  pretty (RecordUnionTypeExpressionDuplicateRecordsError range recordName) =
+    "Type expression at " ++ pretty range ++ " has duplicate instances of record " ++ pretty recordName
+  pretty (RecordFieldExplicitMutabilityError range) =
+    "Record field at " ++ pretty range ++ " has an explicitly mutability annotation, which is not allowed for record definitions without a mutability paramter"
   pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
 
 instance Show Error where

@@ -8,7 +8,7 @@ import Test.Hspec
 
 testStrings :: Spec
 testStrings = do
-  describe "Strings" $ do
+  describe "Strings:" $ do
     it "Chars are successfully stored as constants and retrieved" $
       "print 'z';" `runsSuccessfullyWithOutput` "z\n"
     it "Strings are successfully stored as constants and retrieved" $

@@ -8,6 +8,7 @@ module Core.Utils
     setFilterMap,
     firstM,
     secondM,
+    insertAndReplace,
   )
 where
 
@@ -89,3 +90,6 @@ secondM :: (Monad m) => (b -> m c) -> (a, b) -> m (a, c)
 secondM f (a, b) = do
   c <- f b
   return (a, c)
+
+insertAndReplace :: (Ord k) => k -> a -> Map k a -> (Maybe a, Map k a)
+insertAndReplace = Map.insertLookupWithKey (\_ a _ -> a)

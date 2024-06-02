@@ -12,6 +12,12 @@ module IdentifierBinding.SyntaxTree
     BoundFunctionIdentifier (BoundFunctionIdentifier),
     BoundRecordIdentifier (BoundRecordIdentifier),
     IBRecordIdentifier,
+    BoundTypeParameter (BoundTypeParameter),
+    IBTypeParameter,
+    TypeParameterIndex,
+    IBTypeIdentifier,
+    BoundMutabilityParameter (BoundMutabilityParameter),
+    IBMutabilityParameter,
     IBFieldIdentifier,
     IBExpression,
     IBMainFunction,
@@ -35,6 +41,7 @@ import Core.FilePositions
 import Core.SyntaxTree
 import Core.Utils
 import Data.Map (Map)
+import Data.Sequence (Seq)
 import Data.Set (Set)
 import Data.Text (Text)
 import Parsing.SyntaxTree
@@ -45,9 +52,6 @@ data IdentifierBindingPhase
 type IBModule = Module IdentifierBindingPhase
 
 type instance ModuleData IdentifierBindingPhase = ()
-
--- instance Pretty IBModuleContent where
---   pretty (IBModuleContent mainFunction subFunctions) = pretty mainFunction ++ "(" ++ pretty subFunctions ++ ")"
 
 type instance ModuleContent IdentifierBindingPhase = IBMainFunction
 
@@ -150,6 +154,40 @@ type IBFieldIdentifier = FieldIdentifier IdentifierBindingPhase
 
 type instance FieldIdentifier IdentifierBindingPhase = UnboundIdentifier
 
+type IBMutabilityParameter = MutabilityParameter IdentifierBindingPhase
+
+type instance MutabilityParameter IdentifierBindingPhase = BoundMutabilityParameter
+
+type MutabilityParameterIndex = Int
+
+data BoundMutabilityParameter = BoundMutabilityParameter MutabilityParameterIndex UnboundIdentifier
+  deriving (Eq, Ord)
+
+instance Pretty BoundMutabilityParameter where
+  pretty (BoundMutabilityParameter index name) = "(BoundMutabilityParameter " ++ show index ++ " " ++ pretty name ++ ")"
+
+instance WithTextName BoundMutabilityParameter where
+  getTextName (BoundMutabilityParameter _ name) = name
+
+type IBTypeIdentifier = TypeIdentifier IdentifierBindingPhase
+
+type instance TypeIdentifier IdentifierBindingPhase = IBTypeParameter
+
+type IBTypeParameter = TypeParameter IdentifierBindingPhase
+
+type instance TypeParameter IdentifierBindingPhase = BoundTypeParameter
+
+type TypeParameterIndex = Int
+
+data BoundTypeParameter = BoundTypeParameter TypeParameterIndex UnboundIdentifier
+  deriving (Eq, Ord)
+
+instance Pretty BoundTypeParameter where
+  pretty (BoundTypeParameter index name) = "(BoundTypeParameter " ++ show index ++ " " ++ pretty name ++ ")"
+
+instance WithTextName BoundTypeParameter where
+  getTextName (BoundTypeParameter _ name) = name
+
 -- Expression
 type IBExpression = Expression IdentifierBindingPhase
 
@@ -158,6 +196,8 @@ type instance ExpressionData IdentifierBindingPhase = Range
 type instance FunctionExpressionContent IdentifierBindingPhase = IBFunctionDefinition
 
 type instance RecordFieldValues IdentifierBindingPhase = Map IBFieldIdentifier IBExpression
+
+type instance TypeArguments IdentifierBindingPhase = Seq IBTypeExpression
 
 instance WithRange IBExpression where
   getRange = getExpressionData

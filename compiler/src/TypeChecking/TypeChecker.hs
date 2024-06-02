@@ -1,22 +1,24 @@
 module TypeChecking.TypeChecker (runTypeChecking) where
 
-import Control.Monad (foldM, forM_, unless)
+import Control.Monad (foldM, forM, forM_, unless)
 import Core.ErrorState
 import Core.Errors
 import Core.FilePositions
 import Core.SyntaxTree
-import Core.Type
 import Core.Utils
 import Data.Bifunctor (Bifunctor (first), second)
 import Data.Foldable (fold)
-import Data.Map (Map)
+import Data.Functor ((<&>))
+import qualified Data.List.NonEmpty as NonEmpty
+import Data.Map (Map, (!))
 import qualified Data.Map as Map
+import Data.Maybe (isNothing)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
-import qualified Data.Set as Set
 import IdentifierBinding.SyntaxTree
 import Parsing.SyntaxTree
 import TypeChecking.SyntaxTree
+import TypeChecking.Type
 import TypeChecking.TypeChecking
 
 runTypeChecking :: IBModule -> WithErrors (Map BoundRecordIdentifier (Seq UnboundIdentifier), TCModule)
@@ -48,19 +50,21 @@ initializeNonPositionalStatement :: IBNonPositionalStatement -> TypeChecker ()
 initializeNonPositionalStatement (FunctionStatement statementRange functionName (FunctionDefinition _ parameters (WithTypeAnnotation _ returnTypeAnnotation))) = do
   parameterTypes <- mapM getParameterType parameters
   returnType <- case returnTypeAnnotation of
-    Just returnType -> liftWithErrors $ fromTypeExpression returnType
+    Just returnType -> fromTypeExpression returnType
     Nothing -> throwError $ FunctionMissingReturnTypeAnnotation statementRange
   setFunctionType functionName (FunctionType parameterTypes returnType)
   where
     getParameterType :: IBWithTypeAnnotation IBValueIdentifier -> TypeChecker Type
     getParameterType (WithTypeAnnotation _ parameterTypeAnnotation) = case parameterTypeAnnotation of
-      Just typeExpression -> liftWithErrors $ fromTypeExpression typeExpression
+      Just typeExpression -> fromTypeExpression typeExpression
       Nothing -> throwError $ FunctionMissingParameterTypeAnnotation statementRange
-initializeNonPositionalStatement (RecordStatement _ recordName fieldTypePairs) = do
+initializeNonPositionalStatement (RecordStatement _ recordName mutabilityParameter typeParameters fieldTypePairs) = do
   fieldTypeExpressionMap <- foldM addFieldType Map.empty fieldTypePairs
-  fieldTypeMap <- liftWithErrors $ mapM asFieldType fieldTypeExpressionMap
-  setRecordFieldTypes recordName fieldTypeMap
+  fieldTypeFuncMap <- mapM (getRecordFieldTypeFunc True mutabilityParameter typeParameters) fieldTypeExpressionMap
+  setRecordFieldTypes recordName fieldTypeFuncMap
   addRecordFieldOrder recordName (fst <$> fieldTypePairs)
+  -- [BUG-4] Record type parameter variances should be properly calculated
+  setRecordTypeParameterVariances recordName (typeParameters <&> const Covariant) (typeParameters <&> const Invariant)
   where
     addFieldType :: Map IBFieldIdentifier IBTypeExpression -> (IBFieldIdentifier, IBTypeExpression) -> TypeChecker (Map IBFieldIdentifier IBTypeExpression)
     addFieldType recordMap (fieldName, fieldType) = do
@@ -71,158 +75,297 @@ initializeNonPositionalStatement (RecordStatement _ recordName fieldTypePairs) =
         Nothing -> return updatedRecordMap
 
 typeCheckNonPositionalStatement :: IBNonPositionalStatement -> TypeChecker (Maybe TCNonPositionalStatement)
-typeCheckNonPositionalStatement (FunctionStatement statementRange functionName functionDefinition) = do
-  checkedFunctionDefinition <- typeCheckFunctionDefinition functionDefinition
-  return $ Just $ FunctionStatement statementRange functionName checkedFunctionDefinition
-typeCheckNonPositionalStatement (RecordStatement {}) = return Nothing
-
-typeCheckFunctionDefinition :: IBFunctionDefinition -> TypeChecker TCFunctionDefinition
-typeCheckFunctionDefinition
-  ( FunctionDefinition
-      IBFunctionDefinitionData {ibFunctionDefinitionRange, ibFunctionDefinitionCapturedIdentifiers}
-      parameters
-      (WithTypeAnnotation body returnTypeAnnotation)
+typeCheckNonPositionalStatement
+  ( FunctionStatement
+      statementRange
+      functionName
+      ( FunctionDefinition
+          IBFunctionDefinitionData {ibFunctionDefinitionRange, ibFunctionDefinitionCapturedIdentifiers}
+          parameters
+          (WithTypeAnnotation body _)
+        )
     ) = do
-    (checkedParameters, parameterTypes) <- Seq.unzip <$> mapM initializeParameter parameters
-    (returnType, returnTypeRange) <- case returnTypeAnnotation of
-      Just returnTypeExpression -> do
-        returnType <- liftWithErrors $ fromTypeExpression returnTypeExpression
-        return $ (returnType, getRange returnTypeExpression)
-      Nothing -> throwError $ FunctionMissingReturnTypeAnnotation ibFunctionDefinitionRange
-    let functionContext = FunctionContext {contextReturnType = returnType, contextReturnTypeRange = returnTypeRange}
-    checkedBody <- withFunctionContext functionContext $ typeCheckExpression body
-    --   {- If the body of a function always runs a return statement when evaluated, the type of the body itself doesn't need
-    --     to match the function return type. This enables writing functions whose body is a scope expression, but with return
-    --     type other than Nil.
-
-    --     Ex: []: Int -> { return 5; }
-    --   -}
-    let bodyReturnInfo = expressionReturnInfo . getExpressionData $ checkedBody
-    let bodyType = expressionType . getExpressionData $ checkedBody
-    unless (bodyReturnInfo == AlwaysReturns || bodyType `subTypes` returnType) $
-      throwError (FunctionReturnTypeError returnTypeRange returnType (getRange body) bodyType)
-    let functionDefinitionType = FunctionType parameterTypes returnType
+    functionType <- getFunctionType functionName
+    (parameterTypes, returnType) <- case functionType of
+      FunctionType parameterTypes returnType -> return (parameterTypes, returnType)
+      _ -> throwError $ ShouldNotGetHereError "Got non-function type for function in typeCheckNonPositionalStatement"
+    let typedParameters = (Seq.zip parameters parameterTypes) <&> \(WithTypeAnnotation parameterName _, parameterType) -> (parameterName, parameterType)
+    checkedBody <- typeCheckFunction statementRange typedParameters body returnType
     let functionDefinitionData =
           TCFunctionDefinitionData
             { tcFunctionDefinitionRange = ibFunctionDefinitionRange,
-              tcFunctionDefinitionType = functionDefinitionType,
+              tcFunctionDefinitionType = functionType,
               tcFunctionDefinitionCapturedIdentifiers = ibFunctionDefinitionCapturedIdentifiers
             }
-    return $ FunctionDefinition functionDefinitionData checkedParameters (WithTypeAnnotation checkedBody ())
-    where
-      initializeParameter :: IBWithTypeAnnotation IBValueIdentifier -> TypeChecker (TCWithTypeAnnotation TCValueIdentifier, Type)
-      initializeParameter (WithTypeAnnotation parameter parameterTypeAnnotation) = do
-        parameterType <- case parameterTypeAnnotation of
-          Just typeExpression -> liftWithErrors $ fromTypeExpression typeExpression
-          Nothing -> throwError $ FunctionMissingParameterTypeAnnotation ibFunctionDefinitionRange
-        setValueIdentifierType parameter parameterType
-        return (WithTypeAnnotation parameter (), parameterType)
+    let checkedFunctionDefinition =
+          FunctionDefinition
+            functionDefinitionData
+            (typedParameters <&> \(parameterName, _) -> WithTypeAnnotation parameterName ())
+            (WithTypeAnnotation checkedBody ())
+    return $ Just $ FunctionStatement statementRange functionName checkedFunctionDefinition
+typeCheckNonPositionalStatement (RecordStatement {}) = return Nothing
+
+typeCheckFunction :: Range -> Seq (IBValueIdentifier, Type) -> IBExpression -> Type -> TypeChecker TCExpression
+typeCheckFunction _functionRange typedParameters body returnType = do
+  forM_ typedParameters $ uncurry setValueIdentifierType
+  let functionContext = FunctionContext {contextReturnType = returnType}
+  withFunctionContext functionContext $ case body of
+    ScopeExpression {} -> do
+      --   {- If the body of a function always runs a return statement when evaluated, the type of the body itself doesn't need
+      --     to match the function return type. This enables writing functions whose body is a scope expression, but with return
+      --     type other than Nil.
+
+      --     Ex: []: Int -> { return 5; }
+      --   -}
+      checkedBody <- typeSynthesizeExpression body
+      let bodyReturnInfo = expressionReturnInfo . getExpressionData $ checkedBody
+      let bodyType = expressionType . getExpressionData $ checkedBody
+      bodyTypeIsCompatible <- bodyType `isCompatibleWith` returnType
+      unless (bodyReturnInfo == AlwaysReturns || bodyTypeIsCompatible) $
+        throwError (FunctionBodyTypeError (getRange body) returnType bodyType)
+      return checkedBody
+    _ -> typeCheckExpression returnType body
 
 typeCheckStatement :: IBStatement -> TypeChecker TCStatement
 typeCheckStatement (PrintStatement statementRange expression) = do
-  checkedExpression <- typeCheckExpression expression
+  checkedExpression <- typeSynthesizeExpression expression
   let statementReturnInfo = expressionReturnInfo . getExpressionData $ checkedExpression
   return $ PrintStatement (TCStatementData statementRange statementReturnInfo) checkedExpression
 typeCheckStatement (VariableDeclarationStatement statementRange mutability (WithTypeAnnotation variableName typeAnnotation) value) = do
-  checkedValue <- typeCheckExpression value
-  let valueType = expressionType . getExpressionData $ checkedValue
-  variableType <- case typeAnnotation of
+  (checkedValue, variableType) <- case typeAnnotation of
     Just expectedTypeExpression -> do
-      expectedType <- liftWithErrors $ fromTypeExpression expectedTypeExpression
-      unless (valueType `subTypes` expectedType) $
-        throwError (VariableDeclarationTypeError statementRange expectedType valueType)
-      return expectedType
-    Nothing -> return valueType
+      expectedType <- fromTypeExpression expectedTypeExpression
+      checkedValue <- typeCheckExpression expectedType value
+      return (checkedValue, expectedType)
+    Nothing -> do
+      checkedValue <- typeSynthesizeExpression value
+      let variableType = expressionType . getExpressionData $ checkedValue
+      return (checkedValue, variableType)
   setValueIdentifierType variableName variableType
   let statementReturnInfo = expressionReturnInfo . getExpressionData $ checkedValue
   return $ VariableDeclarationStatement (TCStatementData statementRange statementReturnInfo) mutability (WithTypeAnnotation variableName ()) checkedValue
 typeCheckStatement (VariableMutationStatement statementRange variableName value) = do
-  checkedValue <- typeCheckExpression value
-  let valueType = expressionType . getExpressionData $ checkedValue
   variableType <- getValueIdentifierType variableName
-  unless (valueType `subTypes` variableType) $
-    throwError (VariableMutationTypeError statementRange variableType valueType)
+  checkedValue <- typeCheckExpression variableType value
   let statementReturnInfo = expressionReturnInfo . getExpressionData $ checkedValue
   return $ VariableMutationStatement (TCStatementData statementRange statementReturnInfo) variableName checkedValue
 typeCheckStatement (FieldMutationStatement statementRange record field value) = do
-  checkedRecord <- typeCheckExpression record
+  checkedRecord <- typeSynthesizeExpression record
   let recordType = expressionType . getExpressionData $ checkedRecord
   recordNames <- case recordType of
     RecordUnionType Immutable _ -> throwError $ MutatedFieldOfImmutableRecordError statementRange recordType
     RecordUnionType Mutable recordNames -> return recordNames
     nonRecordType -> throwError $ MutatedFieldOfNonRecordTypeError statementRange nonRecordType
-  recordFieldTypePairs <- mapM (getRecordFieldTypePair Mutable recordType) (Set.toList recordNames)
-  fieldType <- case getIntersectionTypeF $ snd <$> recordFieldTypePairs of
+  recordFieldTypePairs <- mapM (getRecordFieldTypePair Mutable recordType) (Map.toList recordNames)
+  maybeFieldType <- typeIntersectionF . NonEmpty.fromList $ snd <$> recordFieldTypePairs
+  fieldType <- case maybeFieldType of
     Nothing -> throwError $ FieldTypesHaveEmptyIntersectionError field (first getTextName <$> recordFieldTypePairs) statementRange
     Just expressionType -> return expressionType
-  checkedValue <- typeCheckExpression value
-  let valueType = expressionType . getExpressionData $ checkedValue
-  unless (valueType `subTypes` fieldType) $
-    throwError (FieldMutationValueTypeError statementRange fieldType valueType)
+  checkedValue <- typeCheckExpression fieldType value
   let statementReturnInfo = expressionReturnInfo . getExpressionData $ checkedValue
   return $ FieldMutationStatement (TCStatementData statementRange statementReturnInfo) checkedRecord field checkedValue
   where
-    getRecordFieldTypePair mutability innerExpressionType recordName = do
-      fieldTypeMap <- getRecordFieldTypes recordName
+    getRecordFieldTypePair mutability innerExpressionType (recordName, recordTypeParameters) = do
+      fieldTypeMap <- getRecordFieldTypes recordName mutability recordTypeParameters
       case Map.lookup field fieldTypeMap of
         Nothing -> throwError $ MutatedFieldNotInRecordError (getTextName recordName) field innerExpressionType statementRange
-        Just makeFieldType -> return (recordName, makeFieldType mutability)
+        Just fieldType -> return (recordName, fieldType)
 typeCheckStatement (ExpressionStatement statementRange expression) = do
-  checkedExpression <- typeCheckExpression expression
+  checkedExpression <- typeSynthesizeExpression expression
   let statementReturnInfo = expressionReturnInfo . getExpressionData $ checkedExpression
   return $ ExpressionStatement (TCStatementData statementRange statementReturnInfo) checkedExpression
 typeCheckStatement (WhileLoopStatement statementRange condition body) = do
-  checkedCondition <- typeCheckExpression condition
-  let conditionType = expressionType . getExpressionData $ checkedCondition
-  checkedBody <- typeCheckExpression body
-  unless (conditionType == BoolType) $
-    throwError (WhileLoopConditionTypeError (getRange condition) conditionType)
+  checkedCondition <- typeCheckExpression BoolType condition
+  checkedBody <- typeSynthesizeExpression body
   let statementReturnInfo = (expressionReturnInfo . getExpressionData $ checkedCondition) `riAnd` (expressionReturnInfo . getExpressionData $ checkedBody)
   return $ WhileLoopStatement (TCStatementData statementRange statementReturnInfo) checkedCondition checkedBody
 typeCheckStatement (ReturnStatement statementRange returnValue) = do
-  checkedReturnValue <- mapM typeCheckExpression returnValue
-  let returnValueType = case checkedReturnValue of
-        Just expression -> expressionType . getExpressionData $ expression
-        Nothing -> NilType
   functionContext <- getFunctionContext
-  case functionContext of
-    Nothing ->
-      unless (returnValueType == NilType) $
-        throwError (MainFunctionReturnTypeError statementRange returnValueType)
-    Just (FunctionContext {contextReturnType, contextReturnTypeRange}) ->
-      unless (returnValueType `subTypes` contextReturnType) $
-        throwError (FunctionReturnTypeError contextReturnTypeRange contextReturnType statementRange returnValueType)
+  let expectedReturnType = case functionContext of
+        Nothing -> NilType
+        Just (FunctionContext {contextReturnType}) -> contextReturnType
+  checkedReturnValue <- case returnValue of
+    Nothing -> do
+      nilIsValidReturnType <- NilType `isCompatibleWith` expectedReturnType
+      unless nilIsValidReturnType $ throwError (FunctionNilReturnTypeError statementRange expectedReturnType)
+      return Nothing
+    Just value -> do
+      checkedValue <- typeCheckExpression expectedReturnType value
+      return $ Just checkedValue
   return $ ReturnStatement (TCStatementData statementRange AlwaysReturns) checkedReturnValue
 
-typeCheckExpression :: IBExpression -> TypeChecker TCExpression
-typeCheckExpression (IntLiteralExpression expressionRange value) =
+typeCheckExpression :: Type -> IBExpression -> TypeChecker TCExpression
+typeCheckExpression expectedType expression = case expression of
+  (NegateExpression expressionRange inner) -> do
+    if expectedType == IntType || expectedType == FloatType
+      then do
+        checkedInner <- typeCheckExpression expectedType inner
+        let returnInfo = expressionReturnInfo . getExpressionData $ checkedInner
+        return $ NegateExpression (TCExpresionData expressionRange expectedType returnInfo) checkedInner
+      else do
+        typeCheckExpressionDefault
+  (IfThenElseExpression expressionRange condition trueBranch maybeFalseBranch) -> do
+    checkedCondition <- typeCheckExpression BoolType condition
+    let conditionReturnInfo = expressionReturnInfo . getExpressionData $ checkedCondition
+    checkedTrueBranch <- typeCheckExpression expectedType trueBranch
+    let trueBranchReturnInfo = expressionReturnInfo . getExpressionData $ checkedTrueBranch
+    checkedFalseBranch <- case maybeFalseBranch of
+      Nothing -> do
+        nilMeetsExpectation <- NilType `isCompatibleWith` expectedType
+        if nilMeetsExpectation
+          then return Nothing
+          else throwError $ IfThenExpressionNilTypeError expressionRange expectedType
+      Just falseBranch -> Just <$> typeCheckExpression expectedType falseBranch
+    let falseBranchReturnInfo = case checkedFalseBranch of
+          Just e -> expressionReturnInfo . getExpressionData $ e
+          Nothing -> NeverReturns
+    let returnInfo = conditionReturnInfo `riAnd` (trueBranchReturnInfo `riOr` falseBranchReturnInfo)
+    return $ IfThenElseExpression (TCExpresionData expressionRange expectedType returnInfo) checkedCondition checkedTrueBranch checkedFalseBranch
+  ( FunctionExpression
+      expressionRange
+      ( FunctionDefinition
+          IBFunctionDefinitionData {ibFunctionDefinitionRange, ibFunctionDefinitionCapturedIdentifiers}
+          parameters
+          (WithTypeAnnotation body maybeReturnTypeAnnotation)
+        )
+    ) -> do
+      (expectedParameterTypes, expectedBodyType) <- case expectedType of
+        FunctionType parameterTypes returnType -> return (parameterTypes, returnType)
+        _ -> throwError $ FunctionTypeError expressionRange expectedType
+      unless (Seq.length expectedParameterTypes == Seq.length parameters) $
+        throwError (FunctionArityError expressionRange expectedType $ Seq.length parameters)
+      typedParameters <- forM (Seq.zip parameters expectedParameterTypes) $ \(WithTypeAnnotation parameterName maybeParameterTypeAnnotation, expectedParameterType) -> do
+        parameterType <- case maybeParameterTypeAnnotation of
+          Nothing -> return expectedParameterType
+          Just parameterTypeAnnotation -> do
+            parameterType <- fromTypeExpression parameterTypeAnnotation
+            parameterCompatibleWithExpectedType <- parameterType `isCompatibleWith` expectedParameterType
+            unless parameterCompatibleWithExpectedType $ throwError (FunctionParameterTypeError expressionRange (getTextName parameterName) expectedParameterType parameterType)
+            return parameterType
+        return $ (parameterName, parameterType)
+      bodyType <- case maybeReturnTypeAnnotation of
+        Nothing -> return expectedBodyType
+        Just returnTypeAnnotation -> do
+          bodyType <- fromTypeExpression returnTypeAnnotation
+          bodyCompatibleWithExpectedType <- bodyType `isCompatibleWith` expectedBodyType
+          unless bodyCompatibleWithExpectedType $ throwError (FunctionReturnTypeError expressionRange expectedBodyType bodyType)
+          return bodyType
+      checkedBody <- typeCheckFunction expressionRange typedParameters body bodyType
+      let functionDefinitionData =
+            TCFunctionDefinitionData
+              { tcFunctionDefinitionRange = ibFunctionDefinitionRange,
+                tcFunctionDefinitionType = expectedType,
+                tcFunctionDefinitionCapturedIdentifiers = ibFunctionDefinitionCapturedIdentifiers
+              }
+      let checkedParameters = typedParameters <&> \(parameterName, _) -> WithTypeAnnotation parameterName ()
+      return $
+        FunctionExpression
+          (TCExpresionData expressionRange expectedType NeverReturns)
+          (FunctionDefinition functionDefinitionData checkedParameters (WithTypeAnnotation checkedBody ()))
+  (RecordExpression expressionRange mutability recordName typeArgumentExpressions fieldValueMap) -> do
+    typeArguments <-
+      if Seq.length typeArgumentExpressions == 0
+        -- If type arguments are not provided explicitly, we try to infer them from the expected type
+        then case expectedType of
+          RecordUnionType expectedMutability recordMap -> case Map.lookup recordName recordMap of
+            Nothing -> throwError $ RecordExpresssionRecordNotInTypeError expressionRange expectedType (getTextName recordName)
+            Just expectedTypeArguments -> case (expectedMutability, mutability) of
+              (Mutable, Immutable) -> throwError $ RecordExpressionMutabilityTypeError expressionRange
+              _ -> return expectedTypeArguments
+          _ -> throwError $ RecordExpresssionRecordNotInTypeError expressionRange expectedType (getTextName recordName)
+        else do
+          expectedNumTypeParameters <- getRecordNumTypeParameters recordName
+          unless (Seq.length typeArgumentExpressions == expectedNumTypeParameters) $
+            throwError (RecordExpresssionNumTypeArgumentsError expressionRange (getTextName recordName) expectedNumTypeParameters (Seq.length typeArgumentExpressions))
+          typeArguments <- mapM fromTypeExpression typeArgumentExpressions
+          let actualType = RecordUnionType mutability (Map.singleton recordName typeArguments)
+          typesAreCompatible <- actualType `isCompatibleWith` expectedType
+          unless typesAreCompatible $ throwError (TypeExpectationError expressionRange expectedType actualType)
+          return typeArguments
+    fieldTypeMap <- getRecordFieldTypes recordName mutability typeArguments
+    checkedFieldValues <- forM (Map.toList fieldTypeMap) $ \(fieldName, fieldType) -> case Map.lookup fieldName fieldValueMap of
+      Nothing -> throwError $ RecordExpressionMissingFieldError (getTextName recordName) fieldName expressionRange
+      Just fieldValue -> do
+        checkedFieldValue <- typeCheckExpression fieldType fieldValue
+        return (fieldName, checkedFieldValue)
+    forM_ (Map.keys fieldValueMap) $ \fieldName -> case Map.lookup fieldName fieldTypeMap of
+      Nothing -> throwError $ RecordExpressionExtraFieldError (getTextName recordName) fieldName expressionRange
+      Just _ -> return ()
+    let checkedFieldValueMap = Map.fromList checkedFieldValues
+    let returnInfo = fold $ expressionReturnInfo . getExpressionData <$> checkedFieldValueMap
+    return $ RecordExpression (TCExpresionData expressionRange (RecordUnionType mutability (Map.singleton recordName typeArguments)) returnInfo) mutability recordName () checkedFieldValueMap
+  (FieldAccessExpression expressionRange inner fieldName) -> do
+    checkedInner <- typeSynthesizeExpression inner
+    let innerExpressionType = expressionType . getExpressionData $ checkedInner
+    (innerExpressionMutability, innerExpressionRecordNames) <- case innerExpressionType of
+      RecordUnionType mutability recordNames -> return (mutability, recordNames)
+      otherType -> throwError $ AccessedFieldOfNonRecordValueError otherType expressionRange
+    forM_ (Map.toList innerExpressionRecordNames) $ \(recordName, recordTypeArguments) -> do
+      fieldTypeMap <- getRecordFieldTypes recordName innerExpressionMutability recordTypeArguments
+      case Map.lookup fieldName fieldTypeMap of
+        Nothing -> throwError $ AccessedFieldNotInRecordError (getTextName recordName) fieldName innerExpressionType expressionRange
+        Just fieldType -> do
+          fieldTypeIsCompatible <- fieldType `isCompatibleWith` expectedType
+          unless fieldTypeIsCompatible $ throwError (TypeExpectationError expressionRange expectedType fieldType)
+    let returnInfo = expressionReturnInfo . getExpressionData $ checkedInner
+    return $ FieldAccessExpression (TCExpresionData expressionRange expectedType returnInfo) checkedInner fieldName
+  (CaseExpression expressionRange switch cases) -> do
+    checkedSwitch <- typeSynthesizeExpression switch
+    let switchType = expressionType . getExpressionData $ checkedSwitch
+    (switchMutability, switchRecordMap) <- case switchType of
+      RecordUnionType mutability recordNames -> return (mutability, recordNames)
+      nonRecordType -> throwError $ CaseSwitchHasNonRecordTypeError (getRange switch) nonRecordType
+    forM_ (Map.keys switchRecordMap) $ \recordName ->
+      unless (Map.member recordName cases) $
+        throwError (CaseExpressionMisingCaseError expressionRange (getTextName recordName))
+    forM_ (Map.keys cases) $ \recordName ->
+      unless
+        (Map.member recordName switchRecordMap)
+        $ throwError (CaseExpressionExtraneousCaseError expressionRange (getTextName recordName))
+    forM_ (Map.toList cases) $ \(recordName, (caseParameter, _)) ->
+      setValueIdentifierType caseParameter (RecordUnionType switchMutability $ Map.singleton recordName (switchRecordMap ! recordName))
+    checkedCases <- mapM (secondM $ typeCheckExpression expectedType) cases
+    let returnInfo = (expressionReturnInfo . getExpressionData $ checkedSwitch) `riAnd` foldl1 riOr (expressionReturnInfo . getExpressionData . snd <$> Map.elems checkedCases)
+    return $ CaseExpression (TCExpresionData expressionRange expectedType returnInfo) checkedSwitch checkedCases
+  _ -> typeCheckExpressionDefault
+  where
+    typeCheckExpressionDefault :: TypeChecker TCExpression
+    typeCheckExpressionDefault = do
+      synthesizedExpression <- typeSynthesizeExpression expression
+      let synthesizedType = expressionType . getExpressionData $ synthesizedExpression
+      typeMeetsExpectation <- synthesizedType `isCompatibleWith` expectedType
+      unless typeMeetsExpectation $ throwError (TypeExpectationError (getRange expression) expectedType synthesizedType)
+      return synthesizedExpression
+
+typeSynthesizeExpression :: IBExpression -> TypeChecker TCExpression
+typeSynthesizeExpression (IntLiteralExpression expressionRange value) =
   return $ IntLiteralExpression (TCExpresionData expressionRange IntType NeverReturns) value
-typeCheckExpression (FloatLiteralExpression expressionRange value) =
+typeSynthesizeExpression (FloatLiteralExpression expressionRange value) =
   return $ FloatLiteralExpression (TCExpresionData expressionRange FloatType NeverReturns) value
-typeCheckExpression (CharLiteralExpression expressionRange value) =
+typeSynthesizeExpression (CharLiteralExpression expressionRange value) =
   return $ CharLiteralExpression (TCExpresionData expressionRange CharType NeverReturns) value
-typeCheckExpression (StringLiteralExpression expressionRange value) =
+typeSynthesizeExpression (StringLiteralExpression expressionRange value) =
   return $ StringLiteralExpression (TCExpresionData expressionRange StringType NeverReturns) value
-typeCheckExpression (BoolLiteralExpression expressionRange value) =
+typeSynthesizeExpression (BoolLiteralExpression expressionRange value) =
   return $ BoolLiteralExpression (TCExpresionData expressionRange BoolType NeverReturns) value
-typeCheckExpression (NilExpression expressionRange) =
+typeSynthesizeExpression (NilExpression expressionRange) =
   return $ NilExpression (TCExpresionData expressionRange NilType NeverReturns)
-typeCheckExpression (IdentifierExpression expressionRange identifier) = do
+typeSynthesizeExpression (IdentifierExpression expressionRange identifier) = do
   expressionType <- case identifier of
     Left valueIdentifier -> getValueIdentifierType valueIdentifier
     Right functionIdentifier -> getFunctionType functionIdentifier
   return $ IdentifierExpression (TCExpresionData expressionRange expressionType NeverReturns) identifier
-typeCheckExpression (NegateExpression expressionRange inner) = do
-  checkedInner <- typeCheckExpression inner
+typeSynthesizeExpression (NegateExpression expressionRange inner) = do
+  checkedInner <- typeSynthesizeExpression inner
   expressionType <- case expressionType . getExpressionData $ checkedInner of
     IntType -> return IntType
     FloatType -> return FloatType
     unexpectedType -> throwError $ NegateExpressionTypeError expressionRange unexpectedType
   let returnInfo = expressionReturnInfo . getExpressionData $ checkedInner
   return $ NegateExpression (TCExpresionData expressionRange expressionType returnInfo) checkedInner
-typeCheckExpression (AddExpression expressionRange left right) = do
-  checkedLeft <- typeCheckExpression left
-  checkedRight <- typeCheckExpression right
+typeSynthesizeExpression (AddExpression expressionRange left right) = do
+  checkedLeft <- typeSynthesizeExpression left
+  checkedRight <- typeSynthesizeExpression right
   expressionType <- case (expressionType . getExpressionData $ checkedLeft, expressionType . getExpressionData $ checkedRight) of
     (IntType, IntType) -> return IntType
     (FloatType, FloatType) -> return FloatType
@@ -232,68 +375,59 @@ typeCheckExpression (AddExpression expressionRange left right) = do
     (leftType, rightType) -> throwError $ AddExpressionTypeError expressionRange leftType rightType
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedLeft) `riAnd` (expressionReturnInfo . getExpressionData $ checkedRight)
   return $ AddExpression (TCExpresionData expressionRange expressionType returnInfo) checkedLeft checkedRight
-typeCheckExpression (SubtractExpression expressionRange left right) = do
-  checkedLeft <- typeCheckExpression left
-  checkedRight <- typeCheckExpression right
+typeSynthesizeExpression (SubtractExpression expressionRange left right) = do
+  checkedLeft <- typeSynthesizeExpression left
+  checkedRight <- typeSynthesizeExpression right
   expressionType <- case (expressionType . getExpressionData $ checkedLeft, expressionType . getExpressionData $ checkedRight) of
     (IntType, IntType) -> return IntType
     (FloatType, FloatType) -> return FloatType
     (leftType, rightType) -> throwError $ SubtractExpressionTypeError expressionRange leftType rightType
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedLeft) `riAnd` (expressionReturnInfo . getExpressionData $ checkedRight)
   return $ SubtractExpression (TCExpresionData expressionRange expressionType returnInfo) checkedLeft checkedRight
-typeCheckExpression (MultiplyExpression expressionRange left right) = do
-  checkedLeft <- typeCheckExpression left
-  checkedRight <- typeCheckExpression right
+typeSynthesizeExpression (MultiplyExpression expressionRange left right) = do
+  checkedLeft <- typeSynthesizeExpression left
+  checkedRight <- typeSynthesizeExpression right
   expressionType <- case (expressionType . getExpressionData $ checkedLeft, expressionType . getExpressionData $ checkedRight) of
     (IntType, IntType) -> return IntType
     (FloatType, FloatType) -> return FloatType
     (leftType, rightType) -> throwError $ MultiplyExpressionTypeError expressionRange leftType rightType
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedLeft) `riAnd` (expressionReturnInfo . getExpressionData $ checkedRight)
   return $ MultiplyExpression (TCExpresionData expressionRange expressionType returnInfo) checkedLeft checkedRight
-typeCheckExpression (DivideExpression expressionRange left right) = do
-  checkedLeft <- typeCheckExpression left
-  checkedRight <- typeCheckExpression right
+typeSynthesizeExpression (DivideExpression expressionRange left right) = do
+  checkedLeft <- typeSynthesizeExpression left
+  checkedRight <- typeSynthesizeExpression right
   expressionType <- case (expressionType . getExpressionData $ checkedLeft, expressionType . getExpressionData $ checkedRight) of
     (IntType, IntType) -> return IntType
     (FloatType, FloatType) -> return FloatType
     (leftType, rightType) -> throwError $ DivideExpressionTypeError expressionRange leftType rightType
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedLeft) `riAnd` (expressionReturnInfo . getExpressionData $ checkedRight)
   return $ DivideExpression (TCExpresionData expressionRange expressionType returnInfo) checkedLeft checkedRight
-typeCheckExpression (ModuloExpression expressionRange left right) = do
-  checkedLeft <- typeCheckExpression left
-  checkedRight <- typeCheckExpression right
+typeSynthesizeExpression (ModuloExpression expressionRange left right) = do
+  checkedLeft <- typeSynthesizeExpression left
+  checkedRight <- typeSynthesizeExpression right
   expressionType <- case (expressionType . getExpressionData $ checkedLeft, expressionType . getExpressionData $ checkedRight) of
     (IntType, IntType) -> return IntType
     (FloatType, FloatType) -> return FloatType
     (leftType, rightType) -> throwError $ ModuloExpressionTypeError expressionRange leftType rightType
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedLeft) `riAnd` (expressionReturnInfo . getExpressionData $ checkedRight)
   return $ ModuloExpression (TCExpresionData expressionRange expressionType returnInfo) checkedLeft checkedRight
-typeCheckExpression (NotExpression expressionRange inner) = do
-  checkedInner <- typeCheckExpression inner
-  expressionType <- case expressionType . getExpressionData $ checkedInner of
-    BoolType -> return BoolType
-    unexpectedType -> throwError $ NotExpressionTypeError expressionRange unexpectedType
+typeSynthesizeExpression (NotExpression expressionRange inner) = do
+  checkedInner <- typeCheckExpression BoolType inner
   let returnInfo = expressionReturnInfo . getExpressionData $ checkedInner
-  return $ NotExpression (TCExpresionData expressionRange expressionType returnInfo) checkedInner
-typeCheckExpression (AndExpression expressionRange left right) = do
-  checkedLeft <- typeCheckExpression left
-  checkedRight <- typeCheckExpression right
-  expressionType <- case (expressionType . getExpressionData $ checkedLeft, expressionType . getExpressionData $ checkedRight) of
-    (BoolType, BoolType) -> return BoolType
-    (leftType, rightType) -> throwError $ AndExpressionTypeError expressionRange leftType rightType
+  return $ NotExpression (TCExpresionData expressionRange BoolType returnInfo) checkedInner
+typeSynthesizeExpression (AndExpression expressionRange left right) = do
+  checkedLeft <- typeCheckExpression BoolType left
+  checkedRight <- typeCheckExpression BoolType right
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedLeft) `riAnd` (expressionReturnInfo . getExpressionData $ checkedRight)
-  return $ AndExpression (TCExpresionData expressionRange expressionType returnInfo) checkedLeft checkedRight
-typeCheckExpression (OrExpression expressionRange left right) = do
-  checkedLeft <- typeCheckExpression left
-  checkedRight <- typeCheckExpression right
-  expressionType <- case (expressionType . getExpressionData $ checkedLeft, expressionType . getExpressionData $ checkedRight) of
-    (BoolType, BoolType) -> return BoolType
-    (leftType, rightType) -> throwError $ OrExpressionTypeError expressionRange leftType rightType
+  return $ AndExpression (TCExpresionData expressionRange BoolType returnInfo) checkedLeft checkedRight
+typeSynthesizeExpression (OrExpression expressionRange left right) = do
+  checkedLeft <- typeCheckExpression BoolType left
+  checkedRight <- typeCheckExpression BoolType right
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedLeft) `riAnd` (expressionReturnInfo . getExpressionData $ checkedRight)
-  return $ OrExpression (TCExpresionData expressionRange expressionType returnInfo) checkedLeft checkedRight
-typeCheckExpression (EqualExpression expressionRange left right) = do
-  checkedLeft <- typeCheckExpression left
-  checkedRight <- typeCheckExpression right
+  return $ OrExpression (TCExpresionData expressionRange BoolType returnInfo) checkedLeft checkedRight
+typeSynthesizeExpression (EqualExpression expressionRange left right) = do
+  checkedLeft <- typeSynthesizeExpression left
+  checkedRight <- typeSynthesizeExpression right
   expressionType <- case (expressionType . getExpressionData $ checkedLeft, expressionType . getExpressionData $ checkedRight) of
     (IntType, IntType) -> return BoolType
     (FloatType, FloatType) -> return BoolType
@@ -304,9 +438,9 @@ typeCheckExpression (EqualExpression expressionRange left right) = do
     (leftType, rightType) -> throwError $ EqualExpressionTypeError expressionRange leftType rightType
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedLeft) `riAnd` (expressionReturnInfo . getExpressionData $ checkedRight)
   return $ EqualExpression (TCExpresionData expressionRange expressionType returnInfo) checkedLeft checkedRight
-typeCheckExpression (NotEqualExpression expressionRange left right) = do
-  checkedLeft <- typeCheckExpression left
-  checkedRight <- typeCheckExpression right
+typeSynthesizeExpression (NotEqualExpression expressionRange left right) = do
+  checkedLeft <- typeSynthesizeExpression left
+  checkedRight <- typeSynthesizeExpression right
   expressionType <- case (expressionType . getExpressionData $ checkedLeft, expressionType . getExpressionData $ checkedRight) of
     (IntType, IntType) -> return BoolType
     (FloatType, FloatType) -> return BoolType
@@ -317,151 +451,227 @@ typeCheckExpression (NotEqualExpression expressionRange left right) = do
     (leftType, rightType) -> throwError $ NotEqualExpressionTypeError expressionRange leftType rightType
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedLeft) `riAnd` (expressionReturnInfo . getExpressionData $ checkedRight)
   return $ NotEqualExpression (TCExpresionData expressionRange expressionType returnInfo) checkedLeft checkedRight
-typeCheckExpression (GreaterExpression expressionRange left right) = do
-  checkedLeft <- typeCheckExpression left
-  checkedRight <- typeCheckExpression right
+typeSynthesizeExpression (GreaterExpression expressionRange left right) = do
+  checkedLeft <- typeSynthesizeExpression left
+  checkedRight <- typeSynthesizeExpression right
   expressionType <- case (expressionType . getExpressionData $ checkedLeft, expressionType . getExpressionData $ checkedRight) of
     (IntType, IntType) -> return BoolType
     (FloatType, FloatType) -> return BoolType
     (leftType, rightType) -> throwError $ GreaterExpressionTypeError expressionRange leftType rightType
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedLeft) `riAnd` (expressionReturnInfo . getExpressionData $ checkedRight)
   return $ GreaterExpression (TCExpresionData expressionRange expressionType returnInfo) checkedLeft checkedRight
-typeCheckExpression (LessExpression expressionRange left right) = do
-  checkedLeft <- typeCheckExpression left
-  checkedRight <- typeCheckExpression right
+typeSynthesizeExpression (LessExpression expressionRange left right) = do
+  checkedLeft <- typeSynthesizeExpression left
+  checkedRight <- typeSynthesizeExpression right
   expressionType <- case (expressionType . getExpressionData $ checkedLeft, expressionType . getExpressionData $ checkedRight) of
     (IntType, IntType) -> return BoolType
     (FloatType, FloatType) -> return BoolType
     (leftType, rightType) -> throwError $ LessExpressionTypeError expressionRange leftType rightType
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedLeft) `riAnd` (expressionReturnInfo . getExpressionData $ checkedRight)
   return $ LessExpression (TCExpresionData expressionRange expressionType returnInfo) checkedLeft checkedRight
-typeCheckExpression (GreaterEqualExpression expressionRange left right) = do
-  checkedLeft <- typeCheckExpression left
-  checkedRight <- typeCheckExpression right
+typeSynthesizeExpression (GreaterEqualExpression expressionRange left right) = do
+  checkedLeft <- typeSynthesizeExpression left
+  checkedRight <- typeSynthesizeExpression right
   expressionType <- case (expressionType . getExpressionData $ checkedLeft, expressionType . getExpressionData $ checkedRight) of
     (IntType, IntType) -> return BoolType
     (FloatType, FloatType) -> return BoolType
     (leftType, rightType) -> throwError $ GreaterEqualExpressionTypeError expressionRange leftType rightType
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedLeft) `riAnd` (expressionReturnInfo . getExpressionData $ checkedRight)
   return $ GreaterEqualExpression (TCExpresionData expressionRange expressionType returnInfo) checkedLeft checkedRight
-typeCheckExpression (LessEqualExpression expressionRange left right) = do
-  checkedLeft <- typeCheckExpression left
-  checkedRight <- typeCheckExpression right
+typeSynthesizeExpression (LessEqualExpression expressionRange left right) = do
+  checkedLeft <- typeSynthesizeExpression left
+  checkedRight <- typeSynthesizeExpression right
   expressionType <- case (expressionType . getExpressionData $ checkedLeft, expressionType . getExpressionData $ checkedRight) of
     (IntType, IntType) -> return BoolType
     (FloatType, FloatType) -> return BoolType
     (leftType, rightType) -> throwError $ LessEqualExpressionTypeError expressionRange leftType rightType
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedLeft) `riAnd` (expressionReturnInfo . getExpressionData $ checkedRight)
   return $ LessEqualExpression (TCExpresionData expressionRange expressionType returnInfo) checkedLeft checkedRight
-typeCheckExpression (IfThenElseExpression expressionRange condition trueBranch falseBranch) = do
-  checkedCondition <- typeCheckExpression condition
-  let conditionType = expressionType . getExpressionData $ checkedCondition
+typeSynthesizeExpression (IfThenElseExpression expressionRange condition trueBranch falseBranch) = do
+  checkedCondition <- typeCheckExpression BoolType condition
   let conditionReturnInfo = expressionReturnInfo . getExpressionData $ checkedCondition
-  checkedTrueBranch <- typeCheckExpression trueBranch
+  checkedTrueBranch <- typeSynthesizeExpression trueBranch
   let trueBranchType = expressionType . getExpressionData $ checkedTrueBranch
   let trueBranchReturnInfo = expressionReturnInfo . getExpressionData $ checkedTrueBranch
-  checkedFalseBranch <- mapM typeCheckExpression falseBranch
+  checkedFalseBranch <- mapM typeSynthesizeExpression falseBranch
   let maybeFalseBranchType = expressionType . getExpressionData <$> checkedFalseBranch
   let falseBranchReturnInfo = case checkedFalseBranch of
         Just e -> expressionReturnInfo . getExpressionData $ e
         Nothing -> NeverReturns
-  unless (conditionType == BoolType) $
-    throwError (IfThenElseExpressionConditionTypeError expressionRange conditionType)
   expressionType <- case maybeFalseBranchType of
     Nothing ->
       if trueBranchType == NilType
         then return NilType
         else throwError $ IfThenExpressionBranchesTypeError expressionRange trueBranchType
-    Just falseBranchType ->
-      case getCombinedType trueBranchType falseBranchType of
+    Just falseBranchType -> do
+      combinedBranchType <- typeUnion trueBranchType falseBranchType
+      case combinedBranchType of
         Nothing -> throwError $ IfThenElseExpressionBranchesTypeError expressionRange trueBranchType falseBranchType
         Just combinedType -> return combinedType
   let returnInfo = conditionReturnInfo `riAnd` (trueBranchReturnInfo `riOr` falseBranchReturnInfo)
   return $ IfThenElseExpression (TCExpresionData expressionRange expressionType returnInfo) checkedCondition checkedTrueBranch checkedFalseBranch
-typeCheckExpression (ScopeExpression expressionRange scope) = do
+typeSynthesizeExpression (ScopeExpression expressionRange scope) = do
   checkedScope <- typeCheckScope scope
   let returnInfo = getScopeData checkedScope
   return $ ScopeExpression (TCExpresionData expressionRange NilType returnInfo) checkedScope
-typeCheckExpression (FunctionExpression expressionRange functionDefinition) = do
-  checkedFunctionDefinition <- typeCheckFunctionDefinition functionDefinition
-  let expressionType = tcFunctionDefinitionType . getFunctionDefinitionData $ checkedFunctionDefinition
-  return $ FunctionExpression (TCExpresionData expressionRange expressionType NeverReturns) checkedFunctionDefinition
-typeCheckExpression (FunctionCallExpression expressionRange function arguments) = do
-  checkedFunction <- typeCheckExpression function
-  checkedArguments <- mapM typeCheckExpression arguments
+typeSynthesizeExpression
+  ( FunctionExpression
+      expressionRange
+      ( FunctionDefinition
+          IBFunctionDefinitionData {ibFunctionDefinitionRange, ibFunctionDefinitionCapturedIdentifiers}
+          parameters
+          (WithTypeAnnotation body returnTypeAnnotation)
+        )
+    ) = do
+    typedParameters <- forM parameters $ \(WithTypeAnnotation parameterName parameterTypeAnnotation) -> case parameterTypeAnnotation of
+      Nothing -> throwError $ FunctionMissingParameterTypeAnnotation expressionRange
+      Just parameterTypeExpression -> do
+        parameterType <- fromTypeExpression parameterTypeExpression
+        return (parameterName, parameterType)
+    returnType <- case returnTypeAnnotation of
+      Nothing -> throwError $ FunctionMissingReturnTypeAnnotation expressionRange
+      Just returnTypeExpression -> fromTypeExpression returnTypeExpression
+    checkedBody <- typeCheckFunction expressionRange typedParameters body returnType
+    let functionType = FunctionType (snd <$> typedParameters) returnType
+    let functionDefinitionData =
+          TCFunctionDefinitionData
+            { tcFunctionDefinitionType = functionType,
+              tcFunctionDefinitionRange = ibFunctionDefinitionRange,
+              tcFunctionDefinitionCapturedIdentifiers = ibFunctionDefinitionCapturedIdentifiers
+            }
+    let checkedFunctionDefinition =
+          FunctionDefinition
+            functionDefinitionData
+            (typedParameters <&> \(parameterName, _) -> WithTypeAnnotation parameterName ())
+            (WithTypeAnnotation checkedBody ())
+    return $ FunctionExpression (TCExpresionData expressionRange functionType NeverReturns) checkedFunctionDefinition
+typeSynthesizeExpression (FunctionCallExpression expressionRange function arguments) = do
+  checkedFunction <- typeSynthesizeExpression function
   (parameterTypes, returnType) <- case expressionType . getExpressionData $ checkedFunction of
     FunctionType parameterTypes returnType -> return (parameterTypes, returnType)
     unexpectedType -> throwError $ FunctionCallExpressionNotAFunctionTypeError expressionRange unexpectedType
-  unless (Seq.length parameterTypes == Seq.length checkedArguments) $
-    throwError (FunctionCallExpressionArityError expressionRange (Seq.length parameterTypes) (Seq.length checkedArguments))
-  _ <- traverse' checkArgumentType (Seq.zip parameterTypes checkedArguments)
+  unless (Seq.length parameterTypes == Seq.length arguments) $
+    throwError (FunctionCallExpressionArityError expressionRange (Seq.length parameterTypes) (Seq.length arguments))
+  checkedArguments <- forM (Seq.zip parameterTypes arguments) (uncurry typeCheckExpression)
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedFunction) `riAnd` (fold $ expressionReturnInfo . getExpressionData <$> checkedArguments)
   return $ FunctionCallExpression (TCExpresionData expressionRange returnType returnInfo) checkedFunction checkedArguments
-  where
-    checkArgumentType :: (Type, TCExpression) -> TypeChecker ()
-    checkArgumentType (parameterType, argument) = do
-      let argumentType = expressionType . getExpressionData $ argument
-      unless (argumentType `subTypes` parameterType) $
-        throwError (FunctionCallExpressionArgumentTypeError (getRange argument) parameterType argumentType)
-typeCheckExpression (RecordExpression expressionRange mutability recordName fieldValueMap) = do
-  checkedFieldValueMap <- mapM typeCheckExpression fieldValueMap
-  recordTypeMap <- getRecordFieldTypes recordName
-  let typeCheckField (fieldName, fieldValue) = case Map.lookup fieldName recordTypeMap of
-        Nothing -> throwError $ RecordExpressionExtraFieldError (getTextName recordName) fieldName expressionRange
-        Just makeFieldType ->
-          let fieldValueType = expressionType . getExpressionData $ fieldValue
-              fieldType = makeFieldType mutability
-           in unless (fieldValueType `subTypes` fieldType) $
-                throwError (RecordExpressionFieldTypeError (getTextName recordName) fieldName fieldType fieldValueType expressionRange)
-  mapM_ typeCheckField (Map.toList checkedFieldValueMap)
-  let checkRecordHasField fieldName =
-        unless (Map.member fieldName checkedFieldValueMap) $
-          throwError (RecordExpressionMissingFieldError (getTextName recordName) fieldName expressionRange)
-  mapM_ checkRecordHasField (Map.keys recordTypeMap)
+typeSynthesizeExpression (RecordExpression expressionRange mutability recordName typeArgumentExpressions fieldValueMap) = do
+  expectedNumArguments <- getRecordNumTypeParameters recordName
+  unless (Seq.length typeArgumentExpressions == expectedNumArguments) $
+    throwError (RecordExpresssionNumTypeArgumentsError expressionRange (getTextName recordName) expectedNumArguments (Seq.length typeArgumentExpressions))
+  typeArguments <- mapM fromTypeExpression typeArgumentExpressions
+  fieldTypeMap <- getRecordFieldTypes recordName mutability typeArguments
+  checkedFieldValues <- forM (Map.toList fieldTypeMap) $ \(fieldName, fieldType) -> case Map.lookup fieldName fieldValueMap of
+    Nothing -> throwError $ RecordExpressionMissingFieldError (getTextName recordName) fieldName expressionRange
+    Just fieldValue -> do
+      checkedFieldValue <- typeCheckExpression fieldType fieldValue
+      return (fieldName, checkedFieldValue)
+  forM_ (Map.keys fieldValueMap) $ \fieldName -> case Map.lookup fieldName fieldTypeMap of
+    Nothing -> throwError $ RecordExpressionExtraFieldError (getTextName recordName) fieldName expressionRange
+    Just _ -> return ()
+  let checkedFieldValueMap = Map.fromList checkedFieldValues
   let returnInfo = fold $ expressionReturnInfo . getExpressionData <$> checkedFieldValueMap
-  return $ RecordExpression (TCExpresionData expressionRange (RecordUnionType mutability (Set.singleton recordName)) returnInfo) mutability recordName checkedFieldValueMap
-typeCheckExpression (FieldAccessExpression expressionRange inner fieldName) = do
-  checkedInner <- typeCheckExpression inner
+  return $ RecordExpression (TCExpresionData expressionRange (RecordUnionType mutability (Map.singleton recordName typeArguments)) returnInfo) mutability recordName () checkedFieldValueMap
+typeSynthesizeExpression (FieldAccessExpression expressionRange inner fieldName) = do
+  checkedInner <- typeSynthesizeExpression inner
   let innerExpressionType = expressionType . getExpressionData $ checkedInner
   (innerExpressionMutability, innerExpressionRecordNames) <- case innerExpressionType of
     RecordUnionType mutability recordNames -> return (mutability, recordNames)
     otherType -> throwError $ AccessedFieldOfNonRecordValueError otherType expressionRange
-  recordFieldTypePairs <- mapM (getRecordFieldType innerExpressionMutability innerExpressionType) (Set.toList innerExpressionRecordNames)
-  expressionType <- case getCombinedTypeF $ snd <$> recordFieldTypePairs of
+  recordFieldTypePairs <- forM (Map.toList innerExpressionRecordNames) $ \(recordName, recordTypeArguments) -> do
+    fieldTypeMap <- getRecordFieldTypes recordName innerExpressionMutability recordTypeArguments
+    case Map.lookup fieldName fieldTypeMap of
+      Nothing -> throwError $ AccessedFieldNotInRecordError (getTextName recordName) fieldName innerExpressionType expressionRange
+      Just fieldType -> return (recordName, fieldType)
+  combinedFieldType <- typeUnionF . NonEmpty.fromList $ snd <$> recordFieldTypePairs
+  expressionType <- case combinedFieldType of
     Nothing -> throwError $ FieldTypesAreNotCompatibleError fieldName (first getTextName <$> recordFieldTypePairs) expressionRange
     Just expressionType -> return expressionType
   let returnInfo = expressionReturnInfo . getExpressionData $ checkedInner
   return $ FieldAccessExpression (TCExpresionData expressionRange expressionType returnInfo) checkedInner fieldName
-  where
-    getRecordFieldType mutability innerExpressionType recordName = do
-      fieldTypeMap <- getRecordFieldTypes recordName
-      case Map.lookup fieldName fieldTypeMap of
-        Nothing -> throwError $ AccessedFieldNotInRecordError (getTextName recordName) fieldName innerExpressionType expressionRange
-        Just makeFieldType -> return (recordName, makeFieldType mutability)
-typeCheckExpression (CaseExpression expressionRange switch cases) = do
-  checkedSwitch <- typeCheckExpression switch
+typeSynthesizeExpression (CaseExpression expressionRange switch cases) = do
+  checkedSwitch <- typeSynthesizeExpression switch
   let switchType = expressionType . getExpressionData $ checkedSwitch
-  (switchMutability, switchPossibleRecords) <- case switchType of
+  (switchMutability, switchRecordMap) <- case switchType of
     RecordUnionType mutability recordNames -> return (mutability, recordNames)
     nonRecordType -> throwError $ CaseSwitchHasNonRecordTypeError (getRange switch) nonRecordType
-  mapM_
-    ( \recordName ->
-        unless (Map.member recordName cases) $
-          throwError (CaseExpressionMisingCaseError expressionRange (getTextName recordName))
-    )
-    switchPossibleRecords
-  mapM_
-    ( \recordName ->
-        unless
-          (Set.member recordName switchPossibleRecords)
-          $ throwError (CaseExpressionExtraneousCaseError expressionRange (getTextName recordName))
-    )
-    (Map.keys cases)
-  forM_ (Map.toList cases) $ \(recordName, (caseParameter, _)) -> setValueIdentifierType caseParameter (RecordUnionType switchMutability $ Set.singleton recordName)
-  checkedCases <- mapM (secondM typeCheckExpression) cases
+  forM_ (Map.keys switchRecordMap) $ \recordName ->
+    unless (Map.member recordName cases) $
+      throwError (CaseExpressionMisingCaseError expressionRange (getTextName recordName))
+  forM_ (Map.keys cases) $ \recordName ->
+    unless
+      (Map.member recordName switchRecordMap)
+      $ throwError (CaseExpressionExtraneousCaseError expressionRange (getTextName recordName))
+  forM_ (Map.toList cases) $ \(recordName, (caseParameter, _)) ->
+    setValueIdentifierType caseParameter (RecordUnionType switchMutability $ Map.singleton recordName (switchRecordMap ! recordName))
+  checkedCases <- mapM (secondM typeSynthesizeExpression) cases
   let caseRecordTypePairs = second (expressionType . getExpressionData . snd) <$> Map.toList checkedCases
-  expressionType <- case getCombinedTypeF $ snd <$> caseRecordTypePairs of
+  combinedCaseType <- typeUnionF . NonEmpty.fromList $ snd <$> caseRecordTypePairs
+  expressionType <- case combinedCaseType of
     Nothing -> throwError $ CaseTypesAreNotCompatibleError (first getTextName <$> caseRecordTypePairs) expressionRange
     Just expressionType -> return expressionType
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedSwitch) `riAnd` foldl1 riOr (expressionReturnInfo . getExpressionData . snd <$> Map.elems checkedCases)
   return $ CaseExpression (TCExpresionData expressionRange expressionType returnInfo) checkedSwitch checkedCases
+
+fromTypeExpression :: IBTypeExpression -> TypeChecker Type
+fromTypeExpression (IntTypeExpression _) = return IntType
+fromTypeExpression (FloatTypeExpression _) = return FloatType
+fromTypeExpression (CharTypeExpression _) = return CharType
+fromTypeExpression (StringTypeExpression _) = return StringType
+fromTypeExpression (BoolTypeExpression _) = return BoolType
+fromTypeExpression (NilTypeExpression _) = return NilType
+fromTypeExpression (FunctionTypeExpression _ parameterTypeExpressions returnTypeExpression) = do
+  parameterTypes <- mapM fromTypeExpression parameterTypeExpressions
+  returnType <- fromTypeExpression returnTypeExpression
+  return $ FunctionType parameterTypes returnType
+fromTypeExpression (IdentifierTypeExpression _ _) = throwError $ ShouldNotGetHereError "Encountered type parameter outside of record field"
+fromTypeExpression (RecordUnionTypeExpression _ (Right _) _) = throwError $ ShouldNotGetHereError "Encountered mutability parameter outside of record field"
+fromTypeExpression (RecordUnionTypeExpression expressionRange (Left mutability) recordExpressions) = do
+  let addRecord recordMap (recordName, recordTypeParameterExpressions) = do
+        recordTypeParameters <- mapM fromTypeExpression recordTypeParameterExpressions
+        let (conflictingRecordType, updatedMap) = insertAndReplace recordName recordTypeParameters recordMap
+        case conflictingRecordType of
+          Just _ -> throwError $ RecordUnionTypeExpressionDuplicateRecordsError expressionRange (getTextName recordName)
+          Nothing -> return updatedMap
+  records <- foldM addRecord Map.empty recordExpressions
+  return $ RecordUnionType mutability records
+
+getRecordFieldTypeFunc :: Bool -> Maybe IBMutabilityParameter -> Seq IBTypeParameter -> IBTypeExpression -> TypeChecker (Mutability -> Seq Type -> Type)
+getRecordFieldTypeFunc _ _ _ (IntTypeExpression _) = return $ const . const IntType
+getRecordFieldTypeFunc _ _ _ (FloatTypeExpression _) = return $ const . const FloatType
+getRecordFieldTypeFunc _ _ _ (CharTypeExpression _) = return $ const . const CharType
+getRecordFieldTypeFunc _ _ _ (StringTypeExpression _) = return $ const . const StringType
+getRecordFieldTypeFunc _ _ _ (BoolTypeExpression _) = return $ const . const BoolType
+getRecordFieldTypeFunc _ _ _ (NilTypeExpression _) = return $ const . const NilType
+getRecordFieldTypeFunc _ _ typeParameters (IdentifierTypeExpression _ identifier) = case Seq.elemIndexL identifier typeParameters of
+  Nothing -> throwError $ ShouldNotGetHereError "Type parameter was not in parameter list in getRecordFieldTypeFunc"
+  Just paramterIndex -> return $ \_ recordTypeArguments -> Seq.index recordTypeArguments paramterIndex
+getRecordFieldTypeFunc _ maybeMutabilityParameter typeParameters (FunctionTypeExpression _ parameterTypeExpressions returnTypeExpression) = do
+  parameterTypeFuncs <- mapM (getRecordFieldTypeFunc False maybeMutabilityParameter typeParameters) parameterTypeExpressions
+  returnTypeFunc <- getRecordFieldTypeFunc False maybeMutabilityParameter typeParameters returnTypeExpression
+  return $ \recordMutability recordTypeArguments ->
+    FunctionType (parameterTypeFuncs <&> (\f -> f recordMutability recordTypeArguments)) (returnTypeFunc recordMutability recordTypeArguments)
+getRecordFieldTypeFunc atTopLevel maybeMutabilityParameter typeParameters (RecordUnionTypeExpression expressionRange mutabilityExpression recordExpressions) = do
+  mutabilityFunc <-
+    if atTopLevel && isNothing maybeMutabilityParameter
+      {- If a record does not explicitly handle mutability with a mutability parameter, mutability is automatically
+        propogated to fields of record type.
+      -}
+      then case mutabilityExpression of
+        Left Immutable -> return id
+        Left Mutable -> throwError $ RecordFieldExplicitMutabilityError expressionRange
+        Right _ -> throwError (ShouldNotGetHereError "Encountered out-of-scope mutability parameter in getRecordFieldTypeFunc")
+      else case mutabilityExpression of
+        Left mutability -> return $ const mutability
+        Right mutabilityIdentifier -> do
+          unless (maybeMutabilityParameter == Just mutabilityIdentifier) $
+            throwError (ShouldNotGetHereError "Encountered out-of-scope mutability parameter in getRecordFieldTypeFunc")
+          return id
+  let addRecord recordMap (recordName, recordTypeParameterExpressions) = do
+        recordTypeParameterFuncs <- mapM (getRecordFieldTypeFunc False maybeMutabilityParameter typeParameters) recordTypeParameterExpressions
+        let (conflictingRecordType, updatedMap) = insertAndReplace recordName recordTypeParameterFuncs recordMap
+        case conflictingRecordType of
+          Just _ -> throwError $ RecordUnionTypeExpressionDuplicateRecordsError expressionRange (getTextName recordName)
+          Nothing -> return updatedMap
+  recordFuncs <- foldM addRecord Map.empty recordExpressions
+  return $ \recordMutability recordTypeParameters -> RecordUnionType (mutabilityFunc recordMutability) (fmap (fmap $ \f -> f recordMutability recordTypeParameters) recordFuncs)
