@@ -126,6 +126,27 @@ testRecords = do
       "rec Foo = [a: Int]; let x = mut Foo[a = 1]; mut x.a = 'a';" `failsToCompileWithError` typeExpectationError
     it "Fields of a mutable record must be mutable records" $
       "rec Foo = [a: Int]; rec Bar = [b: Foo]; let x = mut Bar[b = Foo[a = 1]];" `failsToCompileWithError` recordExpressionMutabilityTypeError
+  describe "Record type parameters:" $ do
+    it "Records can be defined and created with type parameters" $
+      "rec Foo = ⟨T⟩ => [value: T]; let x = Foo⟨Int⟩[value = 1]; print x.value;" `runsSuccessfullyWithOutput` "1\n"
+    it "Records can be defined and created with multiple type parameters" $
+      "rec Foo = ⟨T, V⟩ => [a: T, b: V]; let x = Foo⟨Int, String⟩[a = 1, b = \"two\"]; print x.a; print x.b;" `runsSuccessfullyWithOutput` "1\ntwo\n"
+    it "Records can be defined and created mutably with type parameters" $
+      "rec Foo = ⟨T⟩ => [value: T]; let x = mut Foo⟨Int⟩[value = 1]; print x.value; mut x.value = 2; print x.value;" `runsSuccessfullyWithOutput` "1\n2\n"
+    it "Record mutability can be passed to fields with a type parameter" $
+      "rec Foo = ⟨T⟩ => [value: T]; rec Bar = ⟨mut M⟩ => [foo: M Foo⟨Int⟩]; let x = mut Bar[foo = mut Foo[value = 1]]; print x.foo.value; mut x.foo.value = 2; print x.foo.value;" `runsSuccessfullyWithOutput` "1\n2\n"
+    it "Record immutability can be passed to fields with a type parameter" $
+      "rec Foo = ⟨T⟩ => [value: T]; rec Bar = ⟨mut M⟩ => [foo: M Foo⟨Int⟩]; let x = Bar[foo = Foo[value = 1]]; mut x.foo.value = 2;" `failsToCompileWithError` mutatedFieldOfImmutableRecordError
+    it "Record mutability can be passed to fields statically if a type parameter is defined" $
+      "rec Foo = ⟨T⟩ => [value: T]; rec Bar = ⟨mut M⟩ => [foo: mut Foo⟨Int⟩]; let x = mut Bar[foo = mut Foo[value = 1]]; print x.foo.value; mut x.foo.value = 2; print x.foo.value;" `runsSuccessfullyWithOutput` "1\n2\n"
+    it "Record immmutability can be passed to fields statically if a type parameter is defined" $
+      "rec Foo = ⟨T⟩ => [value: T]; rec Bar = ⟨mut M⟩ => [foo: Foo⟨Int⟩]; let x = Bar[foo = Foo[value = 1]]; mut x.foo.value = 2;" `failsToCompileWithError` mutatedFieldOfImmutableRecordError
+    it "Records type parameters can be inferred" $
+      "rec Foo = ⟨T⟩ => [value: T]; let x: Foo⟨Int⟩ = Foo[value = 1]; print x.value;" `runsSuccessfullyWithOutput` "1\n"
+    it "Type parameters of immutable records are covariant" $
+      "rec Foo = ⟨T⟩ => [value: T]; rec Bar = []; rec Baz = []; let x: Foo⟨Bar | Baz⟩ = Foo⟨Bar⟩[value = Bar];" `runsSuccessfullyWithOutput` ""
+    it "Type parameters of mutable records are invariant" $
+      "rec Foo = ⟨T⟩ => [value: T]; rec Bar = []; rec Baz = []; let x: mut Foo⟨Bar | Baz⟩ = mut Foo⟨Bar⟩[value = Bar];" `failsToCompileWithError` typeExpectationError
 
 conflictingIdentifierDefinitionsError :: Error -> Bool
 conflictingIdentifierDefinitionsError (ConflictingIdentifierDefinitionsError {}) = True
@@ -151,10 +172,6 @@ recordExpressionMissingFieldError :: Error -> Bool
 recordExpressionMissingFieldError (RecordExpressionMissingFieldError {}) = True
 recordExpressionMissingFieldError _ = False
 
-recordExpressionFieldTypeError :: Error -> Bool
-recordExpressionFieldTypeError (RecordExpressionFieldTypeError {}) = True
-recordExpressionFieldTypeError _ = False
-
 accessedFieldOfNonRecordValueError :: Error -> Bool
 accessedFieldOfNonRecordValueError (AccessedFieldOfNonRecordValueError {}) = True
 accessedFieldOfNonRecordValueError _ = False
@@ -166,10 +183,6 @@ accessedFieldNotInRecordError _ = False
 caseExpressionDuplicatedCasesError :: Error -> Bool
 caseExpressionDuplicatedCasesError (CaseExpressionDuplicatedCasesError {}) = True
 caseExpressionDuplicatedCasesError _ = False
-
-nonRecordTypeInUnionError :: Error -> Bool
-nonRecordTypeInUnionError (NonRecordTypeInUnionError {}) = True
-nonRecordTypeInUnionError _ = False
 
 fieldTypesAreNotCompatibleError :: Error -> Bool
 fieldTypesAreNotCompatibleError (FieldTypesAreNotCompatibleError {}) = True
@@ -191,18 +204,6 @@ caseTypesAreNotCompatibleError :: Error -> Bool
 caseTypesAreNotCompatibleError (CaseTypesAreNotCompatibleError {}) = True
 caseTypesAreNotCompatibleError _ = False
 
-nonRecordTypeMarkedAsMutableError :: Error -> Bool
-nonRecordTypeMarkedAsMutableError (NonRecordTypeMarkedAsMutableError {}) = True
-nonRecordTypeMarkedAsMutableError _ = False
-
-fieldTypeMarkedAsMutableError :: Error -> Bool
-fieldTypeMarkedAsMutableError (FieldTypeMarkedAsMutableError {}) = True
-fieldTypeMarkedAsMutableError _ = False
-
-unionTypeDifferentMutabilitiesError :: Error -> Bool
-unionTypeDifferentMutabilitiesError (UnionTypeDifferentMutabilitiesError {}) = True
-unionTypeDifferentMutabilitiesError _ = False
-
 mutatedFieldOfNonRecordTypeError :: Error -> Bool
 mutatedFieldOfNonRecordTypeError (MutatedFieldOfNonRecordTypeError {}) = True
 mutatedFieldOfNonRecordTypeError _ = False
@@ -218,10 +219,6 @@ mutatedFieldNotInRecordError _ = False
 fieldTypesHaveEmptyIntersectionError :: Error -> Bool
 fieldTypesHaveEmptyIntersectionError (FieldTypesHaveEmptyIntersectionError {}) = True
 fieldTypesHaveEmptyIntersectionError _ = False
-
-fieldMutationValueTypeError :: Error -> Bool
-fieldMutationValueTypeError (FieldMutationValueTypeError {}) = True
-fieldMutationValueTypeError _ = False
 
 typeExpectationError :: Error -> Bool
 typeExpectationError (TypeExpectationError {}) = True
