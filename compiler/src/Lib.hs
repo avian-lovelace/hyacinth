@@ -29,7 +29,7 @@ standardBytecodeFilePath :: FilePath
 standardBytecodeFilePath = "../byte.code"
 
 standardCode :: Text
-standardCode = "nil == { let foo = 1; print foo; };"
+standardCode = "print \"Hello, world!\";"
 
 run :: IO ()
 run = runAndOutputErrors $ do
