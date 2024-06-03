@@ -50,7 +50,6 @@ module IntermediateCodeGeneration.IntermediateCode
   )
 where
 
-import Core.SyntaxTree
 import Data.Sequence (Seq)
 import Data.Text (Text)
 import IdentifierBinding.SyntaxTree

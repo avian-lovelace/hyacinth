@@ -35,8 +35,6 @@ type PModule = Module ParsingPhase
 
 type instance ModuleData ParsingPhase = ()
 
-type instance ModuleContent ParsingPhase = PMainFunction
-
 type PMainFunction = MainFunction ParsingPhase
 
 type instance MainFunctionData ParsingPhase = ()
@@ -60,8 +58,6 @@ type instance StatementData ParsingPhase = Range
 type PNonPositionalStatement = NonPositionalStatement ParsingPhase
 
 type instance NonPositionalStatementData ParsingPhase = Range
-
-type instance FunctionStatementContent ParsingPhase = PFunctionDefinition
 
 -- Identifier
 type UnboundIdentifier = Text
@@ -102,8 +98,6 @@ type instance MutabilityParameter ParsingPhase = UnboundIdentifier
 type PExpression = Expression ParsingPhase
 
 type instance ExpressionData ParsingPhase = Range
-
-type instance FunctionExpressionContent ParsingPhase = PFunctionDefinition
 
 type instance RecordFieldValues ParsingPhase = Map PFieldIdentifier PExpression
 

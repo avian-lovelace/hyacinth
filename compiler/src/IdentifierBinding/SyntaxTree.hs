@@ -21,7 +21,6 @@ module IdentifierBinding.SyntaxTree
     IBFieldIdentifier,
     IBExpression,
     IBMainFunction,
-    IBSubFunction,
     IBTypeExpression,
     IBWithTypeAnnotation,
     IBScope,
@@ -34,6 +33,7 @@ module IdentifierBinding.SyntaxTree
     getValueIdentifierIndex,
     getFunctionIdentifierIndex,
     getRecordIdentifierIndex,
+    FunctionIndex,
   )
 where
 
@@ -53,15 +53,9 @@ type IBModule = Module IdentifierBindingPhase
 
 type instance ModuleData IdentifierBindingPhase = ()
 
-type instance ModuleContent IdentifierBindingPhase = IBMainFunction
-
 type IBMainFunction = MainFunction IdentifierBindingPhase
 
 type instance MainFunctionData IdentifierBindingPhase = ()
-
-type IBSubFunction = SubFunction IdentifierBindingPhase
-
-type instance SubFunctionData IdentifierBindingPhase = Range
 
 -- Scope
 type IBScope = Scope IdentifierBindingPhase
@@ -81,8 +75,6 @@ data IBFunctionDefinitionData = IBFunctionDefinitionData
   { ibFunctionDefinitionRange :: Range,
     ibFunctionDefinitionCapturedIdentifiers :: Set IBIdentifier
   }
-
-type instance FunctionStatementContent IdentifierBindingPhase = IBFunctionDefinition
 
 -- Non-positional statement
 
@@ -119,6 +111,8 @@ type ValueIdentifierIndex = Int
 type IBFunctionIdentifier = FunctionIdentifier IdentifierBindingPhase
 
 type instance FunctionIdentifier IdentifierBindingPhase = BoundFunctionIdentifier
+
+type FunctionIndex = Int
 
 data BoundFunctionIdentifier = BoundFunctionIdentifier FunctionIndex UnboundIdentifier
   deriving (Eq, Ord)
@@ -192,8 +186,6 @@ instance WithTextName BoundTypeParameter where
 type IBExpression = Expression IdentifierBindingPhase
 
 type instance ExpressionData IdentifierBindingPhase = Range
-
-type instance FunctionExpressionContent IdentifierBindingPhase = IBFunctionDefinition
 
 type instance RecordFieldValues IdentifierBindingPhase = Map IBFieldIdentifier IBExpression
 

@@ -70,8 +70,6 @@ type TCModule = Module TypeCheckingPhase
 
 type instance ModuleData TypeCheckingPhase = ()
 
-type instance ModuleContent TypeCheckingPhase = TCMainFunction
-
 type TCMainFunction = MainFunction TypeCheckingPhase
 
 type instance MainFunctionData TypeCheckingPhase = ()
@@ -96,8 +94,6 @@ type instance StatementData TypeCheckingPhase = TCStatementData
 type TCNonPositionalStatement = NonPositionalStatement TypeCheckingPhase
 
 type instance NonPositionalStatementData TypeCheckingPhase = Range
-
-type instance FunctionStatementContent TypeCheckingPhase = TCFunctionDefinition
 
 type TCFunctionDefinition = FunctionDefinition TypeCheckingPhase
 
@@ -153,11 +149,6 @@ type instance TypeArguments TypeCheckingPhase = ()
 
 instance WithRange TCExpression where
   getRange = expressionRange . getExpressionData
-
--- instance Pretty TCFunctionExpressionContent where
---   pretty (TCFunctionExpressionContent functionIndex capturedIdentifiers) = show functionIndex ++ "(" ++ pretty capturedIdentifiers ++ ")"
-
-type instance FunctionExpressionContent TypeCheckingPhase = TCFunctionDefinition
 
 -- Type annotation
 type TCWithTypeAnnotation = WithTypeAnnotation TypeCheckingPhase

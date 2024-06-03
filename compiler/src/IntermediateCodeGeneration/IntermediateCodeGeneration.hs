@@ -21,7 +21,6 @@ where
 import Core.ErrorState
 import Core.Errors
 import Core.FilePositions
-import Core.SyntaxTree
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Sequence (Seq)
