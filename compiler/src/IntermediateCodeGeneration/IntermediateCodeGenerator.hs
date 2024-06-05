@@ -42,7 +42,7 @@ scopeGenerator (Scope _ nonPositionalStatements statements) = do
     getCapturedIdentifiers :: Graph BoundFunctionIdentifier (Set BoundValueIdentifier) -> BoundFunctionIdentifier -> Set BoundValueIdentifier
     getCapturedIdentifiers graph functionName = foldDepthFirst Set.empty Set.union functionName graph
     initializeFunction :: Graph BoundFunctionIdentifier (Set BoundValueIdentifier) -> TCNonPositionalStatement -> IntermediateCodeGenerator ()
-    initializeFunction graph (FunctionStatement _ functionName _) = do
+    initializeFunction graph (FunctionStatement _ functionName _ _) = do
       let capturedIdentifiers = getCapturedIdentifiers graph functionName
       addFunctionCapturedIdentifiers functionName capturedIdentifiers
     initializeFunction _ (RecordStatement {}) = throwError $ ShouldNotGetHereError "Got record statement in initializeFunction"
@@ -53,7 +53,7 @@ makeScopeFunctionGraph nonPositionalStatements = do
   return $ Graph $ Map.fromList . toList $ graphNodes
   where
     toNamedGraphNode :: TCNonPositionalStatement -> IntermediateCodeGenerator (BoundFunctionIdentifier, GraphNode BoundFunctionIdentifier (Set BoundValueIdentifier))
-    toNamedGraphNode (FunctionStatement _ functionName functionDefinition) = do
+    toNamedGraphNode (FunctionStatement _ functionName _ functionDefinition) = do
       graphNode <- toGraphNode functionDefinition
       return (functionName, graphNode)
     toNamedGraphNode (RecordStatement {}) = throwError $ ShouldNotGetHereError "Got record statement in toNamedGraphNode"
@@ -62,10 +62,10 @@ makeScopeFunctionGraph nonPositionalStatements = do
       (capturedValueIdentifiers, capturedFunctionIdentifiers) <- consolidateCapturedIdentifiers tcFunctionDefinitionCapturedIdentifiers
       return $ GraphNode capturedValueIdentifiers capturedFunctionIdentifiers
 
-consolidateCapturedIdentifiers :: Set TCIdentifier -> IntermediateCodeGenerator (Set BoundValueIdentifier, Set BoundFunctionIdentifier)
+consolidateCapturedIdentifiers :: Set (Either TCValueIdentifier TCFunctionIdentifier) -> IntermediateCodeGenerator (Set BoundValueIdentifier, Set BoundFunctionIdentifier)
 consolidateCapturedIdentifiers = foldM combine (Set.empty, Set.empty)
   where
-    combine :: (Set BoundValueIdentifier, Set BoundFunctionIdentifier) -> TCIdentifier -> IntermediateCodeGenerator (Set BoundValueIdentifier, Set BoundFunctionIdentifier)
+    combine :: (Set BoundValueIdentifier, Set BoundFunctionIdentifier) -> (Either TCValueIdentifier TCFunctionIdentifier) -> IntermediateCodeGenerator (Set BoundValueIdentifier, Set BoundFunctionIdentifier)
     combine (capturedValueIdentifiers, capturedFunctionIdentifiers) (Left valueIdentifier) =
       return (Set.insert valueIdentifier capturedValueIdentifiers, capturedFunctionIdentifiers)
     combine (capturedValueIdentifiers, capturedFunctionIdentifiers) (Right functionIdentifier) = do
@@ -75,7 +75,7 @@ consolidateCapturedIdentifiers = foldM combine (Set.empty, Set.empty)
         Nothing -> return (capturedValueIdentifiers, Set.insert functionIdentifier capturedFunctionIdentifiers)
 
 nonPositionalStatementGenerator :: TCNonPositionalStatement -> IntermediateCodeGenerator ()
-nonPositionalStatementGenerator (FunctionStatement _ functionName functionDefinition) = do
+nonPositionalStatementGenerator (FunctionStatement _ functionName _ functionDefinition) = do
   maybeCapturedIdentifiers <- getFunctionCapturedIdentifiers functionName
   capturedIdentifiers <- case maybeCapturedIdentifiers of
     Just capturedIdentifiers -> return capturedIdentifiers
@@ -145,11 +145,11 @@ functionDefinitionGenerator (FunctionDefinition _ parameters (WithTypeAnnotation
 
 expressionGenerator :: TCExpression -> IntermediateCodeGenerator Expr
 expressionGenerator (IdentifierExpression TCExpresionData {expressionRange} identifier) = case identifier of
-  Left valueIdentifier -> do
+  SimpleValueIdentifier valueIdentifier -> do
     let identifierUnusableError = ShouldNotGetHereError "Found unusable value identifier in expressionGenerator. This should have already been caught in identifier binding."
     encodedIdentifier <- getIdentifierInContext identifierUnusableError valueIdentifier
     return $ IdentifierExpr (getValueIdentifierIndex encodedIdentifier)
-  Right functionIdentifier -> do
+  FunctionValueIdentifier functionIdentifier _ -> do
     capturedIdentifiers <- getFunctionCapturedIdentifiersInContext expressionRange functionIdentifier
     let (BoundFunctionIdentifier functionIndex _) = functionIdentifier
     return $ FunctionExpr functionIndex (getValueIdentifierIndex <$> capturedIdentifiers)

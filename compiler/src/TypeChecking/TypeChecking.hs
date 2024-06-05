@@ -24,8 +24,10 @@ module TypeChecking.TypeChecking
   )
 where
 
+import Control.Monad (unless)
 import Core.ErrorState
 import Core.Errors
+import Core.FilePositions
 import Core.SyntaxTree
 import Data.Foldable1 (Foldable1, foldlM1)
 import Data.Functor ((<&>))
@@ -42,7 +44,7 @@ import TypeChecking.Type
 
 data TypeCheckingState = TypeCheckingState
   { valueIdentifierTypes :: Map BoundValueIdentifier Type,
-    functionTypes :: Map BoundFunctionIdentifier Type,
+    functionTypes :: Map BoundFunctionIdentifier (Int, Seq Type -> Type),
     recordTypes :: Map BoundRecordIdentifier (Map UnboundIdentifier (Mutability -> Seq Type -> Type)),
     functionContextStack :: [FunctionContext],
     recordFieldOrders :: Map BoundRecordIdentifier (Seq UnboundIdentifier),
@@ -79,17 +81,20 @@ getValueIdentifierType identifier = do
     Nothing -> do
       throwError $ ShouldNotGetHereError "Called getValueIdentifierType before identifier was initialized"
 
-setFunctionType :: BoundFunctionIdentifier -> Type -> TypeChecker ()
-setFunctionType functionName functionType = do
+setFunctionType :: BoundFunctionIdentifier -> Int -> (Seq Type -> Type) -> TypeChecker ()
+setFunctionType functionName numTypeParameters functionTypeFunc = do
   functionTypes <- functionTypes <$> getState
-  let updatedFunctionTypes = Map.insert functionName functionType functionTypes
+  let updatedFunctionTypes = Map.insert functionName (numTypeParameters, functionTypeFunc) functionTypes
   setFunctionTypes updatedFunctionTypes
 
-getFunctionType :: BoundFunctionIdentifier -> TypeChecker Type
-getFunctionType functionName = do
+getFunctionType :: Range -> BoundFunctionIdentifier -> Seq Type -> TypeChecker Type
+getFunctionType usageRange functionName typeArguments = do
   functionTypes <- functionTypes <$> getState
   case Map.lookup functionName functionTypes of
-    Just functionType -> return functionType
+    Just (numTypeParameters, functionTypeFunc) -> do
+      unless (Seq.length typeArguments == numTypeParameters) $
+        throwError (FunctionWrongNumberOfTypeArgumentsError usageRange (getTextName functionName) numTypeParameters (Seq.length typeArguments))
+      return $ functionTypeFunc typeArguments
     Nothing -> throwError $ ShouldNotGetHereError "Called getFunctionType before function was initialized"
 
 setRecordFieldTypes :: BoundRecordIdentifier -> Map UnboundIdentifier (Mutability -> Seq Type -> Type) -> TypeChecker ()
@@ -256,7 +261,7 @@ setValueIdentifierTypes valueIdentifierTypes = do
   state <- getState
   setState state {valueIdentifierTypes}
 
-setFunctionTypes :: Map BoundFunctionIdentifier Type -> TypeChecker ()
+setFunctionTypes :: Map BoundFunctionIdentifier (Int, Seq Type -> Type) -> TypeChecker ()
 setFunctionTypes functionTypes = do
   state <- getState
   setState state {functionTypes}

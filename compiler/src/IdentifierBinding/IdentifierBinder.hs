@@ -3,7 +3,7 @@ module IdentifierBinding.IdentifierBinder
   )
 where
 
-import Control.Monad (forM)
+import Control.Monad (forM, unless)
 import Core.ErrorState
 import Core.Errors
 import Core.FilePositions
@@ -44,7 +44,7 @@ newtype BindingReady a = BindingReady a
 
 prepareNonPositionalStatementForBinding :: PNonPositionalStatement -> IdentifierBinder (BindingReady PNonPositionalStatement)
 prepareNonPositionalStatementForBinding statement = case statement of
-  (FunctionStatement statementRange unboundFunctionName _) -> do
+  (FunctionStatement statementRange unboundFunctionName _ _) -> do
     addFunction statementRange unboundFunctionName
     return $ BindingReady statement
   (RecordStatement statementRange recordName _ _ _) -> do
@@ -52,16 +52,17 @@ prepareNonPositionalStatementForBinding statement = case statement of
     return $ BindingReady statement
 
 nonPositionalStatementBinder :: BindingReady PNonPositionalStatement -> IdentifierBinder IBNonPositionalStatement
-nonPositionalStatementBinder (BindingReady (FunctionStatement statementRange unboundFunctionName (FunctionDefinition definitionRange parameters (WithTypeAnnotation body returnTypeAnnotation)))) = do
+nonPositionalStatementBinder (BindingReady (FunctionStatement statementRange unboundFunctionName typeParameters (FunctionDefinition definitionRange parameters (WithTypeAnnotation body returnTypeAnnotation)))) = do
   boundFunctionName <- getFunctionNameBinding unboundFunctionName
   withNewFunctionScope $ do
+    boundTypeParameters <- mapM (addFunctionTypeParameter statementRange unboundFunctionName) typeParameters
     boundParameters <- traverse' (bindParameter statementRange) parameters
     boundReturnTypeAnnotation <- mapM typeExpressionBinder returnTypeAnnotation
     boundBody <- expressionBinder body
     capturedIdentifiers <- getCapturedIdentifiers
     let functionDefinitionData = IBFunctionDefinitionData {ibFunctionDefinitionRange = definitionRange, ibFunctionDefinitionCapturedIdentifiers = capturedIdentifiers}
     let functionDefinition = FunctionDefinition functionDefinitionData boundParameters (WithTypeAnnotation boundBody boundReturnTypeAnnotation)
-    return $ FunctionStatement statementRange boundFunctionName functionDefinition
+    return $ FunctionStatement statementRange boundFunctionName boundTypeParameters functionDefinition
 nonPositionalStatementBinder (BindingReady (RecordStatement statementRange recordName mutabiltyParameter typeParameters fieldTypePairs)) = do
   boundRecordName <- getRecordNameBinding recordName
   (boundMutabilityParameter, (boundTypeParameters, boundFieldTypePairs)) <- withNewRecordScope statementRange mutabiltyParameter $ do
@@ -127,11 +128,15 @@ statementBinder (BindingReady (ReturnStatement range Nothing)) =
   return $ ReturnStatement range Nothing
 
 expressionBinder :: PExpression -> IdentifierBinder IBExpression
-expressionBinder (IdentifierExpression expressionRange unboundIdentifier) = do
+expressionBinder (IdentifierExpression expressionRange (PIdentifier unboundIdentifier typeArguments)) = do
   identifierInfo <- getIdentifierBinding expressionRange unboundIdentifier
   case identifierInfo of
-    ParameterIdentifierInfo _ boundValueIdentifier -> return $ IdentifierExpression expressionRange $ Left boundValueIdentifier
-    FunctionIdentifierInfo _ boundFunctionIdentifier -> return $ IdentifierExpression expressionRange $ Right boundFunctionIdentifier
+    ParameterIdentifierInfo _ boundValueIdentifier -> do
+      unless (null typeArguments) $ throwError (TypeArgumentsAppliedToValueIdentifierError expressionRange unboundIdentifier)
+      return $ IdentifierExpression expressionRange $ SimpleValueIdentifier boundValueIdentifier
+    FunctionIdentifierInfo _ boundFunctionIdentifier -> do
+      boundTypeArguments <- mapM typeExpressionBinder typeArguments
+      return $ IdentifierExpression expressionRange $ FunctionValueIdentifier boundFunctionIdentifier boundTypeArguments
     {- A record with no fields gets interpreted as a mutable, rather than immutable record. The mutability of a record
       with no fields doesn't matter directly. However, if the record ends up as part of a record union, being immutable
       would force the whole record union to be immutable. So, we make it mutable to improve flexibility.
@@ -140,8 +145,12 @@ expressionBinder (IdentifierExpression expressionRange unboundIdentifier) = do
     VariableIdentifierInfo declarationRange boundValueIdentifier _ usability -> case usability of
       BeforeDeclaration -> throwError $ VariableDefinedAfterReferenceError unboundIdentifier expressionRange declarationRange
       InDeclaration -> throwError $ VariableReferencedInDeclarationError unboundIdentifier declarationRange expressionRange
-      Usable -> return $ IdentifierExpression expressionRange $ Left boundValueIdentifier
-    CaseParameterInfo _ boundValueIdentifier -> return $ IdentifierExpression expressionRange $ Left boundValueIdentifier
+      Usable -> do
+        unless (null typeArguments) $ throwError (TypeArgumentsAppliedToValueIdentifierError expressionRange unboundIdentifier)
+        return $ IdentifierExpression expressionRange $ SimpleValueIdentifier boundValueIdentifier
+    CaseParameterInfo _ boundValueIdentifier -> do
+      unless (null typeArguments) $ throwError (TypeArgumentsAppliedToValueIdentifierError expressionRange unboundIdentifier)
+      return $ IdentifierExpression expressionRange $ SimpleValueIdentifier boundValueIdentifier
     TypeParameterInfo definitionRange _ -> throwError $ TypeParameterUsedAsValueError unboundIdentifier expressionRange definitionRange
     MutabilityParameterInfo definitionRange _ -> throwError $ MutabilityParameterUsedAsValueError unboundIdentifier expressionRange definitionRange
 expressionBinder (ScopeExpression d scope) = withNewExpressionScope $ do
@@ -257,7 +266,7 @@ bindScope (Scope () nonPositionalStatements statements) = do
   boundNonPositionalStatements <- traverse nonPositionalStatementBinder readyNonPositionalStatements
   return $ Scope () boundNonPositionalStatements boundStatements
 
-bindParameter :: Range -> PWithTypeAnnotation PIdentifier -> IdentifierBinder (IBWithTypeAnnotation IBValueIdentifier)
+bindParameter :: Range -> PWithTypeAnnotation PValueIdentifier -> IdentifierBinder (IBWithTypeAnnotation IBValueIdentifier)
 bindParameter definitionRange (WithTypeAnnotation unboundParameter typeAnnotation) = do
   boundParameter <- addParameter definitionRange unboundParameter
   boundTypeAnnotation <- mapM typeExpressionBinder typeAnnotation

@@ -8,8 +8,8 @@
  - Effects
  - Add compile-time optimizations
  - Importing and exporting from modules
- - Function type parameters
  - Type assertion expressions
+ - Type parameter inference for functions
 
 ## Technical debt
  - Improve error reporting in parts of the parser that use parser combinators

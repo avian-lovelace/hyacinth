@@ -99,16 +99,18 @@ type TCFunctionDefinition = FunctionDefinition TypeCheckingPhase
 
 type instance FunctionDefinitionData TypeCheckingPhase = TCFunctionDefinitionData
 
+type instance TypeParameters TypeCheckingPhase = ()
+
 data TCFunctionDefinitionData = TCFunctionDefinitionData
   { tcFunctionDefinitionRange :: Range,
     tcFunctionDefinitionType :: Type,
-    tcFunctionDefinitionCapturedIdentifiers :: Set TCIdentifier
+    tcFunctionDefinitionCapturedIdentifiers :: Set (Either TCValueIdentifier TCFunctionIdentifier)
   }
 
 -- Identifier
 type TCIdentifier = Identifier TypeCheckingPhase
 
-type instance Identifier TypeCheckingPhase = Either TCValueIdentifier TCFunctionIdentifier
+type instance Identifier TypeCheckingPhase = ValueOrFunctionIdentifier TypeCheckingPhase
 
 type TCValueIdentifier = ValueIdentifier TypeCheckingPhase
 

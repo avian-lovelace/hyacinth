@@ -8,7 +8,7 @@ module Parsing.SyntaxTree
     PScope,
     PStatement,
     PNonPositionalStatement,
-    PIdentifier,
+    PIdentifier (PIdentifier),
     PExpression,
     UnboundIdentifier,
     PTypeExpression,
@@ -24,6 +24,7 @@ where
 
 import Core.FilePositions
 import Core.SyntaxTree
+import Core.Utils
 import Data.Map (Map)
 import Data.Sequence (Seq)
 import Data.Text (Text)
@@ -59,12 +60,17 @@ type PNonPositionalStatement = NonPositionalStatement ParsingPhase
 
 type instance NonPositionalStatementData ParsingPhase = Range
 
+type instance TypeParameters ParsingPhase = Seq PTypeParameter
+
 -- Identifier
 type UnboundIdentifier = Text
 
-type PIdentifier = Identifier ParsingPhase
+type instance Identifier ParsingPhase = PIdentifier
 
-type instance Identifier ParsingPhase = UnboundIdentifier
+data PIdentifier = PIdentifier UnboundIdentifier PTypeArguments
+
+instance Pretty PIdentifier where
+  pretty (PIdentifier identifier typeArguments) = "(PIdentifier " ++ pretty identifier ++ pretty typeArguments ++ ")"
 
 type PValueIdentifier = ValueIdentifier ParsingPhase
 
@@ -100,6 +106,8 @@ type PExpression = Expression ParsingPhase
 type instance ExpressionData ParsingPhase = Range
 
 type instance RecordFieldValues ParsingPhase = Map PFieldIdentifier PExpression
+
+type PTypeArguments = TypeArguments ParsingPhase
 
 type instance TypeArguments ParsingPhase = Seq PTypeExpression
 

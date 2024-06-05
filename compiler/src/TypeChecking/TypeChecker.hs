@@ -1,6 +1,6 @@
 module TypeChecking.TypeChecker (runTypeChecking) where
 
-import Control.Monad (foldM, forM, forM_, unless)
+import Control.Monad (foldM, forM, forM_, unless, (>=>))
 import Core.ErrorState
 import Core.Errors
 import Core.FilePositions
@@ -47,16 +47,17 @@ typeCheckScope (Scope () nonPositionalStatements statements) = do
   return $ Scope returnInfo checkedNonPositionalStatements checkedStatements
 
 initializeNonPositionalStatement :: IBNonPositionalStatement -> TypeChecker ()
-initializeNonPositionalStatement (FunctionStatement statementRange functionName (FunctionDefinition _ parameters (WithTypeAnnotation _ returnTypeAnnotation))) = do
-  parameterTypes <- mapM getParameterType parameters
-  returnType <- case returnTypeAnnotation of
-    Just returnType -> fromTypeExpression returnType
+initializeNonPositionalStatement (FunctionStatement statementRange functionName typeParameters (FunctionDefinition _ parameters (WithTypeAnnotation _ returnTypeAnnotation))) = do
+  parameterTypes <- mapM (getParameterTypeExpression >=> getFunctionParametrizedTypeFunc typeParameters) parameters
+  returnTypeFunc <- case returnTypeAnnotation of
+    Just returnTypeExpression -> getFunctionParametrizedTypeFunc typeParameters returnTypeExpression
     Nothing -> throwError $ FunctionMissingReturnTypeAnnotation statementRange
-  setFunctionType functionName (FunctionType parameterTypes returnType)
+  let functionTypeFunc typeArguments = FunctionType (parameterTypes <&> ($ typeArguments)) (returnTypeFunc typeArguments)
+  setFunctionType functionName (Seq.length typeParameters) functionTypeFunc
   where
-    getParameterType :: IBWithTypeAnnotation IBValueIdentifier -> TypeChecker Type
-    getParameterType (WithTypeAnnotation _ parameterTypeAnnotation) = case parameterTypeAnnotation of
-      Just typeExpression -> fromTypeExpression typeExpression
+    getParameterTypeExpression :: IBWithTypeAnnotation IBValueIdentifier -> TypeChecker IBTypeExpression
+    getParameterTypeExpression (WithTypeAnnotation _ parameterTypeAnnotation) = case parameterTypeAnnotation of
+      Just typeExpression -> return typeExpression
       Nothing -> throwError $ FunctionMissingParameterTypeAnnotation statementRange
 initializeNonPositionalStatement (RecordStatement _ recordName mutabilityParameter typeParameters fieldTypePairs) = do
   fieldTypeExpressionMap <- foldM addFieldType Map.empty fieldTypePairs
@@ -79,17 +80,19 @@ typeCheckNonPositionalStatement
   ( FunctionStatement
       statementRange
       functionName
+      typeParameters
       ( FunctionDefinition
           IBFunctionDefinitionData {ibFunctionDefinitionRange, ibFunctionDefinitionCapturedIdentifiers}
           parameters
           (WithTypeAnnotation body _)
         )
     ) = do
-    functionType <- getFunctionType functionName
+    let typeParameterTypes = typeParameters <&> \(BoundTypeParameter typeParameterIndex typeParameterName) -> IdentifierType typeParameterIndex typeParameterName
+    functionType <- getFunctionType statementRange functionName typeParameterTypes
     (parameterTypes, returnType) <- case functionType of
       FunctionType parameterTypes returnType -> return (parameterTypes, returnType)
       _ -> throwError $ ShouldNotGetHereError "Got non-function type for function in typeCheckNonPositionalStatement"
-    let typedParameters = (Seq.zip parameters parameterTypes) <&> \(WithTypeAnnotation parameterName _, parameterType) -> (parameterName, parameterType)
+    let typedParameters = Seq.zip parameters parameterTypes <&> \(WithTypeAnnotation parameterName _, parameterType) -> (parameterName, parameterType)
     checkedBody <- typeCheckFunction statementRange typedParameters body returnType
     let functionDefinitionData =
           TCFunctionDefinitionData
@@ -102,7 +105,7 @@ typeCheckNonPositionalStatement
             functionDefinitionData
             (typedParameters <&> \(parameterName, _) -> WithTypeAnnotation parameterName ())
             (WithTypeAnnotation checkedBody ())
-    return $ Just $ FunctionStatement statementRange functionName checkedFunctionDefinition
+    return $ Just $ FunctionStatement statementRange functionName () checkedFunctionDefinition
 typeCheckNonPositionalStatement (RecordStatement {}) = return Nothing
 
 typeCheckFunction :: Range -> Seq (IBValueIdentifier, Type) -> IBExpression -> Type -> TypeChecker TCExpression
@@ -350,11 +353,14 @@ typeSynthesizeExpression (BoolLiteralExpression expressionRange value) =
   return $ BoolLiteralExpression (TCExpresionData expressionRange BoolType NeverReturns) value
 typeSynthesizeExpression (NilExpression expressionRange) =
   return $ NilExpression (TCExpresionData expressionRange NilType NeverReturns)
-typeSynthesizeExpression (IdentifierExpression expressionRange identifier) = do
-  expressionType <- case identifier of
-    Left valueIdentifier -> getValueIdentifierType valueIdentifier
-    Right functionIdentifier -> getFunctionType functionIdentifier
-  return $ IdentifierExpression (TCExpresionData expressionRange expressionType NeverReturns) identifier
+typeSynthesizeExpression (IdentifierExpression expressionRange identifier) = case identifier of
+  SimpleValueIdentifier valueIdentifier -> do
+    expressionType <- getValueIdentifierType valueIdentifier
+    return $ IdentifierExpression (TCExpresionData expressionRange expressionType NeverReturns) (SimpleValueIdentifier valueIdentifier)
+  FunctionValueIdentifier functionIdentifier typeArgumentExpressions -> do
+    typeArguments <- mapM fromTypeExpression typeArgumentExpressions
+    expressionType <- getFunctionType expressionRange functionIdentifier typeArguments
+    return $ IdentifierExpression (TCExpresionData expressionRange expressionType NeverReturns) (FunctionValueIdentifier functionIdentifier ())
 typeSynthesizeExpression (NegateExpression expressionRange inner) = do
   checkedInner <- typeSynthesizeExpression inner
   expressionType <- case expressionType . getExpressionData $ checkedInner of
@@ -624,7 +630,7 @@ fromTypeExpression (FunctionTypeExpression _ parameterTypeExpressions returnType
   parameterTypes <- mapM fromTypeExpression parameterTypeExpressions
   returnType <- fromTypeExpression returnTypeExpression
   return $ FunctionType parameterTypes returnType
-fromTypeExpression (IdentifierTypeExpression _ _) = throwError $ ShouldNotGetHereError "Encountered type parameter outside of record field"
+fromTypeExpression (IdentifierTypeExpression _ identifier) = return (IdentifierType (getTypeParameterIndex identifier) (getTextName identifier))
 fromTypeExpression (RecordUnionTypeExpression _ (Right _) _) = throwError $ ShouldNotGetHereError "Encountered mutability parameter outside of record field"
 fromTypeExpression (RecordUnionTypeExpression expressionRange (Left mutability) recordExpressions) = do
   let addRecord recordMap (recordName, recordTypeParameterExpressions) = do
@@ -644,7 +650,7 @@ getRecordFieldTypeFunc _ _ _ (StringTypeExpression _) = return $ const . const S
 getRecordFieldTypeFunc _ _ _ (BoolTypeExpression _) = return $ const . const BoolType
 getRecordFieldTypeFunc _ _ _ (NilTypeExpression _) = return $ const . const NilType
 getRecordFieldTypeFunc _ _ typeParameters (IdentifierTypeExpression _ identifier) = case Seq.elemIndexL identifier typeParameters of
-  Nothing -> throwError $ ShouldNotGetHereError "Type parameter was not in parameter list in getRecordFieldTypeFunc"
+  Nothing -> return $ const . const (IdentifierType (getTypeParameterIndex identifier) (getTextName identifier))
   Just paramterIndex -> return $ \_ recordTypeArguments -> Seq.index recordTypeArguments paramterIndex
 getRecordFieldTypeFunc _ maybeMutabilityParameter typeParameters (FunctionTypeExpression _ parameterTypeExpressions returnTypeExpression) = do
   parameterTypeFuncs <- mapM (getRecordFieldTypeFunc False maybeMutabilityParameter typeParameters) parameterTypeExpressions
@@ -675,3 +681,30 @@ getRecordFieldTypeFunc atTopLevel maybeMutabilityParameter typeParameters (Recor
           Nothing -> return updatedMap
   recordFuncs <- foldM addRecord Map.empty recordExpressions
   return $ \recordMutability recordTypeParameters -> RecordUnionType (mutabilityFunc recordMutability) (fmap (fmap $ \f -> f recordMutability recordTypeParameters) recordFuncs)
+
+getFunctionParametrizedTypeFunc :: Seq IBTypeParameter -> IBTypeExpression -> TypeChecker (Seq Type -> Type)
+getFunctionParametrizedTypeFunc _ (IntTypeExpression _) = return $ const IntType
+getFunctionParametrizedTypeFunc _ (FloatTypeExpression _) = return $ const FloatType
+getFunctionParametrizedTypeFunc _ (CharTypeExpression _) = return $ const CharType
+getFunctionParametrizedTypeFunc _ (StringTypeExpression _) = return $ const StringType
+getFunctionParametrizedTypeFunc _ (BoolTypeExpression _) = return $ const BoolType
+getFunctionParametrizedTypeFunc _ (NilTypeExpression _) = return $ const NilType
+getFunctionParametrizedTypeFunc typeParameters (IdentifierTypeExpression _ identifier) = case Seq.elemIndexL identifier typeParameters of
+  Nothing -> return $ const (IdentifierType (getTypeParameterIndex identifier) (getTextName identifier))
+  Just paramterIndex -> return $ \functionTypeArguments -> Seq.index functionTypeArguments paramterIndex
+getFunctionParametrizedTypeFunc typeParameters (FunctionTypeExpression _ parameterTypeExpressions returnTypeExpression) = do
+  parameterTypeFuncs <- mapM (getFunctionParametrizedTypeFunc typeParameters) parameterTypeExpressions
+  returnTypeFunc <- getFunctionParametrizedTypeFunc typeParameters returnTypeExpression
+  return $ \typeArguments -> FunctionType (parameterTypeFuncs <&> ($ typeArguments)) (returnTypeFunc typeArguments)
+getFunctionParametrizedTypeFunc typeParameters (RecordUnionTypeExpression expressionRange mutabilityExpression recordExpressions) = do
+  mutability <- case mutabilityExpression of
+    Left mutability -> return mutability
+    Right _mutabilityParameter -> throwError $ ShouldNotGetHereError "Encountered mutability parameter outside of record field"
+  let addRecord recordMap (recordName, recordTypeArgumentExpressions) = do
+        recordTypeArgumentFuncs <- mapM (getFunctionParametrizedTypeFunc typeParameters) recordTypeArgumentExpressions
+        let (conflictingRecordType, updatedMap) = insertAndReplace recordName (\typeArguments -> recordTypeArgumentFuncs <&> ($ typeArguments)) recordMap
+        case conflictingRecordType of
+          Just _ -> throwError $ RecordUnionTypeExpressionDuplicateRecordsError expressionRange (getTextName recordName)
+          Nothing -> return updatedMap
+  recordTypeFuncMap <- foldM addRecord Map.empty recordExpressions
+  return $ \typeArguments -> RecordUnionType mutability (recordTypeFuncMap <&> ($ typeArguments))

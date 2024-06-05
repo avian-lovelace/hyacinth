@@ -13,6 +13,7 @@ module Core.SyntaxTree
     FunctionDefinition (FunctionDefinition),
     FunctionDefinitionData,
     getFunctionDefinitionData,
+    TypeParameters,
     Statement
       ( PrintStatement,
         VariableDeclarationStatement,
@@ -204,15 +205,17 @@ getStatementData (ReturnStatement d _) = d
 
 -- NonPositionalStatement
 data NonPositionalStatement phase
-  = FunctionStatement (NonPositionalStatementData phase) (FunctionIdentifier phase) (FunctionDefinition phase)
+  = FunctionStatement (NonPositionalStatementData phase) (FunctionIdentifier phase) (TypeParameters phase) (FunctionDefinition phase)
   | RecordStatement
       (NonPositionalStatementData phase)
       (RecordIdentifier phase)
       (Maybe (MutabilityParameter phase))
-      (Seq (TypeParameter phase))
+      (TypeParameters phase)
       (Seq (FieldIdentifier phase, TypeExpression phase))
 
 type family NonPositionalStatementData phase
+
+type family TypeParameters phase
 
 instance
   ( Pretty (FunctionIdentifier phase),
@@ -220,12 +223,12 @@ instance
     Pretty (RecordIdentifier phase),
     Pretty (FieldIdentifier phase),
     Pretty (TypeExpression phase),
-    Pretty (TypeParameter phase),
+    Pretty (TypeParameters phase),
     Pretty (MutabilityParameter phase)
   ) =>
   Pretty (NonPositionalStatement phase)
   where
-  pretty (FunctionStatement _ functionName definition) = "(FunctionStatement " ++ pretty functionName ++ " " ++ pretty definition ++ ")"
+  pretty (FunctionStatement _ functionName typeParameters definition) = "(FunctionStatement " ++ pretty functionName ++ " " ++ pretty typeParameters ++ " " ++ pretty definition ++ ")"
   pretty (RecordStatement _ recordName mutabilityParameter typeParameters fieldTypes) =
     "(RecordStatement " ++ pretty recordName ++ " " ++ pretty mutabilityParameter ++ " " ++ pretty typeParameters ++ " " ++ pretty fieldTypes ++ ")"
 

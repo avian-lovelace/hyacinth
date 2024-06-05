@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -5,7 +6,7 @@ module IdentifierBinding.SyntaxTree
   ( IdentifierBindingPhase,
     IBModule,
     IBStatement,
-    IBIdentifier,
+    ValueOrFunctionIdentifier (SimpleValueIdentifier, FunctionValueIdentifier),
     IBValueIdentifier,
     IBFunctionIdentifier,
     BoundValueIdentifier (BoundValueIdentifier),
@@ -34,6 +35,8 @@ module IdentifierBinding.SyntaxTree
     getFunctionIdentifierIndex,
     getRecordIdentifierIndex,
     FunctionIndex,
+    IBTypeArguments,
+    getTypeParameterIndex,
   )
 where
 
@@ -73,7 +76,7 @@ type instance FunctionDefinitionData IdentifierBindingPhase = IBFunctionDefiniti
 
 data IBFunctionDefinitionData = IBFunctionDefinitionData
   { ibFunctionDefinitionRange :: Range,
-    ibFunctionDefinitionCapturedIdentifiers :: Set IBIdentifier
+    ibFunctionDefinitionCapturedIdentifiers :: Set (Either IBValueIdentifier IBFunctionIdentifier)
   }
 
 -- Non-positional statement
@@ -82,10 +85,22 @@ type IBNonPositionalStatement = NonPositionalStatement IdentifierBindingPhase
 
 type instance NonPositionalStatementData IdentifierBindingPhase = Range
 
--- Identifier
-type IBIdentifier = Identifier IdentifierBindingPhase
+type instance TypeParameters IdentifierBindingPhase = Seq IBTypeParameter
 
-type instance Identifier IdentifierBindingPhase = Either IBValueIdentifier IBFunctionIdentifier
+-- Identifier
+data ValueOrFunctionIdentifier phase = SimpleValueIdentifier (ValueIdentifier phase) | FunctionValueIdentifier (FunctionIdentifier phase) (TypeArguments phase)
+
+instance
+  ( Pretty (ValueIdentifier phase),
+    Pretty (FunctionIdentifier phase),
+    Pretty (TypeArguments phase)
+  ) =>
+  Pretty (ValueOrFunctionIdentifier phase)
+  where
+  pretty (SimpleValueIdentifier valueIdentifier) = "(SimpleValueIdentifier " ++ pretty valueIdentifier ++ ")"
+  pretty (FunctionValueIdentifier functionIdentifier typeArguments) = "(FunctionValueIdentifier " ++ pretty functionIdentifier ++ " " ++ pretty typeArguments ++ ")"
+
+type instance Identifier IdentifierBindingPhase = ValueOrFunctionIdentifier IdentifierBindingPhase
 
 type IBValueIdentifier = ValueIdentifier IdentifierBindingPhase
 
@@ -182,12 +197,17 @@ instance Pretty BoundTypeParameter where
 instance WithTextName BoundTypeParameter where
   getTextName (BoundTypeParameter _ name) = name
 
+getTypeParameterIndex :: BoundTypeParameter -> FunctionIndex
+getTypeParameterIndex (BoundTypeParameter index _) = index
+
 -- Expression
 type IBExpression = Expression IdentifierBindingPhase
 
 type instance ExpressionData IdentifierBindingPhase = Range
 
 type instance RecordFieldValues IdentifierBindingPhase = Map IBFieldIdentifier IBExpression
+
+type IBTypeArguments = TypeArguments IdentifierBindingPhase
 
 type instance TypeArguments IdentifierBindingPhase = Seq IBTypeExpression
 

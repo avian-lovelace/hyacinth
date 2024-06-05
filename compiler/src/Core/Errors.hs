@@ -85,6 +85,8 @@ module Core.Errors
         TypeParameterUsedAsValueError,
         MutabilityParameterUsedAsValueError,
         IdentifierUsedAsMutabilityParameterError,
+        TypeArgumentsAppliedToValueIdentifierError,
+        ShadowedTypeIdentifierError,
         MutatedCapturedIdentifierError,
         IdentifierUndefinedBeforeCaptureError,
         VariableDeclarationTypeError,
@@ -146,6 +148,7 @@ module Core.Errors
         TypeExpectationError,
         RecordUnionTypeExpressionDuplicateRecordsError,
         RecordFieldExplicitMutabilityError,
+        FunctionWrongNumberOfTypeArgumentsError,
         RuntimeError
       ),
     WithErrors (Error, Success),
@@ -153,6 +156,7 @@ module Core.Errors
     foldrWithErrors,
     consolidateErrors,
     consolidateErrors2,
+    consolidateErrors3,
   )
 where
 
@@ -256,6 +260,8 @@ data Error
   | TypeParameterUsedAsValueError Text Range Range
   | MutabilityParameterUsedAsValueError Text Range Range
   | IdentifierUsedAsMutabilityParameterError Text Range Range
+  | TypeArgumentsAppliedToValueIdentifierError Range Text
+  | ShadowedTypeIdentifierError Text Range Range
   | -- Type checking
     VariableDeclarationTypeError Range Type Type
   | VariableMutationTypeError Range Type Type
@@ -316,6 +322,7 @@ data Error
   | TypeExpectationError Range Type Type
   | RecordUnionTypeExpressionDuplicateRecordsError Range Text
   | RecordFieldExplicitMutabilityError Range
+  | FunctionWrongNumberOfTypeArgumentsError Range Text Int Int
   | -- Function lifting
     MutatedCapturedIdentifierError Text Range
   | IdentifierUndefinedBeforeCaptureError Text Text Range
@@ -440,6 +447,10 @@ instance Pretty Error where
     "Mutability parameter " ++ pretty parameterName ++ " defined at " ++ pretty definitionRange ++ " is used as a value at " ++ pretty usageRange
   pretty (IdentifierUsedAsMutabilityParameterError parameterName usageRange definitionRange) =
     "Non-mutability-parameter " ++ pretty parameterName ++ " defined at " ++ pretty definitionRange ++ " is used as a mutability parameter at " ++ pretty usageRange
+  pretty (TypeArgumentsAppliedToValueIdentifierError range identifier) =
+    "Type arguments are applied to identifier " ++ pretty identifier ++ " which does not accept type arguments at " ++ pretty range
+  pretty (ShadowedTypeIdentifierError identifier originalRange shadowRange) =
+    "Type identifier " ++ pretty identifier ++ " originally defined at " ++ pretty originalRange ++ " is shadowed at " ++ pretty shadowRange
   pretty (IdentifierUndefinedBeforeCaptureError functionName identifier captureRange) =
     "Function " ++ pretty functionName ++ " cannot be called at " ++ pretty captureRange ++ ", as it captured identifier " ++ pretty identifier ++ " which is not yet defined"
   pretty (VariableDeclarationTypeError range expectedType actualType) =
@@ -570,6 +581,8 @@ instance Pretty Error where
     "Type expression at " ++ pretty range ++ " has duplicate instances of record " ++ pretty recordName
   pretty (RecordFieldExplicitMutabilityError range) =
     "Record field at " ++ pretty range ++ " has an explicitly mutability annotation, which is not allowed for record definitions without a mutability paramter"
+  pretty (FunctionWrongNumberOfTypeArgumentsError range functionName numParameters numArguments) =
+    "Function " ++ pretty functionName ++ " has " ++ pretty numParameters ++ " type paramters, but " ++ pretty numArguments ++ " type arguments are provided to it at " ++ pretty range
   pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
 
 instance Show Error where
@@ -617,6 +630,12 @@ consolidateErrors = foldrWithErrors (<|) Empty
 
 consolidateErrors2 :: (WithErrors a, WithErrors b) -> WithErrors (a, b)
 consolidateErrors2 (Success a, Success b) = Success (a, b)
-consolidateErrors2 (Error es, Success _) = Error es
-consolidateErrors2 (Success _, Error es) = Error es
-consolidateErrors2 (Error es1, Error es2) = Error $ es1 >< es2
+consolidateErrors2 (result1, result2) = Error $ getErrors result1 >< getErrors result2
+
+consolidateErrors3 :: (WithErrors a, WithErrors b, WithErrors c) -> WithErrors (a, b, c)
+consolidateErrors3 (Success a, Success b, Success c) = Success (a, b, c)
+consolidateErrors3 (result1, result2, result3) = Error $ getErrors result1 >< getErrors result2 >< getErrors result3
+
+getErrors :: WithErrors a -> Seq Error
+getErrors (Success _) = Empty
+getErrors (Error es) = es

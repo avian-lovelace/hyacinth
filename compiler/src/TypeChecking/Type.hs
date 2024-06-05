@@ -7,7 +7,8 @@ module TypeChecking.Type
         BoolType,
         NilType,
         FunctionType,
-        RecordUnionType
+        RecordUnionType,
+        IdentifierType
       ),
   )
 where
@@ -20,6 +21,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Sequence (Seq (..))
 import qualified Data.Sequence as Seq
+import Data.Text (Text)
 import qualified Data.Text as Text
 import IdentifierBinding.SyntaxTree
 
@@ -32,6 +34,7 @@ data Type
   | NilType
   | FunctionType (Seq Type) Type
   | RecordUnionType Mutability (Map BoundRecordIdentifier (Seq Type))
+  | IdentifierType Int Text
   deriving (Eq)
 
 instance Pretty Type where
@@ -51,3 +54,4 @@ instance Pretty Type where
       printRecord (recordName, typeArguments) = (Text.unpack . getTextName $ recordName) ++ printTypeArguments (toList typeArguments)
       printTypeArguments [] = ""
       printTypeArguments typeArguments = "⟨" ++ (fold . intersperse " | " $ (pretty <$> typeArguments))
+  pretty (IdentifierType _ identifierName) = pretty identifierName

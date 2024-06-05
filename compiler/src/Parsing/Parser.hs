@@ -156,18 +156,32 @@ parseReturnStatement returnTokenSection expressionSections = case expressionSect
 
 parseFunctionStatement :: Section -> ParseFunction PNonPositionalStatement
 parseFunctionStatement funcTokenSection restSections1 = do
-  (functionName, parameters, restSections2) <- case restSections1 of
-    ((TokenSection (IdentifierToken _ functionName)) :<| (TokenSection (EqualsToken _)) :<| (SquareBracketSection parameterListRange parameterListSections) :<| restSections2) -> do
-      parameters <- parseParameterList parameterListRange parameterListSections
-      return (functionName, parameters, restSections2)
+  (functionName, restSections2) <- case restSections1 of
+    ((TokenSection (IdentifierToken _ functionName)) :<| (TokenSection (EqualsToken _)) :<| restSections2) -> do
+      return (functionName, restSections2)
     _ -> singleError $ FunctionStatementMalformedError statementRange
-  (returnTypeAnnotation, bodySections) <- case restSections2 of
+  (typeParameters, restSections3) <- case restSections2 of
+    ( (AngleBracketSection typeParameterListRange typeParameterListSections)
+        :<| (TokenSection (DoubleRightArrowToken _))
+        :<| restSections3
+      ) -> do
+        typeParameters <- parseFunctionTypeParameters typeParameterListRange typeParameterListSections
+        return (typeParameters, restSections3)
+    _ -> return (Empty, restSections2)
+  (parameters, restSections4) <- case restSections3 of
+    ( (SquareBracketSection parameterListRange parameterListSections)
+        :<| restSections4
+      ) -> do
+        parameters <- parseParameterList parameterListRange parameterListSections
+        return (parameters, restSections4)
+    _ -> singleError $ FunctionStatementMalformedError statementRange
+  (returnTypeAnnotation, bodySections) <- case restSections4 of
     {- Breaking up the type and body on the leftmost right arrow does mean that if the return type is a function, it may
       need to be put in parentheses to parse successfully. We could try to be smarter about breaking on the correct
       right arrow, but I don't think it's worth it. In these cases, it's probably good for code readability to put the
       type in parentheses anyways.
     -}
-    (TokenSection (ColonToken _)) :<| restSections3 -> case Seq.breakl isSingleRightArrowSection restSections3 of
+    (TokenSection (ColonToken _)) :<| restSections5 -> case Seq.breakl isSingleRightArrowSection restSections5 of
       (_, Empty) -> singleError $ FunctionStatementMalformedReturnTypeError statementRange
       (returnTypeSections, _arrow :<| bodySections) -> do
         returnType <- catchUnboundError (FunctionStatementMalformedReturnTypeError (getRange returnTypeSections)) $ runParserToEnd typeExpressionParser returnTypeSections
@@ -177,11 +191,21 @@ parseFunctionStatement funcTokenSection restSections1 = do
   body <- case bodySections of
     Empty -> singleError $ FunctionStatementEmptyBodyError statementRange
     _ -> catchUnboundError (FunctionStatementMalformedBodyError (getRange bodySections)) $ runParserToEnd expressionParser bodySections
-  return $ FunctionStatement statementRange functionName (FunctionDefinition statementRange parameters (WithTypeAnnotation body returnTypeAnnotation))
+  return $ FunctionStatement statementRange functionName typeParameters (FunctionDefinition statementRange parameters (WithTypeAnnotation body returnTypeAnnotation))
   where
     statementRange = case restSections1 of
       Empty -> getRange funcTokenSection
       _ -> getRange (funcTokenSection, restSections1)
+
+parseFunctionTypeParameters :: Range -> ParseFunction (Seq PTypeParameter)
+parseFunctionTypeParameters typeParameterListRange typeParameterListSections = do
+  let typeParameterSectionLists = seqSplitOn isCommaSection typeParameterListSections
+  consolidateErrors $ parseTypeParameter <$> typeParameterSectionLists
+  where
+    parseTypeParameter :: ParseFunction PTypeParameter
+    parseTypeParameter Empty = singleError $ TypeParameterEmptyError typeParameterListRange
+    parseTypeParameter ((TokenSection (IdentifierToken _ typeParameterName)) :<| Empty) = return typeParameterName
+    parseTypeParameter typeParameterSections = singleError $ TypeParameterMalformedError (getRange typeParameterSections)
 
 isSingleRightArrowSection :: Section -> Bool
 isSingleRightArrowSection (TokenSection (SingleRightArrowToken _)) = True
@@ -201,7 +225,7 @@ parseRecordStatement recTokenSection restSections1 = do
         :<| (TokenSection (DoubleRightArrowToken _))
         :<| restSections3
       ) -> do
-        (mutabilityParameter, typeParameters) <- parseTypeParameters typeParameterListRange typeParameterListSections
+        (mutabilityParameter, typeParameters) <- parseRecordTypeParameters typeParameterListRange typeParameterListSections
         return (mutabilityParameter, typeParameters, restSections3)
     _ -> return (Nothing, Empty, restSections2)
   fieldTypePairs <- case restSections3 of
@@ -213,8 +237,8 @@ parseRecordStatement recTokenSection restSections1 = do
   where
     statementRange = getRange recTokenSection <> getRange restSections1
 
-parseTypeParameters :: Range -> ParseFunction (Maybe PMutabilityParameter, Seq PTypeParameter)
-parseTypeParameters typeParameterListRange typeParameterListSections = do
+parseRecordTypeParameters :: Range -> ParseFunction (Maybe PMutabilityParameter, Seq PTypeParameter)
+parseRecordTypeParameters typeParameterListRange typeParameterListSections = do
   let typeAndMutabilityParameterSectionLists = seqSplitOn isCommaSection typeParameterListSections
   (mutabilityParameter, typeParameterSectionLists) <- parseMutabilityParameter typeAndMutabilityParameterSectionLists
   typeParameters <- consolidateErrors $ parseTypeParameter <$> typeParameterSectionLists
@@ -422,10 +446,11 @@ primaryExpressionParser =
     <|> ifExpressionParser
     <|> caseExpressionParser
     <|> recordExpressionParser
-    <|> literalOrVariableExpressionParser
+    <|> identifierExpressionParser
+    <|> literalExpressionParser
 
-literalOrVariableExpressionParser :: Parser PExpression
-literalOrVariableExpressionParser = pNext <&&> toLiteralExpression
+literalExpressionParser :: Parser PExpression
+literalExpressionParser = pNext <&&> toLiteralExpression
 
 toLiteralExpression :: Section -> Maybe PExpression
 toLiteralExpression (TokenSection (IntLiteralToken range value)) = Just $ IntLiteralExpression range value
@@ -434,8 +459,17 @@ toLiteralExpression (TokenSection (CharLiteralToken range value)) = Just $ CharL
 toLiteralExpression (TokenSection (StringLiteralToken range value)) = Just $ StringLiteralExpression range value
 toLiteralExpression (TokenSection (BoolLiteralToken range value)) = Just $ BoolLiteralExpression range value
 toLiteralExpression (TokenSection (NilLiteralToken range)) = Just $ NilExpression range
-toLiteralExpression (TokenSection (IdentifierToken range identifierName)) = Just $ IdentifierExpression range identifierName
 toLiteralExpression _ = Nothing
+
+identifierExpressionParser :: Parser PExpression
+identifierExpressionParser = do
+  (identifierRange, identifier) <- pNext <&&> matchIdentifierSection
+  typeArgumentInfo <- pZeroOrOne $ pNext <&&> matchAngleBracketSection
+  case typeArgumentInfo of
+    Nothing -> return $ IdentifierExpression identifierRange $ PIdentifier identifier Empty
+    Just (typeArgumentsRange, typeArgumentsSections) -> do
+      typeArguments <- returnWithErrors $ parseTypeArgumentList typeArgumentsRange typeArgumentsSections
+      return $ IdentifierExpression identifierRange $ PIdentifier identifier typeArguments
 
 parenthesesExpressionParser :: Parser PExpression
 parenthesesExpressionParser = do
@@ -508,13 +542,13 @@ functionExpressionParser = do
     let functionExpressionRange = getRange (parameterListRange, expressionErrorRange)
     return $ FunctionExpression functionExpressionRange $ FunctionDefinition functionExpressionRange parameterList (WithTypeAnnotation body returnType)
 
-parseParameterList :: Range -> ParseFunction (Seq (PWithTypeAnnotation PIdentifier))
+parseParameterList :: Range -> ParseFunction (Seq (PWithTypeAnnotation PValueIdentifier))
 parseParameterList _ Empty = Success Empty
 parseParameterList parameterListRange sections = do
   let parameterSectionLists = seqSplitOn isCommaSection sections
   consolidateErrors $ parseParameter <$> parameterSectionLists
   where
-    parseParameter :: Seq Section -> WithErrors (PWithTypeAnnotation PIdentifier)
+    parseParameter :: Seq Section -> WithErrors (PWithTypeAnnotation PValueIdentifier)
     parseParameter Empty = singleError $ FunctionEmptyParameterError parameterListRange
     parseParameter (TokenSection (IdentifierToken _ identifierName) :<| Empty) =
       Success $ WithTypeAnnotation identifierName Nothing
@@ -616,14 +650,14 @@ caseExpressionParser = do
   caseList <- returnWithErrors $ parseCaseList caseListRange caseListSections
   return $ CaseExpression (caseRange <> caseListRange) switch caseList
 
-parseCaseList :: Range -> ParseFunction (Map PRecordIdentifier (PIdentifier, PExpression))
+parseCaseList :: Range -> ParseFunction (Map PRecordIdentifier (PValueIdentifier, PExpression))
 parseCaseList _ Empty = Success Map.empty
 parseCaseList caseListRange sections = do
   let caseSectionLists = seqSplitOn isCommaSection sections
   recordValuePairs <- consolidateErrors $ parseCase <$> caseSectionLists
   foldM addCase Map.empty recordValuePairs
   where
-    parseCase :: ParseFunction (PRecordIdentifier, PIdentifier, PExpression)
+    parseCase :: ParseFunction (PRecordIdentifier, PValueIdentifier, PExpression)
     parseCase Empty = singleError $ CaseExpressionEmptyCaseError caseListRange
     parseCase (TokenSection (IdentifierToken _ recordName) :<| TokenSection (SingleRightArrowToken _) :<| Empty) =
       singleError $ CaseExpressionEmptyCaseValueError recordName caseListRange
@@ -640,9 +674,9 @@ parseCaseList caseListRange sections = do
         return (recordName, switchValueName, caseValue)
     parseCase fieldSections = singleError $ CaseExpressionMalformedCaseError (getRange fieldSections)
     addCase ::
-      Map PRecordIdentifier (PIdentifier, PExpression) ->
-      (PRecordIdentifier, PIdentifier, PExpression) ->
-      WithErrors (Map PRecordIdentifier (PIdentifier, PExpression))
+      Map PRecordIdentifier (PValueIdentifier, PExpression) ->
+      (PRecordIdentifier, PValueIdentifier, PExpression) ->
+      WithErrors (Map PRecordIdentifier (PValueIdentifier, PExpression))
     addCase caseMap (recordName, switchValueName, caseValue) = do
       let (maybeConflictingValue, updatedCaseMap) = Map.insertLookupWithKey (\_ a _ -> a) recordName (switchValueName, caseValue) caseMap
       case maybeConflictingValue of
