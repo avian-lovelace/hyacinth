@@ -5,6 +5,7 @@ where
 
 import Control.Applicative
 import Control.Monad (foldM)
+import Core.ErrorState
 import Core.Errors
 import Core.FilePositions
 import Core.SyntaxTree
@@ -13,7 +14,6 @@ import Data.Foldable
 import Data.Function ((&))
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (isJust)
 import Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|))
 import qualified Data.Sequence as Seq
 import Lexing.Tokens
@@ -26,19 +26,18 @@ parseFile sections = Module () . MainFunction () <$> parseScope sections
 
 parseScope :: ParseFunction PScope
 parseScope sections = do
-  combinedStatements <- consolidateErrors $ parseStatementsHelper sections
+  let splitSectionLists = seqSplitOn isSemicolon sections
+  statementSectionLists <- case splitSectionLists of
+    Empty -> return Empty
+    statementSectionLists :|> Empty -> return statementSectionLists
+    _ :|> finalSections -> singleError $ ExpectedToEndWithSemicolonError $ getRange finalSections
+  combinedStatements <- forM' statementSectionLists parseStatement
   let (statements, nonPositionalStatements) = seqPartitionEither combinedStatements
   return $ Scope () nonPositionalStatements statements
-  where
-    parseStatementsHelper :: Seq Section -> Seq (WithErrors (Either PStatement PNonPositionalStatement))
-    parseStatementsHelper Empty = Empty
-    parseStatementsHelper helperSections = case Seq.breakl (isJust . matchSemicolon) helperSections of
-      (statementSections, Empty) -> Seq.singleton $ Error [ExpectedToEndWithSemicolonError $ getRange statementSections]
-      (statementSections, _semicolon :<| restTokens) -> parseStatement statementSections <| parseStatementsHelper restTokens
 
-matchSemicolon :: Section -> Maybe ()
-matchSemicolon (TokenSection (SemicolonToken _)) = Just ()
-matchSemicolon _ = Nothing
+isSemicolon :: Section -> Bool
+isSemicolon (TokenSection (SemicolonToken _)) = True
+isSemicolon _ = False
 
 -- Statements
 
@@ -64,35 +63,37 @@ parsePrintStatement printTokenSection expressionSections = case expressionSectio
       expressionOrErrors = catchUnboundError (PrintStatementInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
 
 parseVariableDeclarationStatement :: Section -> ParseFunction PStatement
-parseVariableDeclarationStatement letTokenSection restSections1 = do
-  (mutability, restSections2) <- case restSections1 of
-    ((TokenSection (MutToken _)) :<| restSections2) -> return (Mutable, restSections2)
-    _ -> return (Immutable, restSections1)
-  (variableName, restSections3) <- case restSections2 of
-    (TokenSection (IdentifierToken _ identifierName)) :<| restSections3 -> return (identifierName, restSections3)
+parseVariableDeclarationStatement letTokenSection sections = execErrorState sections $ do
+  mutability <- withUpdateState $ \case
+    ((TokenSection (MutToken _)) :<| restSections) -> return (restSections, Mutable)
+    restSections -> return (restSections, Immutable)
+  variableName <- withUpdateState $ \case
+    (TokenSection (IdentifierToken _ identifierName)) :<| restSections -> return (restSections, identifierName)
     _ -> singleError $ VariableDeclarationMalformedError statementRange
-  (maybeVariableTypeSections, valueSections) <- case restSections3 of
-    (TokenSection (ColonToken _)) :<| restSections4 -> do
-      (typeSections, valueSections) <- case Seq.breakl isEqualsSection restSections4 of
+  variableType <- withUpdateState $ \case
+    (TokenSection (EqualsToken _)) :<| restSections -> return (restSections, Nothing)
+    (TokenSection (ColonToken _)) :<| restSections -> do
+      case Seq.breakl isEqualsSection restSections of
         (_, Empty) -> singleError $ VariableDeclarationMalformedError statementRange
-        (typeSections, _equalsSection :<| valueSections) -> return (typeSections, valueSections)
-      return (Just typeSections, valueSections)
-    (TokenSection (EqualsToken _)) :<| valueSections -> return (Nothing, valueSections)
+        (Empty, _) -> singleError $ VariableDeclarationEmptyTypeError statementRange
+        (typeSections, _equalsSection :<| valueSections) -> do
+          variableType <-
+            catchUnboundError (VariableDeclarationMalformedTypeError (getRange typeSections)) $
+              runParserToEnd typeExpressionParser typeSections
+          return (valueSections, Just variableType)
     _ -> singleError $ VariableDeclarationMalformedError statementRange
-  variableType <- case maybeVariableTypeSections of
-    Nothing -> return Nothing
-    Just Empty -> singleError $ VariableDeclarationEmptyTypeError statementRange
-    Just variableTypeSections ->
-      catchUnboundError (VariableDeclarationMalformedTypeError (getRange valueSections)) $
-        Just <$> runParserToEnd typeExpressionParser variableTypeSections
-  variableValue <- case valueSections of
-    Empty -> singleError $ VariableDeclarationEmptyExpressionError statementRange
-    _ -> catchUnboundError (VariableDeclarationInvalidExpressionError (getRange valueSections)) $ runParserToEnd expressionParser valueSections
+  variableValue <-
+    getState
+      >>= liftWithErrors . \valueSections -> case valueSections of
+        Empty -> singleError $ VariableDeclarationEmptyExpressionError statementRange
+        _ ->
+          catchUnboundError (VariableDeclarationInvalidExpressionError (getRange valueSections)) $
+            runParserToEnd expressionParser valueSections
   return $ VariableDeclarationStatement statementRange mutability (WithTypeAnnotation variableName variableType) variableValue
   where
-    statementRange = case restSections1 of
+    statementRange = case sections of
       Empty -> getRange letTokenSection
-      _ -> getRange (letTokenSection, restSections1)
+      _ -> getRange (letTokenSection, sections)
 
 isEqualsSection :: Section -> Bool
 isEqualsSection (TokenSection (EqualsToken _)) = True
@@ -155,47 +156,49 @@ parseReturnStatement returnTokenSection expressionSections = case expressionSect
       expressionOrErrors = catchUnboundError (ReturnStatementInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
 
 parseFunctionStatement :: Section -> ParseFunction PNonPositionalStatement
-parseFunctionStatement funcTokenSection restSections1 = do
-  (functionName, restSections2) <- case restSections1 of
-    ((TokenSection (IdentifierToken _ functionName)) :<| (TokenSection (EqualsToken _)) :<| restSections2) -> do
-      return (functionName, restSections2)
+parseFunctionStatement funcTokenSection sections = execErrorState sections $ do
+  functionName <- withUpdateState $ \case
+    ((TokenSection (IdentifierToken _ functionName)) :<| (TokenSection (EqualsToken _)) :<| restSections) -> do
+      return (restSections, functionName)
     _ -> singleError $ FunctionStatementMalformedError statementRange
-  (typeParameters, restSections3) <- case restSections2 of
+  typeParameters <- withUpdateState $ \case
     ( (AngleBracketSection typeParameterListRange typeParameterListSections)
         :<| (TokenSection (DoubleRightArrowToken _))
-        :<| restSections3
+        :<| restSections
       ) -> do
         typeParameters <- parseFunctionTypeParameters typeParameterListRange typeParameterListSections
-        return (typeParameters, restSections3)
-    _ -> return (Empty, restSections2)
-  (parameters, restSections4) <- case restSections3 of
+        return (restSections, typeParameters)
+    restSections -> return (restSections, Empty)
+  parameters <- withUpdateState $ \case
     ( (SquareBracketSection parameterListRange parameterListSections)
-        :<| restSections4
+        :<| restSections
       ) -> do
         parameters <- parseParameterList parameterListRange parameterListSections
-        return (parameters, restSections4)
+        return (restSections, parameters)
     _ -> singleError $ FunctionStatementMalformedError statementRange
-  (returnTypeAnnotation, bodySections) <- case restSections4 of
+  returnTypeAnnotation <- withUpdateState $ \case
     {- Breaking up the type and body on the leftmost right arrow does mean that if the return type is a function, it may
       need to be put in parentheses to parse successfully. We could try to be smarter about breaking on the correct
       right arrow, but I don't think it's worth it. In these cases, it's probably good for code readability to put the
       type in parentheses anyways.
     -}
-    (TokenSection (ColonToken _)) :<| restSections5 -> case Seq.breakl isSingleRightArrowSection restSections5 of
+    (TokenSection (ColonToken _)) :<| restSections -> case Seq.breakl isSingleRightArrowSection restSections of
       (_, Empty) -> singleError $ FunctionStatementMalformedReturnTypeError statementRange
       (returnTypeSections, _arrow :<| bodySections) -> do
         returnType <- catchUnboundError (FunctionStatementMalformedReturnTypeError (getRange returnTypeSections)) $ runParserToEnd typeExpressionParser returnTypeSections
-        return (Just returnType, bodySections)
-    (TokenSection (SingleRightArrowToken _) :<| bodySections) -> return (Nothing, bodySections)
+        return (bodySections, Just returnType)
+    (TokenSection (SingleRightArrowToken _) :<| bodySections) -> return (bodySections, Nothing)
     _ -> singleError $ FunctionStatementMalformedError statementRange
-  body <- case bodySections of
-    Empty -> singleError $ FunctionStatementEmptyBodyError statementRange
-    _ -> catchUnboundError (FunctionStatementMalformedBodyError (getRange bodySections)) $ runParserToEnd expressionParser bodySections
+  body <-
+    getState
+      >>= liftWithErrors . \bodySections -> case bodySections of
+        Empty -> singleError $ FunctionStatementEmptyBodyError statementRange
+        _ -> catchUnboundError (FunctionStatementMalformedBodyError (getRange bodySections)) $ runParserToEnd expressionParser bodySections
   return $ FunctionStatement statementRange functionName typeParameters (FunctionDefinition statementRange parameters (WithTypeAnnotation body returnTypeAnnotation))
   where
-    statementRange = case restSections1 of
+    statementRange = case sections of
       Empty -> getRange funcTokenSection
-      _ -> getRange (funcTokenSection, restSections1)
+      _ -> getRange (funcTokenSection, sections)
 
 parseFunctionTypeParameters :: Range -> ParseFunction (Seq PTypeParameter)
 parseFunctionTypeParameters typeParameterListRange typeParameterListSections = do
@@ -212,30 +215,33 @@ isSingleRightArrowSection (TokenSection (SingleRightArrowToken _)) = True
 isSingleRightArrowSection _ = False
 
 parseRecordStatement :: Section -> ParseFunction PNonPositionalStatement
-parseRecordStatement recTokenSection Empty = singleError $ RecordStatementMalformedError (getRange recTokenSection)
-parseRecordStatement recTokenSection restSections1 = do
-  (recordName, restSections2) <- case restSections1 of
+parseRecordStatement recTokenSection sections = execErrorState sections $ do
+  recordName <- withUpdateState $ \case
     ( (TokenSection (IdentifierToken _ recordName))
         :<| (TokenSection (EqualsToken _))
-        :<| restSections2
-      ) -> return (recordName, restSections2)
+        :<| restSections
+      ) -> return (restSections, recordName)
     _ -> singleError $ RecordStatementMalformedError statementRange
-  (mutabilityParameter, typeParameters, restSections3) <- case restSections2 of
+  (mutabilityParameter, typeParameters) <- withUpdateState $ \case
     ( (AngleBracketSection typeParameterListRange typeParameterListSections)
         :<| (TokenSection (DoubleRightArrowToken _))
-        :<| restSections3
+        :<| restSections
       ) -> do
         (mutabilityParameter, typeParameters) <- parseRecordTypeParameters typeParameterListRange typeParameterListSections
-        return (mutabilityParameter, typeParameters, restSections3)
-    _ -> return (Nothing, Empty, restSections2)
-  fieldTypePairs <- case restSections3 of
-    ( (SquareBracketSection fieldTypeListRange fieldTypeListSections)
-        :<| Empty
-      ) -> parseFieldTypes fieldTypeListRange fieldTypeListSections
-    _ -> singleError $ RecordStatementMalformedError statementRange
+        return (restSections, (mutabilityParameter, typeParameters))
+    restSections -> return (restSections, (Nothing, Empty))
+  fieldTypePairs <-
+    getState
+      >>= liftWithErrors . \case
+        ( (SquareBracketSection fieldTypeListRange fieldTypeListSections)
+            :<| Empty
+          ) -> parseFieldTypes fieldTypeListRange fieldTypeListSections
+        _ -> singleError $ RecordStatementMalformedError statementRange
   return $ RecordStatement statementRange recordName mutabilityParameter typeParameters fieldTypePairs
   where
-    statementRange = getRange recTokenSection <> getRange restSections1
+    statementRange = case sections of
+      Empty -> getRange recTokenSection
+      _ -> getRange (recTokenSection, sections)
 
 parseRecordTypeParameters :: Range -> ParseFunction (Maybe PMutabilityParameter, Seq PTypeParameter)
 parseRecordTypeParameters typeParameterListRange typeParameterListSections = do

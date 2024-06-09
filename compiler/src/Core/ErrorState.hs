@@ -8,11 +8,14 @@ module Core.ErrorState
     throwError,
     andFinally,
     traverse',
+    evalErrorState,
+    execErrorState,
+    withUpdateState,
   )
 where
 
 import Core.Errors
-import Data.Bifunctor (Bifunctor (second))
+import Data.Bifunctor (Bifunctor (..))
 import Data.Foldable
 import Data.Sequence (Seq (Empty), (<|), (|>))
 
@@ -36,11 +39,26 @@ instance Monad (ErrorState state) where
       (newState, Success a) -> runErrorState (makeErrorStateB a) newState
       (newState, Error e) -> (newState, Error e)
 
+evalErrorState :: ErrorState state a -> state -> WithErrors a
+evalErrorState errorState state = snd $ runErrorState errorState state
+
+execErrorState :: state -> ErrorState state a -> WithErrors a
+execErrorState state errorState = snd $ runErrorState errorState state
+
 getState :: ErrorState state state
 getState = ErrorState $ \state -> (state, Success state)
 
 setState :: state -> ErrorState state ()
 setState newState = ErrorState $ const (newState, Success ())
+
+withUpdateState :: (state -> WithErrors (state, a)) -> ErrorState state a
+withUpdateState f = do
+  state <- getState
+  case f state of
+    Success (updatedState, result) -> do
+      setState updatedState
+      return result
+    Error es -> liftWithErrors $ Error es
 
 liftWithErrors :: WithErrors a -> ErrorState state a
 liftWithErrors a = ErrorState (,a)

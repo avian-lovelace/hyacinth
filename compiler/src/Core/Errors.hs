@@ -157,6 +157,7 @@ module Core.Errors
     consolidateErrors,
     consolidateErrors2,
     consolidateErrors3,
+    forM',
   )
 where
 
@@ -639,3 +640,6 @@ consolidateErrors3 (result1, result2, result3) = Error $ getErrors result1 >< ge
 getErrors :: WithErrors a -> Seq Error
 getErrors (Success _) = Empty
 getErrors (Error es) = es
+
+forM' :: Seq a -> (a -> WithErrors b) -> WithErrors (Seq b)
+forM' xs f = consolidateErrors $ f <$> xs
