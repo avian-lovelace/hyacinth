@@ -131,10 +131,6 @@ functionCallExpressionNotAFunctionTypeError :: Error -> Bool
 functionCallExpressionNotAFunctionTypeError (FunctionCallExpressionNotAFunctionTypeError {}) = True
 functionCallExpressionNotAFunctionTypeError _ = False
 
-functionCallExpressionArgumentTypeError :: Error -> Bool
-functionCallExpressionArgumentTypeError (FunctionCallExpressionArgumentTypeError {}) = True
-functionCallExpressionArgumentTypeError _ = False
-
 functionCallExpressionArityError :: Error -> Bool
 functionCallExpressionArityError (FunctionCallExpressionArityError {}) = True
 functionCallExpressionArityError _ = False

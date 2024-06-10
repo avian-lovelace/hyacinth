@@ -9,7 +9,6 @@ module Core.Errors
         UnmatchEndGroupingError,
         MismatchedGroupingEndsError,
         ExpectedExpressionInParensError,
-        ExpectedToEndWithSemicolonError,
         PrintStatementEmptyExpressionError,
         PrintStatementInvalidExpressionError,
         VariableDeclarationMalformedError,
@@ -184,7 +183,6 @@ data Error
   | MismatchedGroupingEndsError Token Token
   | -- Parsing
     ExpectedExpressionInParensError Range
-  | ExpectedToEndWithSemicolonError Range
   | PrintStatementEmptyExpressionError Range
   | PrintStatementInvalidExpressionError Range
   | VariableDeclarationMalformedError Range
@@ -347,7 +345,6 @@ instance Pretty Error where
       ++ " at "
       ++ pretty (getRange (startToken, endToken))
   pretty (ExpectedExpressionInParensError range) = "Failed to parse contents of parentheses as an expression at" ++ pretty range
-  pretty (ExpectedToEndWithSemicolonError range) = "Statement must end with a semicolon " ++ pretty range
   pretty (PrintStatementEmptyExpressionError range) = "Print statement must have an expression at " ++ pretty range
   pretty (PrintStatementInvalidExpressionError range) = "Failed to parse argument of print statement as an expression at " ++ pretty range
   pretty (VariableDeclarationMalformedError range) = "Failed to parse variable declaration statement at " ++ pretty range

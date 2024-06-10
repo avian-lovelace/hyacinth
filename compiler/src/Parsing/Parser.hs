@@ -26,12 +26,7 @@ parseFile sections = Module () . MainFunction () <$> parseScope sections
 
 parseScope :: ParseFunction PScope
 parseScope sections = do
-  let splitSectionLists = seqSplitOn isSemicolon sections
-  statementSectionLists <- case splitSectionLists of
-    Empty -> return Empty
-    statementSectionLists :|> Empty -> return statementSectionLists
-    _ :|> finalSections -> singleError $ ExpectedToEndWithSemicolonError $ getRange finalSections
-  combinedStatements <- forM' statementSectionLists parseStatement
+  combinedStatements <- forM' (seqSplitOn isSemicolon sections) parseStatement
   let (statements, nonPositionalStatements) = seqPartitionEither combinedStatements
   return $ Scope () nonPositionalStatements statements
 

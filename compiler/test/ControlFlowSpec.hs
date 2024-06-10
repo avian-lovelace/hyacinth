@@ -48,10 +48,6 @@ testControlFlow = do
     it "The condition of an if expression must have type boolean" $
       "while \"foo\" loop { print 1; };" `failsToCompileWithError` typeExpectationError
 
-ifThenElseExpressionConditionTypeError :: Error -> Bool
-ifThenElseExpressionConditionTypeError (IfThenElseExpressionConditionTypeError {}) = True
-ifThenElseExpressionConditionTypeError _ = False
-
 ifThenExpressionBranchesTypeError :: Error -> Bool
 ifThenExpressionBranchesTypeError (IfThenExpressionBranchesTypeError {}) = True
 ifThenExpressionBranchesTypeError _ = False
@@ -59,10 +55,6 @@ ifThenExpressionBranchesTypeError _ = False
 ifThenElseExpressionBranchesTypeError :: Error -> Bool
 ifThenElseExpressionBranchesTypeError (IfThenElseExpressionBranchesTypeError {}) = True
 ifThenElseExpressionBranchesTypeError _ = False
-
-whileLoopConditionTypeError :: Error -> Bool
-whileLoopConditionTypeError (WhileLoopConditionTypeError {}) = True
-whileLoopConditionTypeError _ = False
 
 typeExpectationError :: Error -> Bool
 typeExpectationError (TypeExpectationError {}) = True
