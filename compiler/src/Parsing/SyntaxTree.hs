@@ -1,5 +1,7 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module Parsing.SyntaxTree
@@ -25,7 +27,6 @@ where
 import Core.FilePositions
 import Core.SyntaxTree
 import Core.Utils
-import Data.Map (Map)
 import Data.Sequence (Seq)
 import Data.Text (Text)
 
@@ -105,11 +106,19 @@ type PExpression = Expression ParsingPhase
 
 type instance ExpressionData ParsingPhase = Range
 
-type instance RecordFieldValues ParsingPhase = Map PFieldIdentifier PExpression
-
 type PTypeArguments = TypeArguments ParsingPhase
 
 type instance TypeArguments ParsingPhase = Seq PTypeExpression
+
+type PCaseList = CaseList ParsingPhase
+
+type instance CaseList ParsingPhase = Seq (PRecordIdentifier, PValueIdentifier, PExpression)
+
+{- For some reason, Haskell is not able to derive an instance for Pretty PCaseList from using the generic Seq and
+  3-tuple instances. So, I added this more specific PRetty instance to make Haskell happy.
+-}
+instance (Pretty (Expression phase)) => (Pretty (UnboundIdentifier, UnboundIdentifier, Expression phase)) where
+  pretty (a, b, c) = pretty a ++ " " ++ pretty b ++ " " ++ pretty c
 
 instance WithRange PExpression where
   getRange = getExpressionData

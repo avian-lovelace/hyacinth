@@ -72,8 +72,8 @@ module Core.SyntaxTree
       ),
     ExpressionData,
     getExpressionData,
-    RecordFieldValues,
     TypeArguments,
+    CaseList,
     WithTypeAnnotation (WithTypeAnnotation),
     TypeAnnotation,
     TypeExpression
@@ -277,15 +277,15 @@ data Expression phase
   | ScopeExpression (ExpressionData phase) (Scope phase)
   | FunctionExpression (ExpressionData phase) (FunctionDefinition phase)
   | FunctionCallExpression (ExpressionData phase) (Expression phase) (Seq (Expression phase))
-  | RecordExpression (ExpressionData phase) Mutability (RecordIdentifier phase) (TypeArguments phase) (RecordFieldValues phase)
+  | RecordExpression (ExpressionData phase) Mutability (RecordIdentifier phase) (TypeArguments phase) (Map (FieldIdentifier phase) (Expression phase))
   | FieldAccessExpression (ExpressionData phase) (Expression phase) (FieldIdentifier phase)
-  | CaseExpression (ExpressionData phase) (Expression phase) (Map (RecordIdentifier phase) (ValueIdentifier phase, Expression phase))
+  | CaseExpression (ExpressionData phase) (Expression phase) (CaseList phase)
 
 type family ExpressionData phase
 
-type family RecordFieldValues phase
-
 type family TypeArguments phase
+
+type family CaseList phase
 
 instance
   ( Pretty (FunctionDefinition phase),
@@ -294,10 +294,10 @@ instance
     Pretty (Scope phase),
     Pretty (RecordIdentifier phase),
     Pretty (FieldIdentifier phase),
-    Pretty (RecordFieldValues phase),
     Pretty (ValueIdentifier phase),
     Pretty (TypeExpression phase),
-    Pretty (TypeArguments phase)
+    Pretty (TypeArguments phase),
+    Pretty (CaseList phase)
   ) =>
   Pretty (Expression phase)
   where

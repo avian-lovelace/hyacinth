@@ -648,21 +648,15 @@ caseExpressionParser = do
   switch <- expressionParser
   pNext <&&> matchOfSection
   (caseListRange, caseListSections) <- pNext <&&> matchSquareBracketSection
-  caseList <- returnWithErrors $ parseCaseList caseListRange caseListSections
+  caseList <- returnWithErrors $ forM' (seqSplitOn isCommaSection caseListSections) $ parseCase caseListRange
   return $ CaseExpression (caseRange <> caseListRange) switch caseList
-
-parseCaseList :: Range -> ParseFunction (Map PRecordIdentifier (PValueIdentifier, PExpression))
-parseCaseList _ Empty = Success Map.empty
-parseCaseList caseListRange sections = do
-  let caseSectionLists = seqSplitOn isCommaSection sections
-  recordValuePairs <- consolidateErrors $ parseCase <$> caseSectionLists
-  foldM addCase Map.empty recordValuePairs
   where
-    parseCase :: ParseFunction (PRecordIdentifier, PValueIdentifier, PExpression)
-    parseCase Empty = singleError $ CaseExpressionEmptyCaseError caseListRange
-    parseCase (TokenSection (IdentifierToken _ recordName) :<| TokenSection (SingleRightArrowToken _) :<| Empty) =
+    parseCase :: Range -> ParseFunction (PRecordIdentifier, PValueIdentifier, PExpression)
+    parseCase caseListRange Empty = singleError $ CaseExpressionEmptyCaseError caseListRange
+    parseCase caseListRange (TokenSection (IdentifierToken _ recordName) :<| TokenSection (SingleRightArrowToken _) :<| Empty) =
       singleError $ CaseExpressionEmptyCaseValueError recordName caseListRange
     parseCase
+      _caseListRange
       ( TokenSection (IdentifierToken _ recordName)
           :<| TokenSection (ColonToken _)
           :<| TokenSection (IdentifierToken _ switchValueName)
@@ -673,17 +667,7 @@ parseCaseList caseListRange sections = do
           catchUnboundError (CaseExpressionMalformedCaseValueError recordName (getRange valueSections)) $
             runParserToEnd expressionParser valueSections
         return (recordName, switchValueName, caseValue)
-    parseCase fieldSections = singleError $ CaseExpressionMalformedCaseError (getRange fieldSections)
-    addCase ::
-      Map PRecordIdentifier (PValueIdentifier, PExpression) ->
-      (PRecordIdentifier, PValueIdentifier, PExpression) ->
-      WithErrors (Map PRecordIdentifier (PValueIdentifier, PExpression))
-    addCase caseMap (recordName, switchValueName, caseValue) = do
-      let (maybeConflictingValue, updatedCaseMap) = Map.insertLookupWithKey (\_ a _ -> a) recordName (switchValueName, caseValue) caseMap
-      case maybeConflictingValue of
-        Just conflictingValue ->
-          singleError $ CaseExpressionDuplicatedCasesError recordName (getRange caseValue) (getRange . snd $ conflictingValue)
-        Nothing -> return updatedCaseMap
+    parseCase _caseListRange fieldSections = singleError $ CaseExpressionMalformedCaseError (getRange fieldSections)
 
 matchCaseSection :: Section -> Maybe Range
 matchCaseSection (TokenSection (CaseToken range)) = Just range

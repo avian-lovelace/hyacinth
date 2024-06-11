@@ -230,7 +230,6 @@ data Error
   | CaseExpressionMalformedCaseError Range
   | CaseExpressionEmptyCaseValueError Text Range
   | CaseExpressionMalformedCaseValueError Text Range
-  | CaseExpressionDuplicatedCasesError Text Range Range
   | MutabilityParameterMalformedError Range
   | TypeParameterEmptyError Range
   | TypeParameterMalformedError Range
@@ -261,6 +260,7 @@ data Error
   | IdentifierUsedAsMutabilityParameterError Text Range Range
   | TypeArgumentsAppliedToValueIdentifierError Range Text
   | ShadowedTypeIdentifierError Text Range Range
+  | CaseExpressionDuplicatedCasesError Text Range Range
   | -- Type checking
     VariableDeclarationTypeError Range Type Type
   | VariableMutationTypeError Range Type Type

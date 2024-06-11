@@ -3,12 +3,13 @@ module IdentifierBinding.IdentifierBinder
   )
 where
 
-import Control.Monad (forM, unless)
+import Control.Monad (foldM, forM, unless)
 import Core.ErrorState
 import Core.Errors
 import Core.FilePositions
 import Core.SyntaxTree
 import Core.Utils (secondM)
+import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Sequence (Seq (..))
 import qualified Data.Sequence as Seq
@@ -172,10 +173,30 @@ expressionBinder (RecordExpression expressionRange mutability recordName typeArg
   boundTypeArguments <- mapM typeExpressionBinder typeArguments
   boundFieldValueMap <- mapM expressionBinder fieldValueMap
   return $ RecordExpression expressionRange mutability boundRecordName boundTypeArguments boundFieldValueMap
-expressionBinder (CaseExpression expressionRange switch caseMap) = do
+expressionBinder (CaseExpression expressionRange switch caseList) = do
   boundSwitch <- expressionBinder switch
-  caseList <- mapM (bindCase expressionRange) $ Map.toList caseMap
-  return $ CaseExpression expressionRange boundSwitch (Map.fromList caseList)
+  boundCaseList <- mapM (bindCase expressionRange) caseList
+  boundCaseMap <- foldM addCase Map.empty boundCaseList
+  return $ CaseExpression expressionRange boundSwitch boundCaseMap
+  where
+    bindCase :: Range -> (PRecordIdentifier, PValueIdentifier, PExpression) -> IdentifierBinder (IBRecordIdentifier, IBValueIdentifier, IBExpression)
+    bindCase caseExpressionRange (recordName, caseParameter, caseValue) = do
+      identifierInfo <- getIdentifierBinding caseExpressionRange recordName
+      boundRecordName <- case identifierInfo of
+        RecordIdentifierInfo _ boundRecordName -> return boundRecordName
+        valueIdentifier -> throwError $ ValueIdentifierUsedAsCaseError recordName (getRange valueIdentifier) caseExpressionRange
+      (boundCaseParameter, boundCaseValue) <- withNewCaseScope caseExpressionRange caseParameter $ expressionBinder caseValue
+      return (boundRecordName, boundCaseParameter, boundCaseValue)
+    addCase ::
+      Map IBRecordIdentifier (IBValueIdentifier, IBExpression) ->
+      (IBRecordIdentifier, IBValueIdentifier, IBExpression) ->
+      IdentifierBinder (Map IBRecordIdentifier (IBValueIdentifier, IBExpression))
+    addCase caseMap (recordName, switchValueName, caseValue) = do
+      let (maybeConflictingValue, updatedCaseMap) = Map.insertLookupWithKey (\_ a _ -> a) recordName (switchValueName, caseValue) caseMap
+      case maybeConflictingValue of
+        Just conflictingValue ->
+          throwError $ CaseExpressionDuplicatedCasesError (getTextName recordName) (getRange caseValue) (getRange . snd $ conflictingValue)
+        Nothing -> return updatedCaseMap
 -- Standard cases
 expressionBinder (IntLiteralExpression d value) = return $ IntLiteralExpression d value
 expressionBinder (FloatLiteralExpression d value) = return $ FloatLiteralExpression d value
@@ -271,15 +292,6 @@ bindParameter definitionRange (WithTypeAnnotation unboundParameter typeAnnotatio
   boundParameter <- addParameter definitionRange unboundParameter
   boundTypeAnnotation <- mapM typeExpressionBinder typeAnnotation
   return $ WithTypeAnnotation boundParameter boundTypeAnnotation
-
-bindCase :: Range -> (PRecordIdentifier, (PValueIdentifier, PExpression)) -> IdentifierBinder (IBRecordIdentifier, (IBValueIdentifier, IBExpression))
-bindCase caseExpressionRange (recordName, (caseParameter, caseValue)) = do
-  identifierInfo <- getIdentifierBinding caseExpressionRange recordName
-  boundRecordName <- case identifierInfo of
-    RecordIdentifierInfo _ boundRecordName -> return boundRecordName
-    valueIdentifier -> throwError $ ValueIdentifierUsedAsCaseError recordName (getRange valueIdentifier) caseExpressionRange
-  (boundCaseParameter, boundCaseValue) <- withNewCaseScope caseExpressionRange caseParameter $ expressionBinder caseValue
-  return (boundRecordName, (boundCaseParameter, boundCaseValue))
 
 typeExpressionBinder :: PTypeExpression -> IdentifierBinder IBTypeExpression
 typeExpressionBinder (IntTypeExpression typeExpressionRange) = return $ IntTypeExpression typeExpressionRange

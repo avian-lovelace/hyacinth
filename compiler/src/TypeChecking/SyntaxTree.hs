@@ -145,9 +145,9 @@ data TCExpresionData = TCExpresionData
 
 type instance ExpressionData TypeCheckingPhase = TCExpresionData
 
-type instance RecordFieldValues TypeCheckingPhase = Map TCFieldIdentifier TCExpression
-
 type instance TypeArguments TypeCheckingPhase = ()
+
+type instance CaseList TypeCheckingPhase = Map TCRecordIdentifier (TCValueIdentifier, TCExpression)
 
 instance WithRange TCExpression where
   getRange = expressionRange . getExpressionData

@@ -37,5 +37,8 @@ instance (Pretty a, Pretty b) => Pretty (Either a b) where
 instance (Pretty a, Pretty b) => Pretty (a, b) where
   pretty (a, b) = pretty a ++ " " ++ pretty b
 
+instance (Pretty a, Pretty b, Pretty c) => Pretty (a, b, c) where
+  pretty (a, b, c) = pretty a ++ " " ++ pretty b ++ " " ++ pretty c
+
 instance (Pretty a, Pretty b) => Pretty (Map a b) where
   pretty = pretty . Map.toList

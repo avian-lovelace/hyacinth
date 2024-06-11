@@ -205,11 +205,11 @@ type IBExpression = Expression IdentifierBindingPhase
 
 type instance ExpressionData IdentifierBindingPhase = Range
 
-type instance RecordFieldValues IdentifierBindingPhase = Map IBFieldIdentifier IBExpression
-
 type IBTypeArguments = TypeArguments IdentifierBindingPhase
 
 type instance TypeArguments IdentifierBindingPhase = Seq IBTypeExpression
+
+type instance CaseList IdentifierBindingPhase = Map IBRecordIdentifier (IBValueIdentifier, IBExpression)
 
 instance WithRange IBExpression where
   getRange = getExpressionData
