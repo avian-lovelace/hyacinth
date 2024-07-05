@@ -26,7 +26,7 @@ compiler/cabal.project.local~
 compiler/.HTF/
 compiler/.ghc.environment.*
 
-unnamed-compiler.cabal
+hyacinth.cabal
 
 #Rust
 virtual-machine/debug/

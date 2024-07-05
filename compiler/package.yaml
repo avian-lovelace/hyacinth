@@ -1,10 +1,10 @@
-name: unnamed-compiler
+name: hyacinth
 version: 0.1.0.0
-github: "githubuser/unnamed-compiler"
-license: BSD3
-author: "Author name here"
-maintainer: "example@example.com"
-copyright: "2020 Author name here"
+github: "avian-lovelace/hyacinth"
+license: MIT
+author: "Robin Gieseking"
+maintainer: "robinagieseking@gmail.com"
+copyright: "2024 Robin Gieseking"
 
 # extra-source-files:
 # - README.md
@@ -17,7 +17,7 @@ copyright: "2020 Author name here"
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description: Please see the README on GitHub at <https://github.com/githubuser/unnamed-compiler#readme>
+description: Please see the README on GitHub at <https://github.com/avian-lovelace/hyacinth#readme>
 
 dependencies:
     - base >= 4.7 && < 5
@@ -28,6 +28,8 @@ dependencies:
     - bytestring
     - process
     - directory
+    - filepath
+    - optparse-applicative
 
 default-extensions:
     - TupleSections
@@ -47,12 +49,13 @@ default-extensions:
     - FunctionalDependencies
     - GADTs
     - NamedFieldPuns
+    - ApplicativeDo
 
 library:
     source-dirs: src
 
 executables:
-    unnamed-compiler-exe:
+    hyacinth:
         main: Main.hs
         source-dirs: app
         ghc-options:
@@ -60,10 +63,10 @@ executables:
             - -rtsopts
             - -with-rtsopts=-N
         dependencies:
-            - unnamed-compiler
+            - hyacinth
 
 tests:
-    unnamed-compiler-test:
+    hyacinth-test:
         main: Spec.hs
         source-dirs: test
         ghc-options:
@@ -71,4 +74,4 @@ tests:
             - -rtsopts
             - -with-rtsopts=-N
         dependencies:
-            - unnamed-compiler
+            - hyacinth
