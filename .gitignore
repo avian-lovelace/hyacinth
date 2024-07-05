@@ -28,6 +28,9 @@ compiler/.ghc.environment.*
 
 hyacinth.cabal
 
-#Rust
+# Rust
 virtual-machine/debug/
 virtual-machine/target/
+
+# Hyacinth
+*.hyb

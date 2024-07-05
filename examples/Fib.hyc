@@ -1,0 +1,19 @@
+print fibonacci[10];
+
+func fibonacci = [n: Int]: Int -> {
+    if n <= 0 then { 
+        return 0;
+    };
+
+    let mut prev: Int = 0;
+    let mut cur: Int = 1;
+    let mut iter: Int = 1;
+    while iter < n loop {
+        let next: Int = prev + cur;
+
+        mut prev = cur;
+        mut cur = next;
+        mut iter = iter + 1;
+    };
+    return cur;
+}

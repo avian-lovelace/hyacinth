@@ -1,0 +1,19 @@
+let nums = range[0, 10];
+forEach⟨Int⟩[[x: Int] -> { print x * x; }, nums];
+
+rec Empty = [];
+rec Cons = ⟨T⟩ => [value: T, next: Cons⟨T⟩ | Empty];
+
+func range = [start: Int, end: Int]: Cons⟨Int⟩ | Empty ->
+    if end <= start
+        then Empty
+        else Cons[value = start, next = range[start + 1, end]];
+
+func forEach = ⟨T⟩ => [f: [T] -> Nil, xs: Cons⟨T⟩ | Empty]: Nil -> 
+    case xs of [
+        Empty: e -> nil,
+        Cons: c -> {
+            f[c.value];
+            forEach⟨T⟩[f, c.next];
+        }
+    ];
