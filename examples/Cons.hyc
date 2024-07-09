@@ -1,15 +1,16 @@
-let nums = range[0, 10];
+let nums = range[0, 5];
 forEach⟨Int⟩[[x: Int] -> { print x * x; }, nums];
 
+type List = ⟨mut M, T⟩ => M Empty | Cons⟨T⟩;
 rec Empty = [];
-rec Cons = ⟨T⟩ => [value: T, next: Cons⟨T⟩ | Empty];
+rec Cons = ⟨T⟩ => [value: T, next: List⟨T⟩];
 
-func range = [start: Int, end: Int]: Cons⟨Int⟩ | Empty ->
+func range = [start: Int, end: Int]: mut List⟨Int⟩ ->
     if end <= start
         then Empty
-        else Cons[value = start, next = range[start + 1, end]];
+        else mut Cons[value = start, next = range[start + 1, end]];
 
-func forEach = ⟨T⟩ => [f: [T] -> Nil, xs: Cons⟨T⟩ | Empty]: Nil -> 
+func forEach = ⟨T⟩ => [f: [T] -> Nil, xs: List⟨T⟩]: Nil -> 
     case xs of [
         Empty: e -> nil,
         Cons: c -> {

@@ -46,6 +46,7 @@ scopeGenerator (Scope _ nonPositionalStatements statements) = do
       let capturedIdentifiers = getCapturedIdentifiers graph functionName
       addFunctionCapturedIdentifiers functionName capturedIdentifiers
     initializeFunction _ (RecordStatement {}) = throwError $ ShouldNotGetHereError "Got record statement in initializeFunction"
+    initializeFunction _ (TypeStatement {}) = throwError $ ShouldNotGetHereError "Got type statement in initializeFunction"
 
 makeScopeFunctionGraph :: Seq TCNonPositionalStatement -> IntermediateCodeGenerator (Graph BoundFunctionIdentifier (Set BoundValueIdentifier))
 makeScopeFunctionGraph nonPositionalStatements = do
@@ -57,6 +58,7 @@ makeScopeFunctionGraph nonPositionalStatements = do
       graphNode <- toGraphNode functionDefinition
       return (functionName, graphNode)
     toNamedGraphNode (RecordStatement {}) = throwError $ ShouldNotGetHereError "Got record statement in toNamedGraphNode"
+    toNamedGraphNode (TypeStatement {}) = throwError $ ShouldNotGetHereError "Got type statement in toNamedGraphNode"
     toGraphNode :: TCFunctionDefinition -> IntermediateCodeGenerator (GraphNode BoundFunctionIdentifier (Set BoundValueIdentifier))
     toGraphNode (FunctionDefinition TCFunctionDefinitionData {tcFunctionDefinitionCapturedIdentifiers} _ _) = do
       (capturedValueIdentifiers, capturedFunctionIdentifiers) <- consolidateCapturedIdentifiers tcFunctionDefinitionCapturedIdentifiers
@@ -85,6 +87,7 @@ nonPositionalStatementGenerator (FunctionStatement _ functionName _ functionDefi
   let subFunction = makeSubFunc (getValueIdentifierIndex <$> capturedIdentifierInnerValues)
   addSubFunction functionIndex subFunction
 nonPositionalStatementGenerator (RecordStatement {}) = throwError $ ShouldNotGetHereError "Got record statement in nonPositionalStatementGenerator"
+nonPositionalStatementGenerator (TypeStatement {}) = throwError $ ShouldNotGetHereError "Got type statement in nonPositionalStatementGenerator"
 
 statementGenerator :: TCStatement -> IntermediateCodeGenerator Stmt
 statementGenerator (VariableDeclarationStatement _ _ (WithTypeAnnotation variableName ()) variableValue) = do

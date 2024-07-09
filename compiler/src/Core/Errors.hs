@@ -63,6 +63,9 @@ module Core.Errors
         TypeArgumentListEmptyError,
         TypeArgumentEmptyError,
         TypeArgumentMalformedError,
+        TypeStatementMalformedError,
+        TypeStatementEmptyValueError,
+        TypeStatementMalformedValueError,
         ConflictingIdentifierDefinitionsError,
         IdentifierUndefinedAtReferenceError,
         VariableDefinedAfterReferenceError,
@@ -70,19 +73,13 @@ module Core.Errors
         VariableShadowedInDeclarationError,
         ConflictingParameterNamesError,
         MutatedImmutableVariableError,
-        MutatedParameterError,
-        MutatedFunctionError,
-        MutatedRecordError,
-        MutatedCaseParameterError,
-        MutatedTypeParameterError,
-        MutatedMutabilityParameterError,
+        MutatedNonVariableIdentifierError,
         IdentifierConflictsWithRecordError,
         ValueIdentifierUsedAsTypeError,
         IdentifierUsedAsRecordNameError,
         ValueIdentifierUsedAsCaseError,
         ConflictingTypeParametersError,
-        TypeParameterUsedAsValueError,
-        MutabilityParameterUsedAsValueError,
+        NonValueIdentifierUsedAsValueError,
         IdentifierUsedAsMutabilityParameterError,
         TypeArgumentsAppliedToValueIdentifierError,
         ShadowedTypeIdentifierError,
@@ -148,6 +145,10 @@ module Core.Errors
         RecordUnionTypeExpressionDuplicateRecordsError,
         RecordFieldExplicitMutabilityError,
         FunctionWrongNumberOfTypeArgumentsError,
+        TypeSynonymWrongNumberOfTypeArgumentsError,
+        TypeSynonymCyclicReferencesError,
+        TypeArrgumentsAppliedToTypeParameterError,
+        MutabilityAppliedToTypeParameterError,
         RuntimeError
       ),
     WithErrors (Error, Success),
@@ -163,6 +164,8 @@ where
 import Core.FilePositions
 import Core.SyntaxTree (Mutability)
 import Core.Utils
+import Data.Foldable (fold)
+import Data.List (intersperse)
 import Data.Sequence (Seq (Empty), singleton, (<|), (><))
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -236,6 +239,9 @@ data Error
   | TypeArgumentListEmptyError Range
   | TypeArgumentEmptyError Range
   | TypeArgumentMalformedError Range
+  | TypeStatementMalformedError Range
+  | TypeStatementEmptyValueError Range
+  | TypeStatementMalformedValueError Range
   | -- Identifier binding
     ConflictingIdentifierDefinitionsError Text Range Range
   | IdentifierUndefinedAtReferenceError Text Range
@@ -244,19 +250,13 @@ data Error
   | VariableShadowedInDeclarationError Text Range Range
   | ConflictingParameterNamesError Text Range Range
   | MutatedImmutableVariableError Text Range Range
-  | MutatedParameterError Text Range Range
-  | MutatedFunctionError Text Range Range
-  | MutatedRecordError Text Range Range
-  | MutatedCaseParameterError Text Range Range
-  | MutatedTypeParameterError Text Range Range
-  | MutatedMutabilityParameterError Text Range Range
+  | MutatedNonVariableIdentifierError Text Text Range Range
   | IdentifierConflictsWithRecordError Text Range Range
   | ValueIdentifierUsedAsTypeError Text Range Range
   | IdentifierUsedAsRecordNameError Text Range Range
   | ValueIdentifierUsedAsCaseError Text Range Range
   | ConflictingTypeParametersError Text Text Range Range
-  | TypeParameterUsedAsValueError Text Range Range
-  | MutabilityParameterUsedAsValueError Text Range Range
+  | NonValueIdentifierUsedAsValueError Text Text Range Range
   | IdentifierUsedAsMutabilityParameterError Text Range Range
   | TypeArgumentsAppliedToValueIdentifierError Range Text
   | ShadowedTypeIdentifierError Text Range Range
@@ -322,6 +322,10 @@ data Error
   | RecordUnionTypeExpressionDuplicateRecordsError Range Text
   | RecordFieldExplicitMutabilityError Range
   | FunctionWrongNumberOfTypeArgumentsError Range Text Int Int
+  | TypeSynonymWrongNumberOfTypeArgumentsError Range Text Int Int
+  | TypeSynonymCyclicReferencesError [Text]
+  | TypeArrgumentsAppliedToTypeParameterError Range Text
+  | MutabilityAppliedToTypeParameterError Range Text
   | -- Function lifting
     MutatedCapturedIdentifierError Text Range
   | IdentifierUndefinedBeforeCaptureError Text Text Range
@@ -403,6 +407,9 @@ instance Pretty Error where
   pretty (TypeArgumentListEmptyError range) = "Type argument list was empty at " ++ pretty range
   pretty (TypeArgumentEmptyError range) = "Type argument was empty at " ++ pretty range
   pretty (TypeArgumentMalformedError range) = "Failed to parse type argument at " ++ pretty range
+  pretty (TypeStatementMalformedError range) = "Failed to parse type statement at " ++ pretty range
+  pretty (TypeStatementEmptyValueError range) = "Type statement had no value at " ++ pretty range
+  pretty (TypeStatementMalformedValueError range) = "Failed to parse value of type statement " ++ pretty range
   pretty (ConflictingIdentifierDefinitionsError variableName declarationRange1 declarationRange2) =
     "Identifier " ++ Text.unpack variableName ++ " has conflicting definitions at " ++ pretty declarationRange1 ++ " and " ++ pretty declarationRange2
   pretty (IdentifierUndefinedAtReferenceError variableName range) =
@@ -417,18 +424,8 @@ instance Pretty Error where
     Text.unpack variableName ++ " is used as a parameter twice in the same function definition at " ++ pretty parameterRange1 ++ " and " ++ pretty parameterRange2
   pretty (MutatedImmutableVariableError variableName declarationRange mutationRange) =
     "Variable " ++ Text.unpack variableName ++ " declared as immutable at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
-  pretty (MutatedParameterError parameterName declarationRange mutationRange) =
-    "Function parameter " ++ Text.unpack parameterName ++ " defined at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
-  pretty (MutatedFunctionError functionName declarationRange mutationRange) =
-    "Function " ++ Text.unpack functionName ++ " defined at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
-  pretty (MutatedRecordError recordName definitionRange mutationRange) =
-    "Record " ++ Text.unpack recordName ++ " defined at " ++ pretty definitionRange ++ " is mutated at " ++ pretty mutationRange
-  pretty (MutatedCaseParameterError recordName definitionRange mutationRange) =
-    "Case parameter " ++ Text.unpack recordName ++ " defined at " ++ pretty definitionRange ++ " is mutated at " ++ pretty mutationRange
-  pretty (MutatedTypeParameterError parameterName definitionRange mutationRange) =
-    "Type parameter " ++ Text.unpack parameterName ++ " defined at " ++ pretty definitionRange ++ " is mutated at " ++ pretty mutationRange
-  pretty (MutatedMutabilityParameterError parameterName definitionRange mutationRange) =
-    "Mutability parameter " ++ Text.unpack parameterName ++ " defined at " ++ pretty definitionRange ++ " is mutated at " ++ pretty mutationRange
+  pretty (MutatedNonVariableIdentifierError identifierName identifierType declarationRange mutationRange) =
+    "Identifier " ++ Text.unpack identifierName ++ " is defined as a " ++ pretty identifierType ++ " at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
   pretty (IdentifierConflictsWithRecordError recordName definitionRange shadowRange) =
     "Record " ++ Text.unpack recordName ++ " defined at " ++ pretty definitionRange ++ " cannot be shadowed " ++ pretty shadowRange
   pretty (ValueIdentifierUsedAsTypeError identifier definitionRange usageRange) =
@@ -439,10 +436,8 @@ instance Pretty Error where
     "Value identifier " ++ Text.unpack identifier ++ " defined at " ++ pretty definitionRange ++ " cannot be used as a case pattern at " ++ pretty usageRange
   pretty (ConflictingTypeParametersError recordName parameterName range1 range2) =
     "Record " ++ pretty recordName ++ "  has multiple type parameters named " ++ pretty parameterName ++ " at " ++ pretty range1 ++ " and " ++ pretty range2
-  pretty (TypeParameterUsedAsValueError parameterName usageRange definitionRange) =
-    "Type parameter " ++ pretty parameterName ++ " defined at " ++ pretty definitionRange ++ " is used as a value at " ++ pretty usageRange
-  pretty (MutabilityParameterUsedAsValueError parameterName usageRange definitionRange) =
-    "Mutability parameter " ++ pretty parameterName ++ " defined at " ++ pretty definitionRange ++ " is used as a value at " ++ pretty usageRange
+  pretty (NonValueIdentifierUsedAsValueError identifierName identifierType usageRange definitionRange) =
+    "Identifier " ++ pretty identifierName ++ " defined as a " ++ pretty identifierType ++ " at " ++ pretty definitionRange ++ " is used as a value at " ++ pretty usageRange
   pretty (IdentifierUsedAsMutabilityParameterError parameterName usageRange definitionRange) =
     "Non-mutability-parameter " ++ pretty parameterName ++ " defined at " ++ pretty definitionRange ++ " is used as a mutability parameter at " ++ pretty usageRange
   pretty (TypeArgumentsAppliedToValueIdentifierError range identifier) =
@@ -581,6 +576,13 @@ instance Pretty Error where
     "Record field at " ++ pretty range ++ " has an explicitly mutability annotation, which is not allowed for record definitions without a mutability paramter"
   pretty (FunctionWrongNumberOfTypeArgumentsError range functionName numParameters numArguments) =
     "Function " ++ pretty functionName ++ " has " ++ pretty numParameters ++ " type paramters, but " ++ pretty numArguments ++ " type arguments are provided to it at " ++ pretty range
+  pretty (TypeSynonymWrongNumberOfTypeArgumentsError range typeSynonym numParameters numArguments) =
+    "Type synonym " ++ pretty typeSynonym ++ " has " ++ pretty numParameters ++ " type paramters, but " ++ pretty numArguments ++ " type arguments are provided to it at " ++ pretty range
+  pretty (TypeSynonymCyclicReferencesError typeSynonyms) = "The following type synonyms reference each other cyclically: \n" ++ fold (intersperse ", " $ Text.unpack <$> typeSynonyms)
+  pretty (TypeArrgumentsAppliedToTypeParameterError expressionRange typeParameter) =
+    "Type arguments cannot be applied to type paramter " ++ pretty typeParameter ++ " at " ++ pretty expressionRange
+  pretty (MutabilityAppliedToTypeParameterError expressionRange typeParameter) =
+    "Type arguments cannot be applied to type paramter " ++ pretty typeParameter ++ " at " ++ pretty expressionRange
   pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
 
 instance Show Error where

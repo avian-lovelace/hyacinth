@@ -46,6 +46,7 @@ parseStatement (currentSection :<| tailSections) = case currentSection of
   TokenSection (ReturnToken _) -> Left <$> parseReturnStatement currentSection tailSections
   TokenSection (FuncToken _) -> Right <$> parseFunctionStatement currentSection tailSections
   TokenSection (RecToken _) -> Right <$> parseRecordStatement currentSection tailSections
+  TokenSection (TypeToken _) -> Right <$> parseTypeStatement currentSection tailSections
   _ -> Left <$> parseExpressionStatement (currentSection <| tailSections)
 
 parsePrintStatement :: Section -> ParseFunction PStatement
@@ -161,7 +162,7 @@ parseFunctionStatement funcTokenSection sections = execErrorState sections $ do
         :<| (TokenSection (DoubleRightArrowToken _))
         :<| restSections
       ) -> do
-        typeParameters <- parseFunctionTypeParameters typeParameterListRange typeParameterListSections
+        typeParameters <- parseTypeParameters typeParameterListRange typeParameterListSections
         return (restSections, typeParameters)
     restSections -> return (restSections, Empty)
   parameters <- withUpdateState $ \case
@@ -195,8 +196,8 @@ parseFunctionStatement funcTokenSection sections = execErrorState sections $ do
       Empty -> getRange funcTokenSection
       _ -> getRange (funcTokenSection, sections)
 
-parseFunctionTypeParameters :: Range -> ParseFunction (Seq PTypeParameter)
-parseFunctionTypeParameters typeParameterListRange typeParameterListSections = do
+parseTypeParameters :: Range -> ParseFunction (Seq PTypeParameter)
+parseTypeParameters typeParameterListRange typeParameterListSections = do
   let typeParameterSectionLists = seqSplitOn isCommaSection typeParameterListSections
   consolidateErrors $ parseTypeParameter <$> typeParameterSectionLists
   where
@@ -222,7 +223,7 @@ parseRecordStatement recTokenSection sections = execErrorState sections $ do
         :<| (TokenSection (DoubleRightArrowToken _))
         :<| restSections
       ) -> do
-        (mutabilityParameter, typeParameters) <- parseRecordTypeParameters typeParameterListRange typeParameterListSections
+        (mutabilityParameter, typeParameters) <- parseMutabilityAndTypeParameters typeParameterListRange typeParameterListSections
         return (restSections, (mutabilityParameter, typeParameters))
     restSections -> return (restSections, (Nothing, Empty))
   fieldTypePairs <-
@@ -238,8 +239,8 @@ parseRecordStatement recTokenSection sections = execErrorState sections $ do
       Empty -> getRange recTokenSection
       _ -> getRange (recTokenSection, sections)
 
-parseRecordTypeParameters :: Range -> ParseFunction (Maybe PMutabilityParameter, Seq PTypeParameter)
-parseRecordTypeParameters typeParameterListRange typeParameterListSections = do
+parseMutabilityAndTypeParameters :: Range -> ParseFunction (Maybe PMutabilityParameter, Seq PTypeParameter)
+parseMutabilityAndTypeParameters typeParameterListRange typeParameterListSections = do
   let typeAndMutabilityParameterSectionLists = seqSplitOn isCommaSection typeParameterListSections
   (mutabilityParameter, typeParameterSectionLists) <- parseMutabilityParameter typeAndMutabilityParameterSectionLists
   typeParameters <- consolidateErrors $ parseTypeParameter <$> typeParameterSectionLists
@@ -272,6 +273,29 @@ parseFieldTypes fieldTypeListRange fieldTypeListSections = do
           runParserToEnd typeExpressionParser typeSections
       return (fieldName, fieldType)
     parseFieldType sections = singleError $ RecordStatementMalformedFieldError (getRange sections)
+
+parseTypeStatement :: Section -> ParseFunction PNonPositionalStatement
+parseTypeStatement typeTokenSection sections = execErrorState sections $ do
+  typeSynonym <- withUpdateState $ \case
+    (TokenSection (IdentifierToken _ identifierName)) :<| (TokenSection (EqualsToken _)) :<| restSections -> return (restSections, identifierName)
+    _ -> singleError $ TypeStatementMalformedError statementRange
+  (maybeMutabilityParameter, typeParameters) <- withUpdateState $ \case
+    (AngleBracketSection typeParametersRange typeParametersSections) :<| (TokenSection (DoubleRightArrowToken _)) :<| restSections -> do
+      typeParameters <- parseMutabilityAndTypeParameters typeParametersRange typeParametersSections
+      return (restSections, typeParameters)
+    restSections -> return (restSections, (Nothing, Empty))
+  typeValue <-
+    getState
+      >>= liftWithErrors . \valueSections -> case valueSections of
+        Empty -> singleError $ TypeStatementEmptyValueError statementRange
+        _ ->
+          catchUnboundError (TypeStatementMalformedValueError (getRange valueSections)) $
+            runParserToEnd typeExpressionParser valueSections
+  return $ TypeStatement statementRange typeSynonym maybeMutabilityParameter typeParameters typeValue
+  where
+    statementRange = case sections of
+      Empty -> getRange typeTokenSection
+      _ -> getRange (typeTokenSection, sections)
 
 -- Expressions
 
@@ -717,12 +741,12 @@ identifierOrRecordUnionTypeParser = do
           Nothing -> recordNameRange
           Just typeArgumentsRange -> typeArgumentsRange
     return ((recordName, recordTypeArguments), recordRange)
-  case (mutability, restRecords, firstRecordTypeArguments) of
-    {- This case is when we have a single identifier with no type arguments. It might be a record or it might be a type
-      parameter. This case is handled here rather than in simpleTypeParser because there would be issues telling a
-      mutability parameter from a standalone identifier type expression.
+  case restRecords of
+    {- This case is when we have a single identifier without a mutability annotation. It might be a record, type
+      parameter, or type synonym. This case is handled here rather than in simpleTypeParser because there would be
+      issues telling a mutability parameter from a standalone identifier type expression.
     -}
-    (Left Immutable, Empty, Empty) -> return $ IdentifierTypeExpression firstRecordRange firstRecordName
+    Empty -> return $ IdentifierTypeExpression firstRecordRange mutability firstRecordName firstRecordTypeArguments
     _ -> do
       let recordsWithRange = ((firstRecordName, firstRecordTypeArguments), firstRecordRange) <| restRecords
       return $ RecordUnionTypeExpression (snd (seqHead recordsWithRange) <> snd (seqTail recordsWithRange)) mutability (fst <$> recordsWithRange)

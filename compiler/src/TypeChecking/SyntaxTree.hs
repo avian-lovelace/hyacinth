@@ -134,6 +134,8 @@ type instance MutabilityParameter TypeCheckingPhase = ()
 
 type instance TypeIdentifier TypeCheckingPhase = ()
 
+type instance TypeSynonym TypeCheckingPhase = ()
+
 -- Expression
 type TCExpression = Expression TypeCheckingPhase
 

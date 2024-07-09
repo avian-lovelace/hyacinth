@@ -27,7 +27,8 @@ module Core.SyntaxTree
     getStatementData,
     NonPositionalStatement
       ( FunctionStatement,
-        RecordStatement
+        RecordStatement,
+        TypeStatement
       ),
     NonPositionalStatementData,
     Mutability (Mutable, Immutable),
@@ -39,6 +40,7 @@ module Core.SyntaxTree
     TypeIdentifier,
     TypeParameter,
     MutabilityParameter,
+    TypeSynonym,
     Expression
       ( IntLiteralExpression,
         FloatLiteralExpression,
@@ -89,6 +91,7 @@ module Core.SyntaxTree
       ),
     TypeExpressionData,
     getTypeExpressionData,
+    MutabilityExpression,
   )
 where
 
@@ -212,6 +215,7 @@ data NonPositionalStatement phase
       (Maybe (MutabilityParameter phase))
       (TypeParameters phase)
       (Seq (FieldIdentifier phase, TypeExpression phase))
+  | TypeStatement (NonPositionalStatementData phase) (TypeSynonym phase) (Maybe (MutabilityParameter phase)) (TypeParameters phase) (TypeExpression phase)
 
 type family NonPositionalStatementData phase
 
@@ -224,13 +228,16 @@ instance
     Pretty (FieldIdentifier phase),
     Pretty (TypeExpression phase),
     Pretty (TypeParameters phase),
-    Pretty (MutabilityParameter phase)
+    Pretty (MutabilityParameter phase),
+    Pretty (TypeSynonym phase)
   ) =>
   Pretty (NonPositionalStatement phase)
   where
   pretty (FunctionStatement _ functionName typeParameters definition) = "(FunctionStatement " ++ pretty functionName ++ " " ++ pretty typeParameters ++ " " ++ pretty definition ++ ")"
   pretty (RecordStatement _ recordName mutabilityParameter typeParameters fieldTypes) =
     "(RecordStatement " ++ pretty recordName ++ " " ++ pretty mutabilityParameter ++ " " ++ pretty typeParameters ++ " " ++ pretty fieldTypes ++ ")"
+  pretty (TypeStatement _ typeName mutabilityParameter typeParameters typeValue) =
+    "(TypeStatement " ++ pretty typeName ++ " " ++ pretty mutabilityParameter ++ " " ++ pretty typeParameters ++ " " ++ pretty typeValue ++ ")"
 
 -- Identifier
 type family Identifier phase
@@ -248,6 +255,8 @@ type family TypeIdentifier phase
 type family TypeParameter phase
 
 type family MutabilityParameter phase
+
+type family TypeSynonym phase
 
 -- Expression
 data Expression phase
@@ -383,10 +392,12 @@ data TypeExpression phase
   | BoolTypeExpression (TypeExpressionData phase)
   | NilTypeExpression (TypeExpressionData phase)
   | FunctionTypeExpression (TypeExpressionData phase) (Seq (TypeExpression phase)) (TypeExpression phase)
-  | RecordUnionTypeExpression (TypeExpressionData phase) (Either Mutability (MutabilityParameter phase)) (Seq (RecordIdentifier phase, Seq (TypeExpression phase)))
-  | IdentifierTypeExpression (TypeExpressionData phase) (TypeIdentifier phase)
+  | RecordUnionTypeExpression (TypeExpressionData phase) (MutabilityExpression phase) (Seq (RecordIdentifier phase, Seq (TypeExpression phase)))
+  | IdentifierTypeExpression (TypeExpressionData phase) (MutabilityExpression phase) (TypeIdentifier phase) (Seq (TypeExpression phase))
 
 type family TypeExpressionData phase
+
+type MutabilityExpression phase = Either Mutability (MutabilityParameter phase)
 
 instance
   ( Pretty (TypeIdentifier phase),
@@ -403,7 +414,8 @@ instance
   pretty (NilTypeExpression _) = "NilTypeExpression"
   pretty (FunctionTypeExpression _ argumentTypes returnType) = "(FunctionTypeExpression (" ++ pretty argumentTypes ++ ") " ++ pretty returnType ++ ")"
   pretty (RecordUnionTypeExpression _ mutability records) = "(RecordUnionTypeExpression" ++ pretty mutability ++ " " ++ pretty records ++ ")"
-  pretty (IdentifierTypeExpression _ identifier) = "(IdentifierTypeExpression " ++ pretty identifier ++ ")"
+  pretty (IdentifierTypeExpression _ mutability identifier typeArguments) =
+    "(IdentifierTypeExpression " ++ pretty mutability ++ " " ++ pretty identifier ++ " " ++ pretty typeArguments ++ ")"
 
 getTypeExpressionData :: TypeExpression phase -> TypeExpressionData phase
 getTypeExpressionData (IntTypeExpression d) = d
@@ -414,4 +426,4 @@ getTypeExpressionData (BoolTypeExpression d) = d
 getTypeExpressionData (NilTypeExpression d) = d
 getTypeExpressionData (FunctionTypeExpression d _ _) = d
 getTypeExpressionData (RecordUnionTypeExpression d _ _) = d
-getTypeExpressionData (IdentifierTypeExpression d _) = d
+getTypeExpressionData (IdentifierTypeExpression d _ _ _) = d

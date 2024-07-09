@@ -69,7 +69,7 @@ testFunctions = do
     it "Functions parameters cannot shadow a variable in its declaration" $
       "let foo = [foo] -> 5;" `failsToCompileWithError` variableShadowedInDeclarationError
     it "Functions parameters cannot be mutated" $
-      "let foo = [x] -> {mut x = x + 1;};" `failsToCompileWithError` mutatedParameterError
+      "let foo = [x] -> {mut x = x + 1;};" `failsToCompileWithError` mutatedNonVariableIdentifierError
     it "Variables captured by a function cannot be mutated" $
       "let mut cap = 10; let foo = []: Nil -> {mut cap = 0;};" `failsToCompileWithError` mutatedCapturedIdentifierError
     it "Variables captured by a function cannot be mutated even after they are referenced" $
@@ -103,9 +103,9 @@ variableShadowedInDeclarationError :: Error -> Bool
 variableShadowedInDeclarationError (VariableShadowedInDeclarationError {}) = True
 variableShadowedInDeclarationError _ = False
 
-mutatedParameterError :: Error -> Bool
-mutatedParameterError (MutatedParameterError {}) = True
-mutatedParameterError _ = False
+mutatedNonVariableIdentifierError :: Error -> Bool
+mutatedNonVariableIdentifierError (MutatedNonVariableIdentifierError {}) = True
+mutatedNonVariableIdentifierError _ = False
 
 mutatedCapturedIdentifierError :: Error -> Bool
 mutatedCapturedIdentifierError (MutatedCapturedIdentifierError {}) = True

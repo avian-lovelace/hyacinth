@@ -16,6 +16,9 @@ module IdentifierBinding.SyntaxTree
     BoundTypeParameter (BoundTypeParameter),
     IBTypeParameter,
     TypeParameterIndex,
+    BoundTypeSynonym (BoundTypeSynonym),
+    IBTypeSynonym,
+    TypeSynonymIndex,
     IBTypeIdentifier,
     BoundMutabilityParameter (BoundMutabilityParameter),
     IBMutabilityParameter,
@@ -37,6 +40,8 @@ module IdentifierBinding.SyntaxTree
     FunctionIndex,
     IBTypeArguments,
     getTypeParameterIndex,
+    getTypeSynonymIndex,
+    IBMutabilityExpression,
   )
 where
 
@@ -180,7 +185,7 @@ instance WithTextName BoundMutabilityParameter where
 
 type IBTypeIdentifier = TypeIdentifier IdentifierBindingPhase
 
-type instance TypeIdentifier IdentifierBindingPhase = IBTypeParameter
+type instance TypeIdentifier IdentifierBindingPhase = Either IBTypeParameter IBTypeSynonym
 
 type IBTypeParameter = TypeParameter IdentifierBindingPhase
 
@@ -197,8 +202,26 @@ instance Pretty BoundTypeParameter where
 instance WithTextName BoundTypeParameter where
   getTextName (BoundTypeParameter _ name) = name
 
-getTypeParameterIndex :: BoundTypeParameter -> FunctionIndex
+getTypeParameterIndex :: BoundTypeParameter -> TypeParameterIndex
 getTypeParameterIndex (BoundTypeParameter index _) = index
+
+type IBTypeSynonym = TypeSynonym IdentifierBindingPhase
+
+type instance TypeSynonym IdentifierBindingPhase = BoundTypeSynonym
+
+type TypeSynonymIndex = Int
+
+data BoundTypeSynonym = BoundTypeSynonym TypeSynonymIndex UnboundIdentifier
+  deriving (Eq, Ord)
+
+instance Pretty BoundTypeSynonym where
+  pretty (BoundTypeSynonym index name) = "(BoundTypeSynonym " ++ show index ++ " " ++ pretty name ++ ")"
+
+instance WithTextName BoundTypeSynonym where
+  getTextName (BoundTypeSynonym _ name) = name
+
+getTypeSynonymIndex :: BoundTypeSynonym -> TypeSynonymIndex
+getTypeSynonymIndex (BoundTypeSynonym index _) = index
 
 -- Expression
 type IBExpression = Expression IdentifierBindingPhase
@@ -226,3 +249,5 @@ type instance TypeExpressionData IdentifierBindingPhase = Range
 
 instance WithRange IBTypeExpression where
   getRange = getTypeExpressionData
+
+type IBMutabilityExpression = MutabilityExpression IdentifierBindingPhase

@@ -1,7 +1,6 @@
 # TODO
 
 ## Features
- - Type synonyms
  - Lists
  - Add more debugging support to compiler/vm
  - Compilation warnings
@@ -16,6 +15,7 @@
  - Update identifier binding to separate out type identifiers and value identifiers
  - Consolidate error messages for identifiers usage not matching their definition in identifier binding
  - Add cases to typeCheckExpression for built-in expressions like the one for NegateExpression
+ - Allow circular references in type synonym definitions when a reasonable final type can be determined (e.g. type ConsList = Pair⟨Int, Maybe⟨ConsList⟩⟩)
 
 ## Bugs
  - [ ] [BUG-1] Parsing errors in record expression fields get eaten

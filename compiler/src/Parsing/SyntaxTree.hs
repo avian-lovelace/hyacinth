@@ -101,6 +101,10 @@ type PMutabilityParameter = MutabilityParameter ParsingPhase
 
 type instance MutabilityParameter ParsingPhase = UnboundIdentifier
 
+type PTypeSynonym = TypeSynonym ParsingPhase
+
+type instance TypeSynonym ParsingPhase = UnboundIdentifier
+
 -- Expression
 type PExpression = Expression ParsingPhase
 
