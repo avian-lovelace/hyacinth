@@ -1,0 +1,13 @@
+site_name: Hyacinth Docs
+theme: readthedocs
+
+nav:
+    - index.md
+    - getting_started.md
+    - core_concepts.md
+    - variables.md
+    - control_flow.md
+    - functions.md
+    - records.md
+    - type_synonyms.md
+    - misc.md
