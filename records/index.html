@@ -216,7 +216,7 @@ print myBox.value;
 // 8
 </code></pre>
 <h2 id="mutability-parameters">Mutability parameters</h2>
-<p>By default, mutability of a record type is propogated to its field types. This is intended to keep simple the common case where a nested record should be deeply mutable or deeply immutable.</p>
+<p>By default, mutability of a record type is propagated to its field types. This is intended to keep simple the common case where a nested record should be deeply mutable or deeply immutable.</p>
 <pre><code>rec Foo = [a: Bar];
 rec Bar = [b: Int];
 
@@ -237,7 +237,7 @@ let immutableFooCopy: Foo = mutableFoo;
 // 1
 // 2
 </code></pre>
-<p>However, record field mutability can instead be controlled manually by adding a mutability parameter to a record declaration. If used, the mutability parameter must be the first element of the type paramter list and be prefixed by <code>mut</code>.</p>
+<p>However, record field mutability can instead be controlled manually by adding a mutability parameter to a record declaration. If used, the mutability parameter must be the first element of the type parameter list and be prefixed by <code>mut</code>.</p>
 <pre><code>rec Foo = ⟨mut M⟩ =&gt; [
     // field a is always immutable
     a: Bar,

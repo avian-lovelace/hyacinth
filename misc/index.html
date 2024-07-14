@@ -106,12 +106,12 @@
               
                 <h1 id="other-topics">Other topics</h1>
 <h2 id="type-inference">Type Inference</h2>
-<p>As seen in previous examples, in some cases Hyacinth can infer variable types, function parameter types, and type arguments, and type annotations can be omitted. The Hyacinth compiler uses bidirectional type-checking, so information about type expectations flows from the outside in. Unlike some other systems using Hidley-Milner style type inference, Hyacinth does not make any type inferences about identifiers from how they are used.</p>
+<p>As seen in previous examples, in some cases Hyacinth can infer variable types, function parameter types, and type arguments, and type annotations can be omitted. The Hyacinth compiler uses bidirectional type-checking, so information about type expectations flows from the outside in. Unlike some other systems using Hindley-Milner style type inference, Hyacinth does not make any type inferences about identifiers from how they are used.</p>
 <h2 id="union-compatible-types">Union-compatible Types</h2>
-<p>If expressions, case expressions, and field acces on a record union all create an expression could be one of multiple types. If all branches have the same type, then there's no problem, and the expression has the type of the branches. However, the branches are allowed to have different types only if they meet the following conditions</p>
+<p>If expressions, case expressions, and field access on a record union all create an expression could be one of multiple types. If all branches have the same type, then there's no problem, and the expression has the type of the branches. However, the branches are allowed to have different types only if they meet the following conditions</p>
 <ul>
 <li>The type of each branch is a record type or record union type</li>
-<li>If a record type appears in multiple braches, it must have the same type parameters in each branch</li>
+<li>If a record type appears in multiple branches, it must have the same type parameters in each branch</li>
 </ul>
 <p>For example, here's an example of valid code with if expressions.</p>
 <pre><code>// combo1 has type Foo⟨Int⟩ | Bar
@@ -148,7 +148,7 @@ let bar = if _condition_
     then Foo
     else 5;
 </code></pre>
-<p>And this final example is invalid because braches have different type parameters for the same record.</p>
+<p>And this final example is invalid because branches have different type parameters for the same record.</p>
 <pre><code>rec Box = ⟨T⟩ =&gt; [value: T];
 
 let foo = if _condition_
