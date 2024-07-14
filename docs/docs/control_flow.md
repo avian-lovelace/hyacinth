@@ -39,7 +39,7 @@ if 1 + 1 == 2 then {
 // 1 + 1 is 2
 ```
 
-When the `true` brach of an if expressions has type `Nil`, the `false` branch may be omitted.
+When the `true` branch of an if expressions has type `Nil`, the `false` branch may be omitted.
 
 ```
 if !(true && false) then {

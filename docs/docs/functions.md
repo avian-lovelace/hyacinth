@@ -98,7 +98,7 @@ print sumSquare[3, 4];
 // 25
 ```
 
-However, since variables can only be referenced after their declaration, this does not (straightforwarly) permit self-recursive and mutually recursive functions.
+However, since variables can only be referenced after their declaration, this does not (straightforwardly) permit self-recursive and mutually recursive functions.
 
 ## Variable Capturing
 

@@ -2,7 +2,7 @@
 
 ## Installation
 
-There are currently no prebuilt binaries available for Hyacinth. If you'd like to try out Hyacinth, you can build it from source.
+There are currently no pre-built binaries available for Hyacinth. If you'd like to try out Hyacinth, you can build it from source.
 
 ### Prerequisites
 
@@ -33,7 +33,7 @@ cargo install --path .
 
 ## Running the compiler
 
-Let's write our firt Hyacinth program! Create a file named `Hello.hyc`, and write the following Hyacinth code to it.
+Let's write our first Hyacinth program! Create a file named `Hello.hyc`, and write the following Hyacinth code to it.
 ```
 print "Hello, World!";
 ```
