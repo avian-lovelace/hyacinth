@@ -1,3 +1,4 @@
+import CommentSpec
 import ControlFlowSpec
 import ExpressionSpec
 import FunctionSpec
@@ -14,3 +15,4 @@ main = hspec $ do
   testControlFlow
   testFunctions
   testRecords
+  testComments

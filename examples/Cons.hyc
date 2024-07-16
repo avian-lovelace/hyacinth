@@ -1,3 +1,11 @@
+// Outputs:
+// 0
+// 1
+// 4
+// 9
+// 16
+
+
 let nums = range[0, 5];
 forEach⟨Int⟩[[x: Int] -> { print x * x; }, nums];
 
@@ -5,11 +13,13 @@ type List = ⟨mut M, T⟩ => M Empty | Cons⟨T⟩;
 rec Empty = [];
 rec Cons = ⟨T⟩ => [value: T, next: List⟨T⟩];
 
+// Get a list consecutive Ints from the start, up to but not including, the end
 func range = [start: Int, end: Int]: mut List⟨Int⟩ ->
     if end <= start
         then Empty
         else mut Cons[value = start, next = range[start + 1, end]];
 
+// Apply a function to a list of values
 func forEach = ⟨T⟩ => [f: [T] -> Nil, xs: List⟨T⟩]: Nil -> 
     case xs of [
         Empty: e -> nil,

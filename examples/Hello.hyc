@@ -1,1 +1,4 @@
+// Outputs:
+// Hello World!
+
 print "Hello, World!";

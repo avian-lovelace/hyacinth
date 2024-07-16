@@ -49,6 +49,7 @@ combinedLexer = do
 lexers :: [Lexer]
 lexers =
   [ lexWhiteSpace,
+    lexComment,
     -- Multiple character symbols
     lexMultiCharSymbol "->" SingleRightArrowToken,
     lexMultiCharSymbol "=>" DoubleRightArrowToken,
@@ -97,6 +98,17 @@ lexWhiteSpace = do
   if
     | whiteSpace == Text.empty -> return Nothing
     | otherwise -> return $ Just $ Success $ Empty
+
+lexComment :: Lexer
+lexComment = do
+  consumeResult <- consumeString "//" (const True)
+  case consumeResult of
+    Nothing -> return Nothing
+    Just _ -> do
+      _ <- consumeWhile (/= '\n')
+      -- Move past the line break
+      advance
+      return . Just . Success $ Empty
 
 lexSymbol :: Char -> (Range -> Token) -> Lexer
 lexSymbol char makeToken = do

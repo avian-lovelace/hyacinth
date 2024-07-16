@@ -1,5 +1,9 @@
+// Outputs:
+// 55
+
 print fibonacci[10];
 
+// Calculate the nth Fibonacci number, returning zero when n is negative
 func fibonacci = [n: Int]: Int -> {
     if n <= 0 then { 
         return 0;
