@@ -7,7 +7,7 @@
 
 
 let nums = range[0, 5];
-forEach⟨Int⟩[[x: Int] -> { print x * x; }, nums];
+forEach⟨Int⟩[[x: Int] -> { printLine⟨Int⟩[x * x]; }, nums];
 
 type List = ⟨mut M, T⟩ => M Empty | Cons⟨T⟩;
 rec Empty = [];

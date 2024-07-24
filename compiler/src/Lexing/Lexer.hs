@@ -211,7 +211,6 @@ lexKeywordOrIdentifier = do
                 "func" -> FuncToken
                 "case" -> CaseToken
                 "of" -> OfToken
-                "print" -> PrintToken
                 "while" -> WhileToken
                 "loop" -> LoopToken
                 "return" -> ReturnToken

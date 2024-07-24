@@ -93,26 +93,9 @@ encodeExpression (LiteralExpr literalValue) = do
     BoolLiteral False -> return falseInstruction
     NilLiteral -> return nilInstruction
 encodeExpression (IdentifierExpr identifier) = pushIdentifierValue identifier
-encodeExpression (BuiltInFunctionExpr builtInFunction parameters) = do
-  startingStackSize <- getStackSize
-  encodedParameters <- mapM encodeExpression parameters
-  let encodedFunction = case builtInFunction of
-        NegateFn -> negateInstruction
-        AddFn -> addInstruction
-        SubtractFn -> subtractInstruction
-        MultiplyFn -> multiplyInstruction
-        DivideFn -> divideInstruction
-        ModuloFn -> moduloInstruction
-        NotFn -> notInstruction
-        EqualFn -> equalInstruction
-        NotEqualFn -> notEqualInstruction
-        GreaterFn -> greaterInstruction
-        LessFn -> lessInstruction
-        GreaterEqualFn -> greaterEqualInstruction
-        LessEqualFn -> lessEqualInstruction
-        PrintFn -> printInstruction
-  setStackSize $ startingStackSize + 1
-  return $ fold encodedParameters <> encodedFunction
+encodeExpression (BuiltInFunctionExpr builtInFunction) = do
+  adjustStackSize 1
+  return $ builtInFunctionInstruction builtInFunction
 encodeExpression (IfThenElseExpr condition trueExpression falseExpression) = do
   startingStackSize <- getStackSize
   encodedCondition <- encodeExpression condition

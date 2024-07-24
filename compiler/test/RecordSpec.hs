@@ -11,19 +11,19 @@ testRecords :: Spec
 testRecords = do
   describe "Records:" $ do
     it "Records can be defined and used" $
-      "rec Foo = [a: Int, b: Float]; let foo = Foo[a = 1, b = 2.3]; print foo.a; print foo.b;" `runsSuccessfullyWithOutput` "1\n2.3\n"
+      "rec Foo = [a: Int, b: Float]; let foo = Foo[a = 1, b = 2.3]; printLine⟨Int⟩[foo.a]; printLine⟨Float⟩[foo.b];" `runsSuccessfullyWithOutput` "1\n2.3\n"
     it "Records fields can be listed in any orer" $
-      "rec Foo = [a: Int, b: Float]; let foo = Foo[b = 2.3, a = 1]; print foo.a; print foo.b;" `runsSuccessfullyWithOutput` "1\n2.3\n"
+      "rec Foo = [a: Int, b: Float]; let foo = Foo[b = 2.3, a = 1]; printLine⟨Int⟩[foo.a]; printLine⟨Float⟩[foo.b];" `runsSuccessfullyWithOutput` "1\n2.3\n"
     it "Records can have no fields" $
       "rec Nothing = []; let foo = Nothing;" `runsSuccessfullyWithOutput` ""
     it "Records can be used in types" $
       "rec Nothing = []; let foo: Nothing = Nothing;" `runsSuccessfullyWithOutput` ""
     it "Records can be used in functions" $
-      "rec Pair = [first: Int, second: Int]; func mult = [p: Pair]: Int -> p.first * p.second; print mult[Pair[first = 3, second = 5]];" `runsSuccessfullyWithOutput` "15\n"
+      "rec Pair = [first: Int, second: Int]; func mult = [p: Pair]: Int -> p.first * p.second; print⟨Int⟩[mult[Pair[first = 3, second = 5]]];" `runsSuccessfullyWithOutput` "15"
     it "Records can be returned from functions" $
-      "rec Pair = [first: Int, second: Int]; func dup = [x: Int]: Pair -> Pair[first = x, second = x]; let p = dup[3]; print p.first; print p.second;" `runsSuccessfullyWithOutput` "3\n3\n"
+      "rec Pair = [first: Int, second: Int]; func dup = [x: Int]: Pair -> Pair[first = x, second = x]; let p = dup[3]; printLine⟨Int⟩[p.first]; printLine⟨Int⟩[p.second];" `runsSuccessfullyWithOutput` "3\n3\n"
     it "Records field values are evaluated based on the field order in their definition" $
-      "rec Foo = [a: Int, b: Int, c: Int]; func bar = [x: Int]: Int -> { print x; return x; }; Foo[b = bar[2], c=bar[3], a=bar[1]];" `runsSuccessfullyWithOutput` "1\n2\n3\n"
+      "rec Foo = [a: Int, b: Int, c: Int]; func bar = [x: Int]: Int -> { printLine⟨Int⟩[x]; return x; }; Foo[b = bar[2], c=bar[3], a=bar[1]];" `runsSuccessfullyWithOutput` "1\n2\n3\n"
   describe "Record errors:" $ do
     it "Multiple records with the same name cannot be created in the same scope" $
       "rec Foo = [a: Int]; rec Foo = [b: Int];" `failsToCompileWithError` conflictingIdentifierDefinitionsError
@@ -51,63 +51,63 @@ testRecords = do
     it "Record expressions must have all fields values match the defined field type" $
       "rec Foo = [a: Int, b: Float]; let foo = Foo[a = 1, b = \"23\"];" `failsToCompileWithError` typeExpectationError
     it "Fields can only be accessed for values of a record type" $
-      "rec Foo = [a: Int, b: Float]; let notFoo = 5; print notFoo.a;" `failsToCompileWithError` accessedFieldOfNonRecordValueError
+      "rec Foo = [a: Int, b: Float]; let notFoo = 5; print⟨Int⟩[notFoo.a];" `failsToCompileWithError` accessedFieldOfNonRecordValueError
     it "Fields that do not exist on a value cannot be accessed" $
-      "rec Foo = [a: Int, b: Float]; let foo = Foo[a = 1, b = 2.3]; print foo.c;" `failsToCompileWithError` accessedFieldNotInRecordError
+      "rec Foo = [a: Int, b: Float]; let foo = Foo[a = 1, b = 2.3]; print⟨Int⟩[foo.c];" `failsToCompileWithError` accessedFieldNotInRecordError
   describe "Record unions:" $ do
     it "Record unions can be deconstructed with case expressions" $ do
-      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Foo; print case x of [Foo: p -> \"foo\", Bar: p -> \"bar\"];" `runsSuccessfullyWithOutput` "foo\n"
-      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Bar; print case x of [Foo: p -> \"foo\", Bar: p -> \"bar\"];" `runsSuccessfullyWithOutput` "bar\n"
+      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Foo; print⟨String⟩[case x of [Foo: p -> \"foo\", Bar: p -> \"bar\"]];" `runsSuccessfullyWithOutput` "foo"
+      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Bar; print⟨String⟩[case x of [Foo: p -> \"foo\", Bar: p -> \"bar\"]];" `runsSuccessfullyWithOutput` "bar"
     it "Record fields can be accessed inside of a case expression" $ do
-      "rec Foo = [a: Int]; rec Bar = [b: Int]; let x: Foo | Bar = Foo[a = 1]; print case x of [Foo: p -> p.a, Bar: p -> p.b];" `runsSuccessfullyWithOutput` "1\n"
-      "rec Foo = [a: Int]; rec Bar = [b: Int]; let x: Foo | Bar = Bar[b = 2]; print case x of [Foo: p -> p.a, Bar: p -> p.b];" `runsSuccessfullyWithOutput` "2\n"
+      "rec Foo = [a: Int]; rec Bar = [b: Int]; let x: Foo | Bar = Foo[a = 1]; print⟨Int⟩[case x of [Foo: p -> p.a, Bar: p -> p.b]];" `runsSuccessfullyWithOutput` "1"
+      "rec Foo = [a: Int]; rec Bar = [b: Int]; let x: Foo | Bar = Bar[b = 2]; print⟨Int⟩[case x of [Foo: p -> p.a, Bar: p -> p.b]];" `runsSuccessfullyWithOutput` "2"
     it "Non-matching cases of case expressions are not evaluated" $ do
-      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Foo; case x of [Foo: p -> { print \"foo\"; }, Bar: p -> { print \"bar\"; }];" `runsSuccessfullyWithOutput` "foo\n"
-      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Bar; case x of [Foo: p -> { print \"foo\"; }, Bar: p -> { print \"bar\"; }];" `runsSuccessfullyWithOutput` "bar\n"
+      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Foo; case x of [Foo: p -> { print⟨String⟩[\"foo\"]; }, Bar: p -> { print⟨String⟩[\"bar\"]; }];" `runsSuccessfullyWithOutput` "foo"
+      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Bar; case x of [Foo: p -> { print⟨String⟩[\"foo\"]; }, Bar: p -> { print⟨String⟩[\"bar\"]; }];" `runsSuccessfullyWithOutput` "bar"
     it "If all records of a record union share a field type, that field can be accessed" $ do
-      "rec Foo = [ a: Int ]; rec Bar = [ a: Int ]; let x: Foo | Bar = Foo [a = 1]; print x.a;" `runsSuccessfullyWithOutput` "1\n"
-      "rec Foo = [ a: Int ]; rec Bar = [ a: Int ]; let x: Foo | Bar = Bar [a = 2]; print x.a;" `runsSuccessfullyWithOutput` "2\n"
+      "rec Foo = [ a: Int ]; rec Bar = [ a: Int ]; let x: Foo | Bar = Foo [a = 1]; print⟨Int⟩[x.a];" `runsSuccessfullyWithOutput` "1"
+      "rec Foo = [ a: Int ]; rec Bar = [ a: Int ]; let x: Foo | Bar = Bar [a = 2]; print⟨Int⟩[x.a];" `runsSuccessfullyWithOutput` "2"
     it "Cases may have different types if they are all record types" $ do
-      "rec Foo = [ a: Int ]; rec Bar = [ a: Int ]; let x: Foo | Bar = Foo [a = 0]; let y = case x of [Foo: p -> Foo[a = p.a + 1], Bar: p -> Bar[a = p.a + 2]]; print y.a;" `runsSuccessfullyWithOutput` "1\n"
-      "rec Foo = [ a: Int ]; rec Bar = [ a: Int ]; let x: Foo | Bar = Bar [a = 0]; let y = case x of [Foo: p -> Foo[a = p.a + 1], Bar: p -> Bar[a = p.a + 2]]; print y.a;" `runsSuccessfullyWithOutput` "2\n"
+      "rec Foo = [ a: Int ]; rec Bar = [ a: Int ]; let x: Foo | Bar = Foo [a = 0]; let y = case x of [Foo: p -> Foo[a = p.a + 1], Bar: p -> Bar[a = p.a + 2]]; print⟨Int⟩[y.a];" `runsSuccessfullyWithOutput` "1"
+      "rec Foo = [ a: Int ]; rec Bar = [ a: Int ]; let x: Foo | Bar = Bar [a = 0]; let y = case x of [Foo: p -> Foo[a = p.a + 1], Bar: p -> Bar[a = p.a + 2]]; print⟨Int⟩[y.a];" `runsSuccessfullyWithOutput` "2"
     it "Fields of a union type can be accessed even if the field is at a different index in the component records" $ do
-      "rec Foo = [ b: Int ]; rec Bar = [ a: Int, b: Int ]; let x: Foo | Bar = Foo [b = 1]; print x.b;" `runsSuccessfullyWithOutput` "1\n"
-      "rec Foo = [ b: Int ]; rec Bar = [ a: Int, b: Int ]; let x: Foo | Bar = Bar [a = 1, b = 2]; print x.b;" `runsSuccessfullyWithOutput` "2\n"
+      "rec Foo = [ b: Int ]; rec Bar = [ a: Int, b: Int ]; let x: Foo | Bar = Foo [b = 1]; print⟨Int⟩[x.b];" `runsSuccessfullyWithOutput` "1"
+      "rec Foo = [ b: Int ]; rec Bar = [ a: Int, b: Int ]; let x: Foo | Bar = Bar [a = 1, b = 2]; print⟨Int⟩[x.b];" `runsSuccessfullyWithOutput` "2"
   describe "Record union errors:" $ do
     it "A case expression cannot have multiple cases for the same record" $
-      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Foo; print case x of [Foo: p -> 1, Bar: p -> 2, Foo: p -> 3];" `failsToCompileWithError` caseExpressionDuplicatedCasesError
+      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Foo; print⟨Int⟩[case x of [Foo: p -> 1, Bar: p -> 2, Foo: p -> 3]];" `failsToCompileWithError` caseExpressionDuplicatedCasesError
     it "A field of a record union cannot be accessed if the field is not on all the component records" $
-      "rec Foo = [a: Int]; rec Bar = [b: Int]; let x: Foo | Bar = Foo[a = 1]; print x.a;" `failsToCompileWithError` accessedFieldNotInRecordError
+      "rec Foo = [a: Int]; rec Bar = [b: Int]; let x: Foo | Bar = Foo[a = 1]; print⟨Int⟩[x.a];" `failsToCompileWithError` accessedFieldNotInRecordError
     it "Non-record types cannot be used in unions" $
       "rec Foo = [a: Int]; let x: Foo | Int = Foo[a = 1];" `failsToCompileWithError` variableDeclarationMalformedTypeError
     it "If a field of a record union has different possible non-record types, that field cannot be accessed" $
-      "rec Foo = [a: Int]; rec Bar = [a: Char]; let x: Foo | Bar = Foo[a = 1]; print x.a;" `failsToCompileWithError` fieldTypesAreNotCompatibleError
+      "rec Foo = [a: Int]; rec Bar = [a: Char]; let x: Foo | Bar = Foo[a = 1]; let y = x.a;" `failsToCompileWithError` fieldTypesAreNotCompatibleError
     it "The switch of a case expression must be of a record union type" $
-      "rec Foo = []; rec Bar = []; print case 10 of [Foo: p -> \"foo\", Bar: p -> \"bar\"];" `failsToCompileWithError` caseSwitchHasNonRecordTypeError
+      "rec Foo = []; rec Bar = []; print⟨String⟩[case 10 of [Foo: p -> \"foo\", Bar: p -> \"bar\"]];" `failsToCompileWithError` caseSwitchHasNonRecordTypeError
     it "A case expression must include cases for all possible record types the switch could be" $
-      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Foo; print case x of [Foo: p -> \"foo\"];" `failsToCompileWithError` caseExpressionMisingCaseError
+      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Foo; print⟨String⟩[case x of [Foo: p -> \"foo\"]];" `failsToCompileWithError` caseExpressionMisingCaseError
     it "A case expression not included cases for record types the switch cannot be" $
-      "rec Foo = []; rec Bar = []; let x: Foo = Foo; print case x of [Foo: p -> \"foo\", Bar: p -> \"bar\"];" `failsToCompileWithError` caseExpressionExtraneousCaseError
+      "rec Foo = []; rec Bar = []; let x: Foo = Foo; print⟨String⟩[case x of [Foo: p -> \"foo\", Bar: p -> \"bar\"]];" `failsToCompileWithError` caseExpressionExtraneousCaseError
     it "The case values of a case expression cannot be different if they are non-record types" $
-      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Foo; print case x of [Foo: p -> \"foo\", Bar: p -> 3];" `failsToCompileWithError` caseTypesAreNotCompatibleError
+      "rec Foo = []; rec Bar = []; let x: Foo | Bar = Foo; let y = case x of [Foo: p -> \"foo\", Bar: p -> 3];" `failsToCompileWithError` caseTypesAreNotCompatibleError
   describe "Record mutability:" $ do
     it "Fields of mutable records can be mutated" $
-      "rec Foo = [a: Int]; let x = mut Foo[a = 1]; print x.a; mut x.a = 2; print x.a;" `runsSuccessfullyWithOutput` "1\n2\n"
+      "rec Foo = [a: Int]; let x = mut Foo[a = 1]; printLine⟨Int⟩[x.a]; mut x.a = 2; printLine⟨Int⟩[x.a];" `runsSuccessfullyWithOutput` "1\n2\n"
     it "Nested fields of mutable records can be mutated" $
-      "rec Foo = [a: Bar]; rec Bar = [b: Int]; let x = mut Foo[a = mut Bar[b = 1]]; print x.a.b; mut x.a.b = 2; print x.a.b;" `runsSuccessfullyWithOutput` "1\n2\n"
+      "rec Foo = [a: Bar]; rec Bar = [b: Int]; let x = mut Foo[a = mut Bar[b = 1]]; printLine⟨Int⟩[x.a.b]; mut x.a.b = 2; printLine⟨Int⟩[x.a.b];" `runsSuccessfullyWithOutput` "1\n2\n"
     it "Records can be passed mutably to functions" $
-      "rec Foo = [a: Int]; let f = [x: mut Foo]: Nil -> { mut x.a = x.a + 1; }; let foo = mut Foo[a = 1]; print foo.a; f[foo]; print foo.a;" `runsSuccessfullyWithOutput` "1\n2\n"
+      "rec Foo = [a: Int]; let f = [x: mut Foo]: Nil -> { mut x.a = x.a + 1; }; let foo = mut Foo[a = 1]; printLine⟨Int⟩[foo.a]; f[foo]; printLine⟨Int⟩[foo.a];" `runsSuccessfullyWithOutput` "1\n2\n"
     it "Records can be captured mutably to functions" $
-      "rec Foo = [a: Int]; let foo = mut Foo[a = 1]; let f = []: Nil -> { mut foo.a = foo.a + 1; };  print foo.a; f[]; print foo.a;" `runsSuccessfullyWithOutput` "1\n2\n"
+      "rec Foo = [a: Int]; let foo = mut Foo[a = 1]; let f = []: Nil -> { mut foo.a = foo.a + 1; };  printLine⟨Int⟩[foo.a]; f[]; printLine⟨Int⟩[foo.a];" `runsSuccessfullyWithOutput` "1\n2\n"
     it "Mutable record unions can be deconstructed into mutable records with a case expression" $ do
-      "rec Foo = [ a: Int ]; rec Bar = [ a: Int ]; let x: mut Foo | Bar = mut Foo [a = 1]; print x.a; mut x.a = 2; print x.a;" `runsSuccessfullyWithOutput` "1\n2\n"
-      "rec Foo = [ a: Int ]; rec Bar = [ a: Int ]; let x: mut Foo | Bar = mut Bar [a = 1]; print x.a; mut x.a = 2; print x.a;" `runsSuccessfullyWithOutput` "1\n2\n"
+      "rec Foo = [ a: Int ]; rec Bar = [ a: Int ]; let x: mut Foo | Bar = mut Foo [a = 1]; printLine⟨Int⟩[x.a]; mut x.a = 2; printLine⟨Int⟩[x.a];" `runsSuccessfullyWithOutput` "1\n2\n"
+      "rec Foo = [ a: Int ]; rec Bar = [ a: Int ]; let x: mut Foo | Bar = mut Bar [a = 1]; printLine⟨Int⟩[x.a]; mut x.a = 2; printLine⟨Int⟩[x.a];" `runsSuccessfullyWithOutput` "1\n2\n"
     it "If all records of a mutable record union share a field type, that field can be mutated" $ do
-      "rec Foo = [a: Int]; rec Bar = [a: Int]; let x: mut Foo | Bar = mut Foo[a = 1]; print x.a; case x of [Foo: p -> { mut p.a = 0; }, Bar: p -> { mut p.a = 2; }]; print x.a;" `runsSuccessfullyWithOutput` "1\n0\n"
-      "rec Foo = [a: Int]; rec Bar = [a: Int]; let x: mut Foo | Bar = mut Bar[a = 1]; print x.a; case x of [Foo: p -> { mut p.a = 0; }, Bar: p -> { mut p.a = 2; }]; print x.a;" `runsSuccessfullyWithOutput` "1\n2\n"
+      "rec Foo = [a: Int]; rec Bar = [a: Int]; let x: mut Foo | Bar = mut Foo[a = 1]; printLine⟨Int⟩[x.a]; case x of [Foo: p -> { mut p.a = 0; }, Bar: p -> { mut p.a = 2; }]; printLine⟨Int⟩[x.a];" `runsSuccessfullyWithOutput` "1\n0\n"
+      "rec Foo = [a: Int]; rec Bar = [a: Int]; let x: mut Foo | Bar = mut Bar[a = 1]; printLine⟨Int⟩[x.a]; case x of [Foo: p -> { mut p.a = 0; }, Bar: p -> { mut p.a = 2; }]; printLine⟨Int⟩[x.a];" `runsSuccessfullyWithOutput` "1\n2\n"
   describe "Record mutability errors:" $ do
     it "Non-record types cannot be marked as mutable" $
-      "let x: mut Int = 5; print x;" `failsToCompileWithError` variableDeclarationMalformedTypeError
+      "let x: mut Int = 5; print⟨Int⟩[x];" `failsToCompileWithError` variableDeclarationMalformedTypeError
     it "In a record definition without a mutability paramter, field types cannot be marked as mutable, as field mutability is derived from the overall record mutability" $
       "rec Foo = []; rec Bar = [a: mut Foo];" `failsToCompileWithError` recordFieldExplicitMutabilityError
     it "Fields of non-record types cannot be mutated" $
@@ -128,21 +128,21 @@ testRecords = do
       "rec Foo = [a: Int]; rec Bar = [b: Foo]; let x = mut Bar[b = Foo[a = 1]];" `failsToCompileWithError` recordExpressionMutabilityTypeError
   describe "Record type parameters:" $ do
     it "Records can be defined and created with type parameters" $
-      "rec Foo = ⟨T⟩ => [value: T]; let x = Foo⟨Int⟩[value = 1]; print x.value;" `runsSuccessfullyWithOutput` "1\n"
+      "rec Foo = ⟨T⟩ => [value: T]; let x = Foo⟨Int⟩[value = 1]; print⟨Int⟩[x.value];" `runsSuccessfullyWithOutput` "1"
     it "Records can be defined and created with multiple type parameters" $
-      "rec Foo = ⟨T, V⟩ => [a: T, b: V]; let x = Foo⟨Int, String⟩[a = 1, b = \"two\"]; print x.a; print x.b;" `runsSuccessfullyWithOutput` "1\ntwo\n"
+      "rec Foo = ⟨T, V⟩ => [a: T, b: V]; let x = Foo⟨Int, String⟩[a = 1, b = \"two\"]; printLine⟨Int⟩[x.a]; printLine⟨String⟩[x.b];" `runsSuccessfullyWithOutput` "1\ntwo\n"
     it "Records can be defined and created mutably with type parameters" $
-      "rec Foo = ⟨T⟩ => [value: T]; let x = mut Foo⟨Int⟩[value = 1]; print x.value; mut x.value = 2; print x.value;" `runsSuccessfullyWithOutput` "1\n2\n"
+      "rec Foo = ⟨T⟩ => [value: T]; let x = mut Foo⟨Int⟩[value = 1]; printLine⟨Int⟩[x.value]; mut x.value = 2; printLine⟨Int⟩[x.value];" `runsSuccessfullyWithOutput` "1\n2\n"
     it "Record mutability can be passed to fields with a type parameter" $
-      "rec Foo = ⟨T⟩ => [value: T]; rec Bar = ⟨mut M⟩ => [foo: M Foo⟨Int⟩]; let x = mut Bar[foo = mut Foo[value = 1]]; print x.foo.value; mut x.foo.value = 2; print x.foo.value;" `runsSuccessfullyWithOutput` "1\n2\n"
+      "rec Foo = ⟨T⟩ => [value: T]; rec Bar = ⟨mut M⟩ => [foo: M Foo⟨Int⟩]; let x = mut Bar[foo = mut Foo[value = 1]]; printLine⟨Int⟩[x.foo.value]; mut x.foo.value = 2; printLine⟨Int⟩[x.foo.value];" `runsSuccessfullyWithOutput` "1\n2\n"
     it "Record immutability can be passed to fields with a type parameter" $
       "rec Foo = ⟨T⟩ => [value: T]; rec Bar = ⟨mut M⟩ => [foo: M Foo⟨Int⟩]; let x = Bar[foo = Foo[value = 1]]; mut x.foo.value = 2;" `failsToCompileWithError` mutatedFieldOfImmutableRecordError
     it "Record mutability can be passed to fields statically if a type parameter is defined" $
-      "rec Foo = ⟨T⟩ => [value: T]; rec Bar = ⟨mut M⟩ => [foo: mut Foo⟨Int⟩]; let x = mut Bar[foo = mut Foo[value = 1]]; print x.foo.value; mut x.foo.value = 2; print x.foo.value;" `runsSuccessfullyWithOutput` "1\n2\n"
+      "rec Foo = ⟨T⟩ => [value: T]; rec Bar = ⟨mut M⟩ => [foo: mut Foo⟨Int⟩]; let x = mut Bar[foo = mut Foo[value = 1]]; printLine⟨Int⟩[x.foo.value]; mut x.foo.value = 2; printLine⟨Int⟩[x.foo.value];" `runsSuccessfullyWithOutput` "1\n2\n"
     it "Record immmutability can be passed to fields statically if a type parameter is defined" $
       "rec Foo = ⟨T⟩ => [value: T]; rec Bar = ⟨mut M⟩ => [foo: Foo⟨Int⟩]; let x = Bar[foo = Foo[value = 1]]; mut x.foo.value = 2;" `failsToCompileWithError` mutatedFieldOfImmutableRecordError
     it "Records type parameters can be inferred" $
-      "rec Foo = ⟨T⟩ => [value: T]; let x: Foo⟨Int⟩ = Foo[value = 1]; print x.value;" `runsSuccessfullyWithOutput` "1\n"
+      "rec Foo = ⟨T⟩ => [value: T]; let x: Foo⟨Int⟩ = Foo[value = 1]; print⟨Int⟩[x.value];" `runsSuccessfullyWithOutput` "1"
     it "Type parameters of immutable records are covariant" $
       "rec Foo = ⟨T⟩ => [value: T]; rec Bar = []; rec Baz = []; let x: Foo⟨Bar | Baz⟩ = Foo⟨Bar⟩[value = Bar];" `runsSuccessfullyWithOutput` ""
     it "Type parameters of mutable records are invariant" $

@@ -11,6 +11,10 @@ module IdentifierBinding.SyntaxTree
     IBFunctionIdentifier,
     BoundValueIdentifier (BoundValueIdentifier),
     BoundFunctionIdentifier (BoundFunctionIdentifier),
+    BuiltInFunction
+      ( PrintFunction,
+        PrintLineFunction
+      ),
     BoundRecordIdentifier (BoundRecordIdentifier),
     IBRecordIdentifier,
     BoundTypeParameter (BoundTypeParameter),
@@ -52,6 +56,7 @@ import Data.Map (Map)
 import Data.Sequence (Seq)
 import Data.Set (Set)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import Parsing.SyntaxTree
 
 data IdentifierBindingPhase
@@ -81,7 +86,7 @@ type instance FunctionDefinitionData IdentifierBindingPhase = IBFunctionDefiniti
 
 data IBFunctionDefinitionData = IBFunctionDefinitionData
   { ibFunctionDefinitionRange :: Range,
-    ibFunctionDefinitionCapturedIdentifiers :: Set (Either IBValueIdentifier IBFunctionIdentifier)
+    ibFunctionDefinitionCapturedIdentifiers :: Set (Either BoundValueIdentifier BoundFunctionIdentifier)
   }
 
 -- Non-positional statement
@@ -93,7 +98,9 @@ type instance NonPositionalStatementData IdentifierBindingPhase = Range
 type instance TypeParameters IdentifierBindingPhase = Seq IBTypeParameter
 
 -- Identifier
-data ValueOrFunctionIdentifier phase = SimpleValueIdentifier (ValueIdentifier phase) | FunctionValueIdentifier (FunctionIdentifier phase) (TypeArguments phase)
+data ValueOrFunctionIdentifier phase
+  = SimpleValueIdentifier (ValueIdentifier phase)
+  | FunctionValueIdentifier (Either (FunctionIdentifier phase) BuiltInFunction) (TypeArguments phase)
 
 instance
   ( Pretty (ValueIdentifier phase),
@@ -127,6 +134,17 @@ instance WithTextName BoundValueIdentifier where
   getTextName (BoundValueIdentifier _ name) = name
 
 type ValueIdentifierIndex = Int
+
+data BuiltInFunction
+  = PrintFunction
+  | PrintLineFunction
+  deriving (Eq, Ord, Show)
+
+instance Pretty BuiltInFunction where
+  pretty = show
+
+instance WithTextName BuiltInFunction where
+  getTextName = Text.pack . show
 
 type IBFunctionIdentifier = FunctionIdentifier IdentifierBindingPhase
 

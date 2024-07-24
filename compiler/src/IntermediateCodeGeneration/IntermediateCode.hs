@@ -31,7 +31,7 @@ module IntermediateCodeGeneration.IntermediateCode
         BoolLiteral,
         NilLiteral
       ),
-    BuiltInFunction
+    BuiltInFn
       ( NegateFn,
         AddFn,
         SubtractFn,
@@ -45,7 +45,8 @@ module IntermediateCodeGeneration.IntermediateCode
         LessFn,
         GreaterEqualFn,
         LessEqualFn,
-        PrintFn
+        PrintFn,
+        PrintLineFn
       ),
   )
 where
@@ -78,7 +79,7 @@ data Stmt
 data Expr
   = LiteralExpr LiteralValue
   | IdentifierExpr ValueIdentifierIndex
-  | BuiltInFunctionExpr BuiltInFunction (Seq Expr)
+  | BuiltInFunctionExpr BuiltInFn
   | IfThenElseExpr Expr Expr Expr
   | ScopeExpr (Seq Stmt)
   | FunctionExpr FunctionIndex (Seq ValueIdentifierIndex)
@@ -99,7 +100,7 @@ data LiteralValue
   | NilLiteral
   deriving (Show)
 
-data BuiltInFunction
+data BuiltInFn
   = NegateFn
   | AddFn
   | SubtractFn
@@ -114,4 +115,5 @@ data BuiltInFunction
   | GreaterEqualFn
   | LessEqualFn
   | PrintFn
+  | PrintLineFn
   deriving (Show)

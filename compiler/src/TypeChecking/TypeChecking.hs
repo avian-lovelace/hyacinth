@@ -104,8 +104,8 @@ setFunctionType functionName numTypeParameters functionTypeFunc = do
   let updatedFunctionTypes = Map.insert functionName (numTypeParameters, functionTypeFunc) $ functionTypes state
   setState state {functionTypes = updatedFunctionTypes}
 
-getFunctionType :: Range -> BoundFunctionIdentifier -> Seq Type -> TypeChecker Type
-getFunctionType usageRange functionName typeArguments = do
+getFunctionType :: Range -> Either BoundFunctionIdentifier BuiltInFunction -> Seq Type -> TypeChecker Type
+getFunctionType usageRange (Left functionName) typeArguments = do
   functionTypes <- functionTypes <$> getState
   case Map.lookup functionName functionTypes of
     Just (functionTypeArity, functionTypeFunc) -> do
@@ -113,6 +113,15 @@ getFunctionType usageRange functionName typeArguments = do
         throwError (FunctionWrongNumberOfTypeArgumentsError usageRange (getTextName functionName) functionTypeArity (Seq.length typeArguments))
       return $ functionTypeFunc typeArguments
     Nothing -> throwError $ ShouldNotGetHereError "Called getFunctionType before function was initialized"
+getFunctionType usageRange (Right builtInFunction) typeArguments = do
+  let functionTypeArity = case builtInFunction of
+        PrintFunction -> 1
+        PrintLineFunction -> 1
+  unless (Seq.length typeArguments == functionTypeArity) $
+    throwError (FunctionWrongNumberOfTypeArgumentsError usageRange (getTextName builtInFunction) functionTypeArity (Seq.length typeArguments))
+  return $ case builtInFunction of
+    PrintFunction -> FunctionType (Seq.singleton $ typeArguments `Seq.index` 0) NilType
+    PrintLineFunction -> FunctionType (Seq.singleton $ typeArguments `Seq.index` 0) NilType
 
 setRecordFieldTypes :: BoundRecordIdentifier -> Int -> (Mutability -> Seq Type -> Map UnboundIdentifier Type) -> TypeChecker ()
 setRecordFieldTypes recordName recordTypeArity fieldTypeMapFunc = do

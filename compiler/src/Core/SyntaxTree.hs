@@ -15,8 +15,7 @@ module Core.SyntaxTree
     getFunctionDefinitionData,
     TypeParameters,
     Statement
-      ( PrintStatement,
-        VariableDeclarationStatement,
+      ( VariableDeclarationStatement,
         VariableMutationStatement,
         FieldMutationStatement,
         ExpressionStatement,
@@ -158,8 +157,7 @@ getFunctionDefinitionData (FunctionDefinition d _ _) = d
 
 -- Statement
 data Statement phase
-  = PrintStatement (StatementData phase) (Expression phase)
-  | VariableDeclarationStatement (StatementData phase) Mutability (WithTypeAnnotation phase (ValueIdentifier phase)) (Expression phase)
+  = VariableDeclarationStatement (StatementData phase) Mutability (WithTypeAnnotation phase (ValueIdentifier phase)) (Expression phase)
   | VariableMutationStatement (StatementData phase) (ValueIdentifier phase) (Expression phase)
   | FieldMutationStatement (StatementData phase) (Expression phase) (FieldIdentifier phase) (Expression phase)
   | ExpressionStatement (StatementData phase) (Expression phase)
@@ -186,7 +184,6 @@ instance
   ) =>
   Pretty (Statement phase)
   where
-  pretty (PrintStatement _ expression) = "(PrintStatement " ++ pretty expression ++ ")"
   pretty (VariableDeclarationStatement _ mutability variableName value) =
     "(VariableDeclarationStatement " ++ pretty mutability ++ " " ++ pretty variableName ++ " " ++ pretty value ++ ")"
   pretty (VariableMutationStatement _ variableName value) = "(VariableMutationStatement " ++ pretty variableName ++ " " ++ pretty value ++ ")"
@@ -198,7 +195,6 @@ instance
   pretty (ReturnStatement _ Nothing) = "(ReturnStatement)"
 
 getStatementData :: Statement phase -> StatementData phase
-getStatementData (PrintStatement d _) = d
 getStatementData (VariableDeclarationStatement d _ _ _) = d
 getStatementData (VariableMutationStatement d _ _) = d
 getStatementData (FieldMutationStatement d _ _ _) = d

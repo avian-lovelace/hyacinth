@@ -96,7 +96,7 @@ typeCheckNonPositionalStatement
         )
     ) = do
     let typeParameterTypes = typeParameters <&> \(BoundTypeParameter typeParameterIndex typeParameterName) -> IdentifierType typeParameterIndex typeParameterName
-    functionType <- getFunctionType statementRange functionName typeParameterTypes
+    functionType <- getFunctionType statementRange (Left functionName) typeParameterTypes
     (parameterTypes, returnType) <- case functionType of
       FunctionType parameterTypes returnType -> return (parameterTypes, returnType)
       _ -> throwError $ ShouldNotGetHereError "Got non-function type for function in typeCheckNonPositionalStatement"
@@ -139,10 +139,6 @@ typeCheckFunction _functionRange typedParameters body returnType = do
     _ -> typeCheckExpression returnType body
 
 typeCheckStatement :: IBStatement -> TypeChecker TCStatement
-typeCheckStatement (PrintStatement statementRange expression) = do
-  checkedExpression <- typeSynthesizeExpression expression
-  let statementReturnInfo = expressionReturnInfo . getExpressionData $ checkedExpression
-  return $ PrintStatement (TCStatementData statementRange statementReturnInfo) checkedExpression
 typeCheckStatement (VariableDeclarationStatement statementRange mutability (WithTypeAnnotation variableName typeAnnotation) value) = do
   (checkedValue, variableType) <- case typeAnnotation of
     Just expectedTypeExpression -> do

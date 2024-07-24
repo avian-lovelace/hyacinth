@@ -1,4 +1,4 @@
 // Outputs:
 // Hello World!
 
-print "Hello, World!";
+printLine⟨String⟩["Hello, World!"];

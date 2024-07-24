@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use std::str;
 
 use crate::core::{
-    ConstIndex, FieldIndex, FloatValue, Frame, FunctionIndex, InstructionOffset, IntValue, Object,
-    ObjectKey, RecordId, StackIndex, Value, VM,
+    BuiltInFunction, ConstIndex, FieldIndex, FloatValue, Frame, FunctionIndex, InstructionOffset,
+    IntValue, Object, ObjectKey, RecordId, StackIndex, Value, VM,
 };
 
 impl VM {
@@ -24,229 +24,11 @@ impl VM {
                         self.push(return_value);
                     }
                 },
-                Instruction::Print => {
-                    let value = self.pop();
-                    match value {
-                        Value::Nil => println!("nil"),
-                        Value::Int(i) => println!("{}", i),
-                        Value::Float(d) => println!("{}", d),
-                        Value::Bool(b) => println!("{}", b),
-                        Value::Char(c) => println!("{}", c),
-                        Value::Object(object_index) => {
-                            let object = self.heap.get(object_index);
-                            match object {
-                                Object::StringObj(s) => println!("{}", s),
-                                _ => println!("Object {}", object_index),
-                            }
-                        }
-                    }
-                    self.push(Value::Nil);
+                Instruction::BuiltInFunction(function_id) => {
+                    self.push(Value::BuiltInFunction(BuiltInFunction::from(function_id)))
                 }
                 Instruction::Constant(const_index) => {
                     self.push(self.constants[const_index as usize])
-                }
-                Instruction::Negate => {
-                    let value = self.pop();
-                    match value {
-                        Value::Int(i) => self.push(Value::Int(-i)),
-                        Value::Float(d) => self.push(Value::Float(-d)),
-                        _ => panic!("Attemped to negate value {}", value),
-                    }
-                }
-                Instruction::Add => {
-                    let value_2 = self.pop();
-                    let value_1 = self.pop();
-                    match (value_1, value_2) {
-                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 + i2)),
-                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Float(d1 + d2)),
-                        (Value::Object(o1), Value::Object(o2)) => {
-                            match (self.heap.get(o1), self.heap.get(o2)) {
-                                (Object::StringObj(s1), Object::StringObj(s2)) => {
-                                    let concat_string = [s1.as_str(), s2.as_str()].join("");
-                                    let concat_string_ref =
-                                        self.heap.add(Object::StringObj(concat_string));
-                                    self.push(concat_string_ref);
-                                }
-                                _ => panic!("Attemped to add objects {} and {}", o1, o2),
-                            }
-                        }
-                        (Value::Object(o), Value::Char(c)) => match self.heap.get(o) {
-                            Object::StringObj(s) => {
-                                let mut concat_string = s.to_owned();
-                                concat_string.push(c);
-                                let concat_string_ref =
-                                    self.heap.add(Object::StringObj(concat_string));
-                                self.push(concat_string_ref);
-                            }
-                            _ => panic!("Attemped to add character {} and object {}", c, o),
-                        },
-                        (Value::Char(c), Value::Object(o)) => match self.heap.get(o) {
-                            Object::StringObj(s) => {
-                                let mut concat_string = s.to_owned();
-                                concat_string.insert(0, c);
-                                let concat_string_ref =
-                                    self.heap.add(Object::StringObj(concat_string));
-                                self.push(concat_string_ref);
-                            }
-                            _ => panic!("Attemped to add character {} and object {}", c, o),
-                        },
-                        _ => panic!("Attempted to add values {} and {}", value_1, value_2),
-                    }
-                }
-                Instruction::Subtract => {
-                    let value_2 = self.pop();
-                    let value_1 = self.pop();
-                    match (value_1, value_2) {
-                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 - i2)),
-                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Float(d1 - d2)),
-                        _ => panic!("Attempted to subtract values {} and {}", value_1, value_2),
-                    }
-                }
-                Instruction::Multiply => {
-                    let value_2 = self.pop();
-                    let value_1 = self.pop();
-                    match (value_1, value_2) {
-                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 * i2)),
-                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Float(d1 * d2)),
-                        _ => panic!("Attempted to multiply values {} and {}", value_1, value_2),
-                    }
-                }
-                Instruction::Divide => {
-                    let value_2 = self.pop();
-                    let value_1 = self.pop();
-                    match (value_1, value_2) {
-                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 / i2)),
-                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Float(d1 / d2)),
-                        _ => panic!("Attempted to divide values {} and {}", value_1, value_2),
-                    }
-                }
-                Instruction::Modulo => {
-                    let value_2 = self.pop();
-                    let value_1 = self.pop();
-                    match (value_1, value_2) {
-                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Int(i1 % i2)),
-                        _ => panic!("Attempted to modulo values {} and {}", value_1, value_2),
-                    }
-                }
-                Instruction::Not => {
-                    let value = self.pop();
-                    match value {
-                        Value::Bool(b) => self.push(Value::Bool(!b)),
-                        _ => panic!("Attemped to not value {}", value),
-                    }
-                }
-                Instruction::And => {
-                    let value_2 = self.pop();
-                    let value_1 = self.pop();
-                    match (value_1, value_2) {
-                        (Value::Bool(b1), Value::Bool(b2)) => self.push(Value::Bool(b1 && b2)),
-                        _ => panic!("Attempted to and values {} and {}", value_1, value_2),
-                    }
-                }
-                Instruction::Or => {
-                    let value_2 = self.pop();
-                    let value_1 = self.pop();
-                    match (value_1, value_2) {
-                        (Value::Bool(b1), Value::Bool(b2)) => self.push(Value::Bool(b1 || b2)),
-                        _ => panic!("Attempted to or values {} and {}", value_1, value_2),
-                    }
-                }
-                Instruction::Equal => {
-                    let value_2 = self.pop();
-                    let value_1 = self.pop();
-                    match (value_1, value_2) {
-                        (Value::Nil, Value::Nil) => self.push(Value::Bool(true)),
-                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 == i2)),
-                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 == d2)),
-                        (Value::Bool(b1), Value::Bool(b2)) => self.push(Value::Bool(b1 == b2)),
-                        (Value::Char(c1), Value::Char(c2)) => self.push(Value::Bool(c1 == c2)),
-                        (Value::Object(o1), Value::Object(o2)) => {
-                            let are_equal = (o1 == o2) || {
-                                let obj_1 = self.heap.get(o1);
-                                let obj_2 = self.heap.get(o2);
-                                match (self.heap.get(o1), self.heap.get(o2)) {
-                                    (Object::StringObj(s1), Object::StringObj(s2)) => s1 == s2,
-                                    _ => panic!(
-                                        "Attempted to check equality of objects {} and {}",
-                                        obj_1, obj_2
-                                    ),
-                                }
-                            };
-                            self.push(Value::Bool(are_equal))
-                        }
-                        _ => panic!(
-                            "Attempted to check equality of values {} and {}",
-                            value_1, value_2
-                        ),
-                    }
-                }
-                Instruction::NotEqual => {
-                    let value_2 = self.pop();
-                    let value_1 = self.pop();
-                    match (value_1, value_2) {
-                        (Value::Nil, Value::Nil) => self.push(Value::Bool(false)),
-                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 != i2)),
-                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 != d2)),
-                        (Value::Bool(b1), Value::Bool(b2)) => self.push(Value::Bool(b1 != b2)),
-                        (Value::Char(c1), Value::Char(c2)) => self.push(Value::Bool(c1 != c2)),
-                        (Value::Object(o1), Value::Object(o2)) => {
-                            let are_equal = (o1 == o2) || {
-                                let obj_1 = self.heap.get(o1);
-                                let obj_2 = self.heap.get(o2);
-                                match (self.heap.get(o1), self.heap.get(o2)) {
-                                    (Object::StringObj(s1), Object::StringObj(s2)) => s1 == s2,
-                                    _ => panic!(
-                                        "Attempted to check equality of objects {} and {}",
-                                        obj_1, obj_2
-                                    ),
-                                }
-                            };
-                            self.push(Value::Bool(!are_equal))
-                        }
-                        _ => panic!(
-                            "Attempted to check equality of values {} and {}",
-                            value_1, value_2
-                        ),
-                    }
-                }
-                Instruction::Greater => {
-                    let value_2 = self.pop();
-                    let value_1 = self.pop();
-                    match (value_1, value_2) {
-                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 > i2)),
-                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 > d2)),
-                        _ => panic!("Attempted to greater values {} and {}", value_1, value_2),
-                    }
-                }
-                Instruction::Less => {
-                    let value_2 = self.pop();
-                    let value_1 = self.pop();
-                    match (value_1, value_2) {
-                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 < i2)),
-                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 < d2)),
-                        _ => panic!("Attempted to less values {} and {}", value_1, value_2),
-                    }
-                }
-                Instruction::GreaterEqual => {
-                    let value_2 = self.pop();
-                    let value_1 = self.pop();
-                    match (value_1, value_2) {
-                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 >= i2)),
-                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 >= d2)),
-                        _ => panic!(
-                            "Attempted to greater equal values {} and {}",
-                            value_1, value_2
-                        ),
-                    }
-                }
-                Instruction::LessEqual => {
-                    let value_2 = self.pop();
-                    let value_1 = self.pop();
-                    match (value_1, value_2) {
-                        (Value::Int(i1), Value::Int(i2)) => self.push(Value::Bool(i1 <= i2)),
-                        (Value::Float(d1), Value::Float(d2)) => self.push(Value::Bool(d1 <= d2)),
-                        _ => panic!("Attempted to less equal values {} and {}", value_1, value_2),
-                    }
                 }
                 Instruction::True => self.push(Value::Bool(true)),
                 Instruction::False => self.push(Value::Bool(false)),
@@ -288,6 +70,341 @@ impl VM {
                 }
                 Instruction::Call(num_arguments) => {
                     match self.peek_from_top(num_arguments as StackIndex) {
+                        Value::BuiltInFunction(built_in) => match built_in {
+                            BuiltInFunction::Negate => {
+                                let value = self.pop();
+                                self.pop();
+                                match value {
+                                    Value::Int(i) => self.push(Value::Int(-i)),
+                                    Value::Float(d) => self.push(Value::Float(-d)),
+                                    _ => panic!("Attemped to negate value {}", value),
+                                }
+                            }
+                            BuiltInFunction::Add => {
+                                let value_2 = self.pop();
+                                let value_1 = self.pop();
+                                self.pop();
+                                match (value_1, value_2) {
+                                    (Value::Int(i1), Value::Int(i2)) => {
+                                        self.push(Value::Int(i1 + i2))
+                                    }
+                                    (Value::Float(d1), Value::Float(d2)) => {
+                                        self.push(Value::Float(d1 + d2))
+                                    }
+                                    (Value::Object(o1), Value::Object(o2)) => {
+                                        match (self.heap.get(o1), self.heap.get(o2)) {
+                                            (Object::StringObj(s1), Object::StringObj(s2)) => {
+                                                let concat_string =
+                                                    [s1.as_str(), s2.as_str()].join("");
+                                                let concat_string_ref =
+                                                    self.heap.add(Object::StringObj(concat_string));
+                                                self.push(concat_string_ref);
+                                            }
+                                            _ => {
+                                                panic!("Attemped to add objects {} and {}", o1, o2)
+                                            }
+                                        }
+                                    }
+                                    (Value::Object(o), Value::Char(c)) => match self.heap.get(o) {
+                                        Object::StringObj(s) => {
+                                            let mut concat_string = s.to_owned();
+                                            concat_string.push(c);
+                                            let concat_string_ref =
+                                                self.heap.add(Object::StringObj(concat_string));
+                                            self.push(concat_string_ref);
+                                        }
+                                        _ => panic!(
+                                            "Attemped to add character {} and object {}",
+                                            c, o
+                                        ),
+                                    },
+                                    (Value::Char(c), Value::Object(o)) => match self.heap.get(o) {
+                                        Object::StringObj(s) => {
+                                            let mut concat_string = s.to_owned();
+                                            concat_string.insert(0, c);
+                                            let concat_string_ref =
+                                                self.heap.add(Object::StringObj(concat_string));
+                                            self.push(concat_string_ref);
+                                        }
+                                        _ => panic!(
+                                            "Attemped to add character {} and object {}",
+                                            c, o
+                                        ),
+                                    },
+                                    _ => panic!(
+                                        "Attempted to add values {} and {}",
+                                        value_1, value_2
+                                    ),
+                                }
+                            }
+                            BuiltInFunction::Subtract => {
+                                let value_2 = self.pop();
+                                let value_1 = self.pop();
+                                self.pop();
+                                match (value_1, value_2) {
+                                    (Value::Int(i1), Value::Int(i2)) => {
+                                        self.push(Value::Int(i1 - i2))
+                                    }
+                                    (Value::Float(d1), Value::Float(d2)) => {
+                                        self.push(Value::Float(d1 - d2))
+                                    }
+                                    _ => panic!(
+                                        "Attempted to subtract values {} and {}",
+                                        value_1, value_2
+                                    ),
+                                }
+                            }
+                            BuiltInFunction::Multiply => {
+                                let value_2 = self.pop();
+                                let value_1 = self.pop();
+                                self.pop();
+                                match (value_1, value_2) {
+                                    (Value::Int(i1), Value::Int(i2)) => {
+                                        self.push(Value::Int(i1 * i2))
+                                    }
+                                    (Value::Float(d1), Value::Float(d2)) => {
+                                        self.push(Value::Float(d1 * d2))
+                                    }
+                                    _ => panic!(
+                                        "Attempted to multiply values {} and {}",
+                                        value_1, value_2
+                                    ),
+                                }
+                            }
+                            BuiltInFunction::Divide => {
+                                let value_2 = self.pop();
+                                let value_1 = self.pop();
+                                self.pop();
+                                match (value_1, value_2) {
+                                    (Value::Int(i1), Value::Int(i2)) => {
+                                        self.push(Value::Int(i1 / i2))
+                                    }
+                                    (Value::Float(d1), Value::Float(d2)) => {
+                                        self.push(Value::Float(d1 / d2))
+                                    }
+                                    _ => {
+                                        panic!(
+                                            "Attempted to divide values {} and {}",
+                                            value_1, value_2
+                                        )
+                                    }
+                                }
+                            }
+                            BuiltInFunction::Modulo => {
+                                let value_2 = self.pop();
+                                let value_1 = self.pop();
+                                self.pop();
+                                match (value_1, value_2) {
+                                    (Value::Int(i1), Value::Int(i2)) => {
+                                        self.push(Value::Int(i1 % i2))
+                                    }
+                                    _ => {
+                                        panic!(
+                                            "Attempted to modulo values {} and {}",
+                                            value_1, value_2
+                                        )
+                                    }
+                                }
+                            }
+                            BuiltInFunction::Not => {
+                                let value = self.pop();
+                                self.pop();
+                                match value {
+                                    Value::Bool(b) => self.push(Value::Bool(!b)),
+                                    _ => panic!("Attemped to not value {}", value),
+                                }
+                            }
+                            BuiltInFunction::Equal => {
+                                let value_2 = self.pop();
+                                let value_1 = self.pop();
+                                self.pop();
+                                match (value_1, value_2) {
+                                    (Value::Nil, Value::Nil) => self.push(Value::Bool(true)),
+                                    (Value::Int(i1), Value::Int(i2)) => {
+                                        self.push(Value::Bool(i1 == i2))
+                                    }
+                                    (Value::Float(d1), Value::Float(d2)) => {
+                                        self.push(Value::Bool(d1 == d2))
+                                    }
+                                    (Value::Bool(b1), Value::Bool(b2)) => {
+                                        self.push(Value::Bool(b1 == b2))
+                                    }
+                                    (Value::Char(c1), Value::Char(c2)) => {
+                                        self.push(Value::Bool(c1 == c2))
+                                    }
+                                    (Value::Object(o1), Value::Object(o2)) => {
+                                        let are_equal = (o1 == o2)
+                                            || {
+                                                let obj_1 = self.heap.get(o1);
+                                                let obj_2 = self.heap.get(o2);
+                                                match (self.heap.get(o1), self.heap.get(o2)) {
+                                                    (Object::StringObj(s1), Object::StringObj(s2)) => {
+                                                        s1 == s2
+                                                    }
+                                                    _ => panic!(
+                                                        "Attempted to check equality of objects {} and {}",
+                                                        obj_1, obj_2
+                                                    ),
+                                                }
+                                            };
+                                        self.push(Value::Bool(are_equal))
+                                    }
+                                    _ => panic!(
+                                        "Attempted to check equality of values {} and {}",
+                                        value_1, value_2
+                                    ),
+                                }
+                            }
+                            BuiltInFunction::NotEqual => {
+                                let value_2 = self.pop();
+                                let value_1 = self.pop();
+                                self.pop();
+                                match (value_1, value_2) {
+                                    (Value::Nil, Value::Nil) => self.push(Value::Bool(false)),
+                                    (Value::Int(i1), Value::Int(i2)) => {
+                                        self.push(Value::Bool(i1 != i2))
+                                    }
+                                    (Value::Float(d1), Value::Float(d2)) => {
+                                        self.push(Value::Bool(d1 != d2))
+                                    }
+                                    (Value::Bool(b1), Value::Bool(b2)) => {
+                                        self.push(Value::Bool(b1 != b2))
+                                    }
+                                    (Value::Char(c1), Value::Char(c2)) => {
+                                        self.push(Value::Bool(c1 != c2))
+                                    }
+                                    (Value::Object(o1), Value::Object(o2)) => {
+                                        let are_equal = (o1 == o2)
+                                            || {
+                                                let obj_1 = self.heap.get(o1);
+                                                let obj_2 = self.heap.get(o2);
+                                                match (self.heap.get(o1), self.heap.get(o2)) {
+                                                    (Object::StringObj(s1), Object::StringObj(s2)) => {
+                                                        s1 == s2
+                                                    }
+                                                    _ => panic!(
+                                                        "Attempted to check equality of objects {} and {}",
+                                                        obj_1, obj_2
+                                                    ),
+                                                }
+                                            };
+                                        self.push(Value::Bool(!are_equal))
+                                    }
+                                    _ => panic!(
+                                        "Attempted to check equality of values {} and {}",
+                                        value_1, value_2
+                                    ),
+                                }
+                            }
+                            BuiltInFunction::Greater => {
+                                let value_2 = self.pop();
+                                let value_1 = self.pop();
+                                self.pop();
+                                match (value_1, value_2) {
+                                    (Value::Int(i1), Value::Int(i2)) => {
+                                        self.push(Value::Bool(i1 > i2))
+                                    }
+                                    (Value::Float(d1), Value::Float(d2)) => {
+                                        self.push(Value::Bool(d1 > d2))
+                                    }
+                                    _ => panic!(
+                                        "Attempted to greater values {} and {}",
+                                        value_1, value_2
+                                    ),
+                                }
+                            }
+                            BuiltInFunction::Less => {
+                                let value_2 = self.pop();
+                                let value_1 = self.pop();
+                                self.pop();
+                                match (value_1, value_2) {
+                                    (Value::Int(i1), Value::Int(i2)) => {
+                                        self.push(Value::Bool(i1 < i2))
+                                    }
+                                    (Value::Float(d1), Value::Float(d2)) => {
+                                        self.push(Value::Bool(d1 < d2))
+                                    }
+                                    _ => panic!(
+                                        "Attempted to less values {} and {}",
+                                        value_1, value_2
+                                    ),
+                                }
+                            }
+                            BuiltInFunction::GreaterEqual => {
+                                let value_2 = self.pop();
+                                let value_1 = self.pop();
+                                self.pop();
+                                match (value_1, value_2) {
+                                    (Value::Int(i1), Value::Int(i2)) => {
+                                        self.push(Value::Bool(i1 >= i2))
+                                    }
+                                    (Value::Float(d1), Value::Float(d2)) => {
+                                        self.push(Value::Bool(d1 >= d2))
+                                    }
+                                    _ => panic!(
+                                        "Attempted to greater equal values {} and {}",
+                                        value_1, value_2
+                                    ),
+                                }
+                            }
+                            BuiltInFunction::LessEqual => {
+                                let value_2 = self.pop();
+                                let value_1 = self.pop();
+                                self.pop();
+                                match (value_1, value_2) {
+                                    (Value::Int(i1), Value::Int(i2)) => {
+                                        self.push(Value::Bool(i1 <= i2))
+                                    }
+                                    (Value::Float(d1), Value::Float(d2)) => {
+                                        self.push(Value::Bool(d1 <= d2))
+                                    }
+                                    _ => panic!(
+                                        "Attempted to less equal values {} and {}",
+                                        value_1, value_2
+                                    ),
+                                }
+                            }
+                            BuiltInFunction::Print => {
+                                let value = self.pop();
+                                self.pop();
+                                match value {
+                                    Value::Int(i) => print!("{}", i),
+                                    Value::Float(f) => print!("{}", f),
+                                    Value::Char(c) => print!("{}", c),
+                                    Value::Bool(b) => print!("{}", b),
+                                    Value::Nil => print!("nil"),
+                                    Value::Object(object_index) => {
+                                        let object = self.heap.get(object_index);
+                                        match object {
+                                            Object::StringObj(s) => print!("{}", s),
+                                            _ => panic!("Ran print on {}", value),
+                                        }
+                                    }
+                                    _ => panic!("Ran print on {}", value),
+                                }
+                                self.push(Value::Nil);
+                            }
+                            BuiltInFunction::PrintLine => {
+                                let value = self.pop();
+                                self.pop();
+                                match value {
+                                    Value::Int(i) => println!("{}", i),
+                                    Value::Float(f) => println!("{}", f),
+                                    Value::Char(c) => println!("{}", c),
+                                    Value::Bool(b) => println!("{}", b),
+                                    Value::Nil => println!("nil"),
+                                    Value::Object(object_index) => {
+                                        let object = self.heap.get(object_index);
+                                        match object {
+                                            Object::StringObj(s) => println!("{}", s),
+                                            _ => panic!("Ran printLine on {}", value),
+                                        }
+                                    }
+                                    _ => panic!("Ran printLine on {}", value),
+                                }
+                                self.push(Value::Nil);
+                            }
+                        },
                         Value::Object(object_index) => match self.heap.get(object_index) {
                             Object::FunctionObj {
                                 function_index,
@@ -435,42 +552,27 @@ impl VM {
         let op_code = self.read_byte();
         match op_code {
             1 => Instruction::Return,
-            2 => Instruction::Print,
+            2 => Instruction::BuiltInFunction(self.read_byte()),
             3 => Instruction::Constant(self.read_u16()),
-            4 => Instruction::Negate,
-            5 => Instruction::Add,
-            6 => Instruction::Subtract,
-            7 => Instruction::Multiply,
-            8 => Instruction::Divide,
-            9 => Instruction::Modulo,
-            10 => Instruction::Not,
-            11 => Instruction::And,
-            12 => Instruction::Or,
-            13 => Instruction::Equal,
-            14 => Instruction::NotEqual,
-            15 => Instruction::Greater,
-            16 => Instruction::Less,
-            17 => Instruction::GreaterEqual,
-            18 => Instruction::LessEqual,
-            19 => Instruction::True,
-            20 => Instruction::False,
-            21 => Instruction::ReadVariable(self.read_u16()),
-            22 => Instruction::MutateVariable(self.read_u16()),
-            23 => Instruction::Nil,
-            24 => Instruction::Pop,
-            25 => Instruction::PopMultiple(self.read_u16()),
-            26 => Instruction::Jump(self.read_i16()),
-            27 => Instruction::JumpIfFalse(self.read_i16()),
-            28 => Instruction::Int(self.read_i32()),
-            29 => Instruction::Float(self.read_f64()),
-            30 => Instruction::Char(self.read_char()),
-            31 => Instruction::Function(self.read_u16(), self.read_byte()),
-            32 => Instruction::Call(self.read_byte()),
-            33 => Instruction::Record(self.read_u16(), self.read_byte()),
-            34 => Instruction::Field(self.read_byte()),
-            35 => Instruction::JumpIfDoesntMatchRecordId(self.read_u16(), self.read_i16()),
-            36 => Instruction::RemoveFromStack(self.read_u16()),
-            37 => Instruction::MutateField(self.read_byte()),
+            4 => Instruction::Nil,
+            5 => Instruction::True,
+            6 => Instruction::False,
+            7 => Instruction::Int(self.read_i32()),
+            8 => Instruction::Float(self.read_f64()),
+            9 => Instruction::Char(self.read_char()),
+            10 => Instruction::Pop,
+            11 => Instruction::PopMultiple(self.read_u16()),
+            12 => Instruction::RemoveFromStack(self.read_u16()),
+            13 => Instruction::Jump(self.read_i16()),
+            14 => Instruction::JumpIfFalse(self.read_i16()),
+            15 => Instruction::ReadVariable(self.read_u16()),
+            16 => Instruction::MutateVariable(self.read_u16()),
+            17 => Instruction::Function(self.read_u16(), self.read_byte()),
+            18 => Instruction::Call(self.read_byte()),
+            19 => Instruction::Record(self.read_u16(), self.read_byte()),
+            20 => Instruction::Field(self.read_byte()),
+            21 => Instruction::MutateField(self.read_byte()),
+            22 => Instruction::JumpIfDoesntMatchRecordId(self.read_u16(), self.read_i16()),
             op => panic!("Got invalid op code {}", op),
         }
     }
@@ -582,81 +684,54 @@ impl GarbageCollector {
 
 enum Instruction {
     Return,
-    Print,
+    BuiltInFunction(u8),
     Constant(ConstIndex),
-    Negate,
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Modulo,
-    Not,
-    And,
-    Or,
-    Equal,
-    NotEqual,
-    Greater,
-    Less,
-    GreaterEqual,
-    LessEqual,
+    Nil,
     True,
     False,
-    ReadVariable(StackIndex),
-    MutateVariable(StackIndex),
-    Nil,
-    Pop,
-    PopMultiple(StackIndex),
-    Jump(InstructionOffset),
-    JumpIfFalse(InstructionOffset),
     Int(IntValue),
     Float(FloatValue),
     Char(char),
+    Pop,
+    PopMultiple(StackIndex),
+    RemoveFromStack(StackIndex),
+    Jump(InstructionOffset),
+    JumpIfFalse(InstructionOffset),
+    ReadVariable(StackIndex),
+    MutateVariable(StackIndex),
     Function(FunctionIndex, u8),
     Call(u8),
     Record(RecordId, u8),
     Field(FieldIndex),
-    JumpIfDoesntMatchRecordId(RecordId, InstructionOffset),
-    RemoveFromStack(StackIndex),
     MutateField(FieldIndex),
+    JumpIfDoesntMatchRecordId(RecordId, InstructionOffset),
 }
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Instruction::Return => write!(f, "Return"),
-            Instruction::Print => write!(f, "Print"),
+            Instruction::BuiltInFunction(function_id) => write!(f, "Built-in {}", function_id),
             Instruction::Constant(const_index) => write!(f, "Constant {}", const_index),
-            Instruction::Negate => write!(f, "Negate"),
-            Instruction::Add => write!(f, "Add"),
-            Instruction::Subtract => write!(f, "Subtract"),
-            Instruction::Multiply => write!(f, "Multiply"),
-            Instruction::Divide => write!(f, "Divide"),
-            Instruction::Modulo => write!(f, "Modulo"),
-            Instruction::Not => write!(f, "Not"),
-            Instruction::And => write!(f, "And"),
-            Instruction::Or => write!(f, "Or"),
-            Instruction::Equal => write!(f, "Equal"),
-            Instruction::NotEqual => write!(f, "NotEqual"),
-            Instruction::Greater => write!(f, "Greater"),
-            Instruction::Less => write!(f, "Less"),
-            Instruction::GreaterEqual => write!(f, "GreaterEqual"),
-            Instruction::LessEqual => write!(f, "LessEqual"),
+            Instruction::Nil => write!(f, "Nil"),
             Instruction::True => write!(f, "True"),
             Instruction::False => write!(f, "False"),
+            Instruction::Int(i) => write!(f, "Int {}", i),
+            Instruction::Float(d) => write!(f, "Float {}", d),
+            Instruction::Char(c) => write!(f, "Char {}", c),
+            Instruction::Pop => write!(f, "Pop"),
+            Instruction::PopMultiple(u) => write!(f, "PopMultiple {}", u),
+            Instruction::RemoveFromStack(stack_index) => {
+                write!(f, "RemoveFromStack {}", stack_index)
+            }
+            Instruction::Jump(offset) => write!(f, "Jump {}", offset),
+            Instruction::JumpIfFalse(offset) => write!(f, "JumpIfFalse {}", offset),
             Instruction::ReadVariable(stack_index) => {
                 write!(f, "ReadVariable {}", stack_index)
             }
             Instruction::MutateVariable(stack_index) => {
                 write!(f, "MutateVariable {}", stack_index)
             }
-            Instruction::Nil => write!(f, "Nil"),
-            Instruction::Pop => write!(f, "Pop"),
-            Instruction::PopMultiple(u) => write!(f, "PopMultiple {}", u),
-            Instruction::Jump(offset) => write!(f, "Jump {}", offset),
-            Instruction::JumpIfFalse(offset) => write!(f, "JumpIfFalse {}", offset),
-            Instruction::Int(i) => write!(f, "Int {}", i),
-            Instruction::Float(d) => write!(f, "Float {}", d),
-            Instruction::Char(c) => write!(f, "Char {}", c),
             Instruction::Function(function_index, num_closed) => {
                 write!(f, "Function {} {}", function_index, num_closed)
             }
@@ -665,13 +740,10 @@ impl fmt::Display for Instruction {
                 write!(f, "Record {} {}", record_id, num_fields)
             }
             Instruction::Field(field_index) => write!(f, "Field {}", field_index),
+            Instruction::MutateField(field_index) => write!(f, "MutateField {}", field_index),
             Instruction::JumpIfDoesntMatchRecordId(record_id, offset) => {
                 write!(f, "JumpIfDoesntMatchRecordId {} {}", record_id, offset)
             }
-            Instruction::RemoveFromStack(stack_index) => {
-                write!(f, "RemoveFromStack {}", stack_index)
-            }
-            Instruction::MutateField(field_index) => write!(f, "MutateField {}", field_index),
         }
     }
 }

@@ -9,7 +9,8 @@ module IdentifierBinding.IdentifierBinding
         CaseParameterInfo,
         TypeParameterInfo,
         MutabilityParameterInfo,
-        TypeSynonymInfo
+        TypeSynonymInfo,
+        BuiltInFunctionInfo
       ),
     VariableUsability (BeforeDeclaration, InDeclaration, Usable),
     addVariable,
@@ -35,6 +36,7 @@ module IdentifierBinding.IdentifierBinding
     withNewTypeSynonymScope,
     addTypeSynonymMutabilityParameter,
     getIdentifierInfoTextName,
+    tryGetRange,
   )
 where
 
@@ -80,6 +82,7 @@ data IdentifierInfo
   | TypeParameterInfo Range BoundTypeParameter
   | MutabilityParameterInfo Range BoundMutabilityParameter
   | TypeSynonymInfo Range BoundTypeSynonym
+  | BuiltInFunctionInfo BuiltInFunction
   deriving (Eq, Ord)
 
 getIdentifierInfoTextName :: IdentifierInfo -> Text
@@ -91,16 +94,18 @@ getIdentifierInfoTextName (CaseParameterInfo {}) = "case parameter"
 getIdentifierInfoTextName (TypeParameterInfo {}) = "type parameter"
 getIdentifierInfoTextName (MutabilityParameterInfo {}) = "mutability parameter"
 getIdentifierInfoTextName (TypeSynonymInfo {}) = "type synonym"
+getIdentifierInfoTextName (BuiltInFunctionInfo {}) = "built-in function"
 
-instance WithRange IdentifierInfo where
-  getRange (VariableIdentifierInfo range _ _ _) = range
-  getRange (ParameterIdentifierInfo range _) = range
-  getRange (FunctionIdentifierInfo range _) = range
-  getRange (RecordIdentifierInfo range _) = range
-  getRange (CaseParameterInfo range _) = range
-  getRange (TypeParameterInfo range _) = range
-  getRange (MutabilityParameterInfo range _) = range
-  getRange (TypeSynonymInfo range _) = range
+tryGetRange :: IdentifierInfo -> Maybe Range
+tryGetRange (VariableIdentifierInfo range _ _ _) = Just range
+tryGetRange (ParameterIdentifierInfo range _) = Just range
+tryGetRange (FunctionIdentifierInfo range _) = Just range
+tryGetRange (RecordIdentifierInfo range _) = Just range
+tryGetRange (CaseParameterInfo range _) = Just range
+tryGetRange (TypeParameterInfo range _) = Just range
+tryGetRange (MutabilityParameterInfo range _) = Just range
+tryGetRange (TypeSynonymInfo range _) = Just range
+tryGetRange (BuiltInFunctionInfo _) = Nothing
 
 data VariableUsability = BeforeDeclaration | InDeclaration | Usable deriving (Eq, Ord)
 
@@ -171,7 +176,7 @@ addVariable declarationRange mutability unboundIdentifier = do
   scopeIdentifiers <- liftWithErrors $ expectExpressionScope currentScope
   case Map.lookup unboundIdentifier scopeIdentifiers of
     Just conflictingInfo ->
-      throwError $ ConflictingIdentifierDefinitionsError unboundIdentifier (getRange conflictingInfo) declarationRange
+      throwError $ ConflictingIdentifierDefinitionsError unboundIdentifier (fromJust . tryGetRange $ conflictingInfo) declarationRange
     Nothing -> do
       checkForInvalidShadow declarationRange unboundIdentifier
       boundValueIdentifier <- getNewValueBinding unboundIdentifier
@@ -196,7 +201,7 @@ addFunction definitionRange unboundFunctionName = do
   scopeIdentifiers <- liftWithErrors $ expectExpressionScope currentScope
   case Map.lookup unboundFunctionName scopeIdentifiers of
     Just conflictingInfo ->
-      throwError $ ConflictingIdentifierDefinitionsError unboundFunctionName (getRange conflictingInfo) definitionRange
+      throwError $ ConflictingIdentifierDefinitionsError unboundFunctionName (fromJust . tryGetRange $ conflictingInfo) definitionRange
     Nothing -> do
       checkForInvalidShadow definitionRange unboundFunctionName
       boundFunctionIdentifier <- getNewFunctionBinding unboundFunctionName
@@ -209,7 +214,7 @@ addRecord definitionRange unboundRecordName = do
   scopeIdentifiers <- liftWithErrors $ expectExpressionScope currentScope
   case Map.lookup unboundRecordName scopeIdentifiers of
     Just conflictingInfo ->
-      throwError $ ConflictingIdentifierDefinitionsError unboundRecordName (getRange conflictingInfo) definitionRange
+      throwError $ ConflictingIdentifierDefinitionsError unboundRecordName (fromJust . tryGetRange $ conflictingInfo) definitionRange
     Nothing -> do
       checkForInvalidShadow definitionRange unboundRecordName
       boundRecordIdentifier <- getNewRecordBinding unboundRecordName
@@ -222,7 +227,7 @@ addTypeSynonym definitionRange unboundTypeSynonym = do
   scopeIdentifiers <- liftWithErrors $ expectExpressionScope currentScope
   case Map.lookup unboundTypeSynonym scopeIdentifiers of
     Just conflictingInfo ->
-      throwError $ ConflictingIdentifierDefinitionsError unboundTypeSynonym (getRange conflictingInfo) definitionRange
+      throwError $ ConflictingIdentifierDefinitionsError unboundTypeSynonym (fromJust . tryGetRange $ conflictingInfo) definitionRange
     Nothing -> do
       checkForInvalidShadow definitionRange unboundTypeSynonym
       boundTypeSynonym <- getNewTypeSynonymBinding unboundTypeSynonym
@@ -234,7 +239,7 @@ addParameter parameterRange unboundParameter = do
   currentScope <- getCurrentScope
   (_typeParameters, parameters, _capturedIdentifiers) <- liftWithErrors $ expectFunctionScope currentScope
   case Map.lookup unboundParameter parameters of
-    Just conflictingInfo -> throwError $ ConflictingParameterNamesError unboundParameter (getRange conflictingInfo) parameterRange
+    Just conflictingInfo -> throwError $ ConflictingParameterNamesError unboundParameter (fromJust . tryGetRange $ conflictingInfo) parameterRange
     Nothing -> do
       checkForInvalidShadow parameterRange unboundParameter
       boundValueIdentifier <- getNewValueBinding unboundParameter
@@ -247,7 +252,7 @@ addFunctionTypeParameter typeParameterRange functionName unboundTypeParameter = 
   currentScope <- getCurrentScope
   (typeParameters, _parameters, _capturedIdentifiers) <- liftWithErrors $ expectFunctionScope currentScope
   case Map.lookup unboundTypeParameter typeParameters of
-    Just conflictingInfo -> throwError $ ConflictingTypeParametersError functionName unboundTypeParameter (getRange conflictingInfo) typeParameterRange
+    Just conflictingInfo -> throwError $ ConflictingTypeParametersError functionName unboundTypeParameter (fromJust . tryGetRange $ conflictingInfo) typeParameterRange
     Nothing -> do
       checkForInvalidShadow typeParameterRange unboundTypeParameter
       boundTypeParameter <- getNewTypeParameterBinding unboundTypeParameter
@@ -260,7 +265,7 @@ addRecordTypeParameter typeParameterRange recordName unboundTypeParameter = do
   currentScope <- getCurrentScope
   recordTypeParameters <- liftWithErrors $ expectRecordScope currentScope
   case Map.lookup unboundTypeParameter recordTypeParameters of
-    Just conflictingInfo -> throwError $ ConflictingTypeParametersError recordName unboundTypeParameter (getRange conflictingInfo) typeParameterRange
+    Just conflictingInfo -> throwError $ ConflictingTypeParametersError recordName unboundTypeParameter (fromJust . tryGetRange $ conflictingInfo) typeParameterRange
     Nothing -> do
       checkForInvalidShadow typeParameterRange unboundTypeParameter
       boundTypeParameter <- getNewTypeParameterBinding unboundTypeParameter
@@ -273,7 +278,7 @@ addTypeSynonymTypeParameter typeParameterRange typeSynonym unboundTypeParameter 
   currentScope <- getCurrentScope
   typeSynonymTypeParameters <- liftWithErrors $ expectTypeSynonymScope currentScope
   case Map.lookup unboundTypeParameter typeSynonymTypeParameters of
-    Just conflictingInfo -> throwError $ ConflictingTypeParametersError typeSynonym unboundTypeParameter (getRange conflictingInfo) typeParameterRange
+    Just conflictingInfo -> throwError $ ConflictingTypeParametersError typeSynonym unboundTypeParameter (fromJust . tryGetRange $ conflictingInfo) typeParameterRange
     Nothing -> do
       checkForInvalidShadow typeParameterRange unboundTypeParameter
       boundTypeParameter <- getNewTypeParameterBinding unboundTypeParameter
@@ -300,7 +305,7 @@ checkForInvalidShadowInScopes :: Range -> UnboundIdentifier -> [ScopeInfo] -> Id
 checkForInvalidShadowInScopes _ _ [] = return ()
 checkForInvalidShadowInScopes shadowRange unboundIdentifier (FunctionScope {functionTypeParameters, parameters} : restScopes) =
   case Map.lookup unboundIdentifier functionTypeParameters of
-    Just shadowedIdentifierInfo -> throwError (ShadowedTypeIdentifierError unboundIdentifier (getRange shadowedIdentifierInfo) shadowRange)
+    Just shadowedIdentifierInfo -> throwError (ShadowedTypeIdentifierError unboundIdentifier (fromJust . tryGetRange $ shadowedIdentifierInfo) shadowRange)
     Nothing ->
       if Map.member unboundIdentifier parameters
         -- Parameters are always usable if they are in scope
@@ -308,10 +313,10 @@ checkForInvalidShadowInScopes shadowRange unboundIdentifier (FunctionScope {func
         else checkForInvalidShadowInScopes shadowRange unboundIdentifier restScopes
 checkForInvalidShadowInScopes shadowRange unboundIdentifier (RecordScope {recordMutabilityParameter, recordTypeParameters} : restScopes) =
   case Map.lookup unboundIdentifier recordTypeParameters of
-    Just shadowedIdentifierInfo -> throwError (ShadowedTypeIdentifierError unboundIdentifier (getRange shadowedIdentifierInfo) shadowRange)
+    Just shadowedIdentifierInfo -> throwError (ShadowedTypeIdentifierError unboundIdentifier (fromJust . tryGetRange $ shadowedIdentifierInfo) shadowRange)
     Nothing ->
       if Just unboundIdentifier == (fst <$> recordMutabilityParameter)
-        then throwError (ShadowedTypeIdentifierError unboundIdentifier (getRange . snd . fromJust $ recordMutabilityParameter) shadowRange)
+        then throwError (ShadowedTypeIdentifierError unboundIdentifier (fromJust . tryGetRange . snd . fromJust $ recordMutabilityParameter) shadowRange)
         else checkForInvalidShadowInScopes shadowRange unboundIdentifier restScopes
 checkForInvalidShadowInScopes shadowRange unboundIdentifier (CaseScope {caseParameter} : restScopes) =
   if unboundIdentifier == fst caseParameter
@@ -326,10 +331,10 @@ checkForInvalidShadowInScopes shadowRange unboundIdentifier (ExpressionScope {sc
     Nothing -> checkForInvalidShadowInScopes shadowRange unboundIdentifier restScopes
 checkForInvalidShadowInScopes shadowRange unboundIdentifier (TypeSynonymScope {typeSynonymTypeParameters, typeSynonymMutabilityParameter} : restScopes) =
   case Map.lookup unboundIdentifier typeSynonymTypeParameters of
-    Just shadowedIdentifierInfo -> throwError (ShadowedTypeIdentifierError unboundIdentifier (getRange shadowedIdentifierInfo) shadowRange)
+    Just shadowedIdentifierInfo -> throwError (ShadowedTypeIdentifierError unboundIdentifier (fromJust . tryGetRange $ shadowedIdentifierInfo) shadowRange)
     Nothing ->
       if Just unboundIdentifier == (fst <$> typeSynonymMutabilityParameter)
-        then throwError (ShadowedTypeIdentifierError unboundIdentifier (getRange . snd . fromJust $ typeSynonymMutabilityParameter) shadowRange)
+        then throwError (ShadowedTypeIdentifierError unboundIdentifier (fromJust . tryGetRange . snd . fromJust $ typeSynonymMutabilityParameter) shadowRange)
         else checkForInvalidShadowInScopes shadowRange unboundIdentifier restScopes
 
 {- Get the bound identifier corresponding to the input unbound identifier. If there are any function scopes above the
@@ -345,7 +350,10 @@ getIdentifierBinding usageRange unboundIdentifier = do
 
 getIdentifierBindingInScopes :: Range -> UnboundIdentifier -> [ScopeInfo] -> IdentifierBinder (IdentifierInfo, [ScopeInfo])
 getIdentifierBindingInScopes usageRange unboundIdentifier scopes = case scopes of
-  [] -> throwError $ IdentifierUndefinedAtReferenceError unboundIdentifier usageRange
+  [] -> case unboundIdentifier of
+    "print" -> return (BuiltInFunctionInfo PrintFunction, [])
+    "printLine" -> return (BuiltInFunctionInfo PrintLineFunction, [])
+    _ -> throwError $ IdentifierUndefinedAtReferenceError unboundIdentifier usageRange
   ExpressionScope {scopeIdentifiers} : restScopes -> case Map.lookup unboundIdentifier scopeIdentifiers of
     Just info -> return (info, scopes)
     Nothing -> do
@@ -490,11 +498,12 @@ getCapturedIdentifiers = do
     asCapturedIdentifier (VariableIdentifierInfo _ boundValueIdentifier _ _) = Just . Left $ boundValueIdentifier
     asCapturedIdentifier (ParameterIdentifierInfo _ boundValueIdentifier) = Just . Left $ boundValueIdentifier
     asCapturedIdentifier (FunctionIdentifierInfo _ boundFunctionIdentifier) = Just . Right $ boundFunctionIdentifier
-    asCapturedIdentifier (RecordIdentifierInfo _ _) = Nothing
+    asCapturedIdentifier (RecordIdentifierInfo {}) = Nothing
     asCapturedIdentifier (CaseParameterInfo _ boundValueIdentifier) = Just . Left $ boundValueIdentifier
-    asCapturedIdentifier (TypeParameterInfo _ _) = Nothing
-    asCapturedIdentifier (MutabilityParameterInfo _ _) = Nothing
-    asCapturedIdentifier (TypeSynonymInfo _ _) = Nothing
+    asCapturedIdentifier (TypeParameterInfo {}) = Nothing
+    asCapturedIdentifier (MutabilityParameterInfo {}) = Nothing
+    asCapturedIdentifier (TypeSynonymInfo {}) = Nothing
+    asCapturedIdentifier (BuiltInFunctionInfo {}) = Nothing
 
 getFunctionNameBinding :: UnboundIdentifier -> IdentifierBinder IBFunctionIdentifier
 getFunctionNameBinding unboundFunctionName = do

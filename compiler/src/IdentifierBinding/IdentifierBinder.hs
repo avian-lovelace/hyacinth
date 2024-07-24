@@ -101,20 +101,8 @@ statementBinder (BindingReady (VariableDeclarationStatement declarationRange mut
 statementBinder (BindingReady (VariableMutationStatement statementRange unboundVariableName expression)) = do
   identifierInfo <- getIdentifierBinding statementRange unboundVariableName
   boundValueIdentifier <- case identifierInfo of
-    ParameterIdentifierInfo declarationRange _ ->
-      throwError $ MutatedNonVariableIdentifierError unboundVariableName (getIdentifierInfoTextName identifierInfo) declarationRange statementRange
-    FunctionIdentifierInfo declarationRange _ ->
-      throwError $ MutatedNonVariableIdentifierError unboundVariableName (getIdentifierInfoTextName identifierInfo) declarationRange statementRange
-    RecordIdentifierInfo declarationRange _ ->
-      throwError $ MutatedNonVariableIdentifierError unboundVariableName (getIdentifierInfoTextName identifierInfo) declarationRange statementRange
-    CaseParameterInfo declarationRange _ ->
-      throwError $ MutatedNonVariableIdentifierError unboundVariableName (getIdentifierInfoTextName identifierInfo) declarationRange statementRange
-    TypeParameterInfo declarationRange _ ->
-      throwError $ MutatedNonVariableIdentifierError unboundVariableName (getIdentifierInfoTextName identifierInfo) declarationRange statementRange
-    MutabilityParameterInfo declarationRange _ ->
-      throwError $ MutatedNonVariableIdentifierError unboundVariableName (getIdentifierInfoTextName identifierInfo) declarationRange statementRange
-    TypeSynonymInfo declarationRange _ ->
-      throwError $ MutatedNonVariableIdentifierError unboundVariableName (getIdentifierInfoTextName identifierInfo) declarationRange statementRange
+    BuiltInFunctionInfo _ ->
+      throwError $ MutatedNonVariableIdentifierError unboundVariableName (getIdentifierInfoTextName identifierInfo) Nothing statementRange
     VariableIdentifierInfo declarationRange boundValueIdentifier mutability usability -> do
       case usability of
         BeforeDeclaration -> throwError $ VariableDefinedAfterReferenceError unboundVariableName statementRange declarationRange
@@ -124,6 +112,8 @@ statementBinder (BindingReady (VariableMutationStatement statementRange unboundV
         Immutable -> throwError $ MutatedImmutableVariableError unboundVariableName declarationRange statementRange
         Mutable -> return ()
       return boundValueIdentifier
+    _ ->
+      throwError $ MutatedNonVariableIdentifierError unboundVariableName (getIdentifierInfoTextName identifierInfo) (tryGetRange identifierInfo) statementRange
   boundExpression <- expressionBinder expression
   return $ VariableMutationStatement statementRange boundValueIdentifier boundExpression
 -- Standard cases
@@ -131,9 +121,6 @@ statementBinder (BindingReady (FieldMutationStatement statementRange record fiel
   boundRecord <- expressionBinder record
   boundValue <- expressionBinder value
   return $ FieldMutationStatement statementRange boundRecord field boundValue
-statementBinder (BindingReady (PrintStatement range expression)) = do
-  boundExpression <- expressionBinder expression
-  return $ PrintStatement range boundExpression
 statementBinder (BindingReady (ExpressionStatement range expression)) = do
   boundExpression <- expressionBinder expression
   return $ ExpressionStatement range boundExpression
@@ -156,7 +143,10 @@ expressionBinder (IdentifierExpression expressionRange (PIdentifier unboundIdent
       return $ IdentifierExpression expressionRange $ SimpleValueIdentifier boundValueIdentifier
     FunctionIdentifierInfo _ boundFunctionIdentifier -> do
       boundTypeArguments <- mapM typeExpressionBinder typeArguments
-      return $ IdentifierExpression expressionRange $ FunctionValueIdentifier boundFunctionIdentifier boundTypeArguments
+      return $ IdentifierExpression expressionRange $ FunctionValueIdentifier (Left boundFunctionIdentifier) boundTypeArguments
+    BuiltInFunctionInfo builtInFunction -> do
+      boundTypeArguments <- mapM typeExpressionBinder typeArguments
+      return $ IdentifierExpression expressionRange $ FunctionValueIdentifier (Right builtInFunction) boundTypeArguments
     {- A record with no fields gets interpreted as a mutable, rather than immutable record. The mutability of a record
       with no fields doesn't matter directly. However, if the record ends up as part of a record union, being immutable
       would force the whole record union to be immutable. So, we make it mutable to improve flexibility.
@@ -192,7 +182,7 @@ expressionBinder (RecordExpression expressionRange mutability recordName typeArg
   identifierInfo <- getIdentifierBinding expressionRange recordName
   boundRecordName <- case identifierInfo of
     RecordIdentifierInfo _ boundRecordIdentifier -> return boundRecordIdentifier
-    valueIdentifier -> throwError $ IdentifierUsedAsRecordNameError recordName (getRange valueIdentifier) expressionRange
+    valueIdentifier -> throwError $ IdentifierUsedAsRecordNameError recordName (tryGetRange valueIdentifier) expressionRange
   boundTypeArguments <- mapM typeExpressionBinder typeArguments
   boundFieldValueMap <- mapM expressionBinder fieldValueMap
   return $ RecordExpression expressionRange mutability boundRecordName boundTypeArguments boundFieldValueMap
@@ -207,7 +197,7 @@ expressionBinder (CaseExpression expressionRange switch caseList) = do
       identifierInfo <- getIdentifierBinding caseExpressionRange recordName
       boundRecordName <- case identifierInfo of
         RecordIdentifierInfo _ boundRecordName -> return boundRecordName
-        valueIdentifier -> throwError $ ValueIdentifierUsedAsCaseError recordName (getRange valueIdentifier) caseExpressionRange
+        valueIdentifier -> throwError $ ValueIdentifierUsedAsCaseError recordName (tryGetRange valueIdentifier) caseExpressionRange
       (boundCaseParameter, boundCaseValue) <- withNewCaseScope caseExpressionRange caseParameter $ expressionBinder caseValue
       return (boundRecordName, boundCaseParameter, boundCaseValue)
     addCase ::
@@ -334,7 +324,7 @@ typeExpressionBinder (IdentifierTypeExpression typeExpressionRange mutability ty
       identifierInfo <- getIdentifierBinding typeExpressionRange mutabilityIdentifier
       case identifierInfo of
         MutabilityParameterInfo _ boundMutabilityIdentifier -> return $ Right boundMutabilityIdentifier
-        nonMutabilityIdentifier -> throwError $ IdentifierUsedAsMutabilityParameterError mutabilityIdentifier typeExpressionRange (getRange nonMutabilityIdentifier)
+        nonMutabilityIdentifier -> throwError $ IdentifierUsedAsMutabilityParameterError mutabilityIdentifier (tryGetRange nonMutabilityIdentifier) typeExpressionRange
   boundTypeArguments <- mapM typeExpressionBinder typeArguments
   identifierInfo <- getIdentifierBinding typeExpressionRange typeIdentifier
   case identifierInfo of
@@ -343,7 +333,7 @@ typeExpressionBinder (IdentifierTypeExpression typeExpressionRange mutability ty
       return $ IdentifierTypeExpression typeExpressionRange boundMutability (Right boundTypeSynonym) boundTypeArguments
     RecordIdentifierInfo _ boundRecordName ->
       return $ RecordUnionTypeExpression typeExpressionRange boundMutability (Seq.singleton (boundRecordName, boundTypeArguments))
-    valueIdentifier -> throwError $ ValueIdentifierUsedAsTypeError typeIdentifier (getRange valueIdentifier) typeExpressionRange
+    valueIdentifier -> throwError $ ValueIdentifierUsedAsTypeError typeIdentifier (tryGetRange valueIdentifier) typeExpressionRange
 typeExpressionBinder (RecordUnionTypeExpression typeExpressionRange mutability records) = do
   boundMutability <- case mutability of
     Left m -> return $ Left m
@@ -351,13 +341,13 @@ typeExpressionBinder (RecordUnionTypeExpression typeExpressionRange mutability r
       identifierInfo <- getIdentifierBinding typeExpressionRange mutabilityIdentifier
       case identifierInfo of
         MutabilityParameterInfo _ boundMutabilityIdentifier -> return $ Right boundMutabilityIdentifier
-        nonMutabilityIdentifier -> throwError $ IdentifierUsedAsMutabilityParameterError mutabilityIdentifier typeExpressionRange (getRange nonMutabilityIdentifier)
+        nonMutabilityIdentifier -> throwError $ IdentifierUsedAsMutabilityParameterError mutabilityIdentifier (tryGetRange nonMutabilityIdentifier) typeExpressionRange
   boundRecords <- forM records $ \(recordName, recordTypeArguments) -> do
     boundRecordName <- do
       identifierInfo <- getIdentifierBinding typeExpressionRange recordName
       case identifierInfo of
         RecordIdentifierInfo _ boundRecordName -> return boundRecordName
-        nonRecordIdentifier -> throwError $ IdentifierUsedAsRecordNameError recordName typeExpressionRange (getRange nonRecordIdentifier)
+        nonRecordIdentifier -> throwError $ IdentifierUsedAsRecordNameError recordName (tryGetRange nonRecordIdentifier) typeExpressionRange
     boundRecordTypeArguments <- mapM typeExpressionBinder recordTypeArguments
     return (boundRecordName, boundRecordTypeArguments)
   return $ RecordUnionTypeExpression typeExpressionRange boundMutability boundRecords

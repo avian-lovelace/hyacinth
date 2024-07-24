@@ -9,7 +9,6 @@ module Lexing.Tokens
         FuncToken,
         CaseToken,
         OfToken,
-        PrintToken,
         WhileToken,
         LoopToken,
         ReturnToken,
@@ -77,7 +76,6 @@ data Token
   | FuncToken Range
   | CaseToken Range
   | OfToken Range
-  | PrintToken Range
   | WhileToken Range
   | LoopToken Range
   | ReturnToken Range
@@ -144,7 +142,6 @@ instance Pretty Token where
   pretty (FuncToken _) = "fn"
   pretty (CaseToken _) = "case"
   pretty (OfToken _) = "of"
-  pretty (PrintToken _) = "print"
   pretty (WhileToken _) = "while"
   pretty (LoopToken _) = "loop"
   pretty (ReturnToken _) = "return"
@@ -204,7 +201,6 @@ instance WithRange Token where
   getRange (FuncToken range) = range
   getRange (CaseToken range) = range
   getRange (OfToken range) = range
-  getRange (PrintToken range) = range
   getRange (WhileToken range) = range
   getRange (LoopToken range) = range
   getRange (ReturnToken range) = range

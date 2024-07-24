@@ -134,7 +134,7 @@ runVM :: (String -> IO ()) -> FilePath -> BB.Builder -> EitherIO (Seq Error) Str
 runVM logger bytecodeFilePath bytecode = do
   liftIO $ BB.writeFile bytecodeFilePath bytecode
   liftIO . logger $ "Output bytecode to " ++ bytecodeFilePath
-  vmResult <- liftIO $ readProcessWithExitCode "../virtual-machine/target/debug/virtual-machine" [bytecodeFilePath] ""
+  vmResult <- liftIO $ readProcessWithExitCode "../virtual-machine/target/debug/hyacinth-vm" [bytecodeFilePath] ""
   liftIO . logger $ "Ran VM"
   liftIO $ removeFile bytecodeFilePath
   liftIO . logger $ "Deleted bytecode file"

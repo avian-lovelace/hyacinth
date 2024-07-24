@@ -250,14 +250,14 @@ data Error
   | VariableShadowedInDeclarationError Text Range Range
   | ConflictingParameterNamesError Text Range Range
   | MutatedImmutableVariableError Text Range Range
-  | MutatedNonVariableIdentifierError Text Text Range Range
+  | MutatedNonVariableIdentifierError Text Text (Maybe Range) Range
   | IdentifierConflictsWithRecordError Text Range Range
-  | ValueIdentifierUsedAsTypeError Text Range Range
-  | IdentifierUsedAsRecordNameError Text Range Range
-  | ValueIdentifierUsedAsCaseError Text Range Range
+  | ValueIdentifierUsedAsTypeError Text (Maybe Range) Range
+  | IdentifierUsedAsRecordNameError Text (Maybe Range) Range
+  | ValueIdentifierUsedAsCaseError Text (Maybe Range) Range
   | ConflictingTypeParametersError Text Text Range Range
   | NonValueIdentifierUsedAsValueError Text Text Range Range
-  | IdentifierUsedAsMutabilityParameterError Text Range Range
+  | IdentifierUsedAsMutabilityParameterError Text (Maybe Range) Range
   | TypeArgumentsAppliedToValueIdentifierError Range Text
   | ShadowedTypeIdentifierError Text Range Range
   | CaseExpressionDuplicatedCasesError Text Range Range
@@ -424,22 +424,32 @@ instance Pretty Error where
     Text.unpack variableName ++ " is used as a parameter twice in the same function definition at " ++ pretty parameterRange1 ++ " and " ++ pretty parameterRange2
   pretty (MutatedImmutableVariableError variableName declarationRange mutationRange) =
     "Variable " ++ Text.unpack variableName ++ " declared as immutable at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
-  pretty (MutatedNonVariableIdentifierError identifierName identifierType declarationRange mutationRange) =
-    "Identifier " ++ Text.unpack identifierName ++ " is defined as a " ++ pretty identifierType ++ " at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
+  pretty (MutatedNonVariableIdentifierError identifierName identifierType (Just declarationRange) mutationRange) =
+    "Identifier " ++ Text.unpack identifierName ++ " defined as a " ++ pretty identifierType ++ " at " ++ pretty declarationRange ++ " is mutated at " ++ pretty mutationRange
+  pretty (MutatedNonVariableIdentifierError identifierName identifierType Nothing mutationRange) =
+    "Identifier " ++ Text.unpack identifierName ++ " defined as a " ++ pretty identifierType ++ " is mutated at " ++ pretty mutationRange
   pretty (IdentifierConflictsWithRecordError recordName definitionRange shadowRange) =
     "Record " ++ Text.unpack recordName ++ " defined at " ++ pretty definitionRange ++ " cannot be shadowed " ++ pretty shadowRange
-  pretty (ValueIdentifierUsedAsTypeError identifier definitionRange usageRange) =
+  pretty (ValueIdentifierUsedAsTypeError identifier (Just definitionRange) usageRange) =
     "Value identifier " ++ Text.unpack identifier ++ " defined at " ++ pretty definitionRange ++ " cannot be used as a type at " ++ pretty usageRange
-  pretty (IdentifierUsedAsRecordNameError identifier definitionRange usageRange) =
+  pretty (ValueIdentifierUsedAsTypeError identifier Nothing usageRange) =
+    "Value identifier " ++ Text.unpack identifier ++ " cannot be used as a type at " ++ pretty usageRange
+  pretty (IdentifierUsedAsRecordNameError identifier (Just definitionRange) usageRange) =
     "Non-record identifier " ++ Text.unpack identifier ++ " defined at " ++ pretty definitionRange ++ " cannot be used as a record name at " ++ pretty usageRange
-  pretty (ValueIdentifierUsedAsCaseError identifier definitionRange usageRange) =
+  pretty (IdentifierUsedAsRecordNameError identifier Nothing usageRange) =
+    "Non-record identifier " ++ Text.unpack identifier ++ " cannot be used as a record name at " ++ pretty usageRange
+  pretty (ValueIdentifierUsedAsCaseError identifier (Just definitionRange) usageRange) =
     "Value identifier " ++ Text.unpack identifier ++ " defined at " ++ pretty definitionRange ++ " cannot be used as a case pattern at " ++ pretty usageRange
+  pretty (ValueIdentifierUsedAsCaseError identifier Nothing usageRange) =
+    "Value identifier " ++ Text.unpack identifier ++ " cannot be used as a case pattern at " ++ pretty usageRange
   pretty (ConflictingTypeParametersError recordName parameterName range1 range2) =
     "Record " ++ pretty recordName ++ "  has multiple type parameters named " ++ pretty parameterName ++ " at " ++ pretty range1 ++ " and " ++ pretty range2
   pretty (NonValueIdentifierUsedAsValueError identifierName identifierType usageRange definitionRange) =
     "Identifier " ++ pretty identifierName ++ " defined as a " ++ pretty identifierType ++ " at " ++ pretty definitionRange ++ " is used as a value at " ++ pretty usageRange
-  pretty (IdentifierUsedAsMutabilityParameterError parameterName usageRange definitionRange) =
+  pretty (IdentifierUsedAsMutabilityParameterError parameterName (Just definitionRange) usageRange) =
     "Non-mutability-parameter " ++ pretty parameterName ++ " defined at " ++ pretty definitionRange ++ " is used as a mutability parameter at " ++ pretty usageRange
+  pretty (IdentifierUsedAsMutabilityParameterError parameterName Nothing usageRange) =
+    "Non-mutability-parameter " ++ pretty parameterName ++ " is used as a mutability parameter at " ++ pretty usageRange
   pretty (TypeArgumentsAppliedToValueIdentifierError range identifier) =
     "Type arguments are applied to identifier " ++ pretty identifier ++ " which does not accept type arguments at " ++ pretty range
   pretty (ShadowedTypeIdentifierError identifier originalRange shadowRange) =

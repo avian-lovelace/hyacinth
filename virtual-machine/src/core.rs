@@ -21,6 +21,7 @@ pub enum Value {
     Bool(bool),
     Char(char),
     Object(ObjectKey),
+    BuiltInFunction(BuiltInFunction),
 }
 
 pub type IntValue = i32;
@@ -35,7 +36,50 @@ impl fmt::Display for Value {
             Value::Bool(b) => write!(f, "{}", b),
             Value::Char(c) => write!(f, "{}", c),
             Value::Object(k) => write!(f, "Object {}", k),
+            Value::BuiltInFunction(id) => write!(f, "{:?}", id),
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum BuiltInFunction {
+    Negate,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Modulo,
+    Not,
+    Equal,
+    NotEqual,
+    Greater,
+    Less,
+    GreaterEqual,
+    LessEqual,
+    Print,
+    PrintLine,
+}
+
+impl From<u8> for BuiltInFunction {
+    fn from(value: u8) -> Self {
+        return match value {
+            1 => BuiltInFunction::Negate,
+            2 => BuiltInFunction::Add,
+            3 => BuiltInFunction::Subtract,
+            4 => BuiltInFunction::Multiply,
+            5 => BuiltInFunction::Divide,
+            6 => BuiltInFunction::Modulo,
+            7 => BuiltInFunction::Not,
+            8 => BuiltInFunction::Equal,
+            9 => BuiltInFunction::NotEqual,
+            10 => BuiltInFunction::Greater,
+            11 => BuiltInFunction::Less,
+            12 => BuiltInFunction::GreaterEqual,
+            13 => BuiltInFunction::LessEqual,
+            14 => BuiltInFunction::Print,
+            15 => BuiltInFunction::PrintLine,
+            id => panic!("Got invalid built-in function id {}", id),
+        };
     }
 }
 

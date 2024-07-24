@@ -39,7 +39,6 @@ isSemicolon _ = False
 parseStatement :: ParseFunction (Either PStatement PNonPositionalStatement)
 parseStatement Empty = singleError $ ShouldNotGetHereError "To be implemented"
 parseStatement (currentSection :<| tailSections) = case currentSection of
-  TokenSection (PrintToken _) -> Left <$> parsePrintStatement currentSection tailSections
   TokenSection (LetToken _) -> Left <$> parseVariableDeclarationStatement currentSection tailSections
   TokenSection (MutToken _) -> Left <$> parseMutationStatement currentSection tailSections
   TokenSection (WhileToken _) -> Left <$> parseWhileLoopStatement currentSection tailSections
@@ -48,15 +47,6 @@ parseStatement (currentSection :<| tailSections) = case currentSection of
   TokenSection (RecToken _) -> Right <$> parseRecordStatement currentSection tailSections
   TokenSection (TypeToken _) -> Right <$> parseTypeStatement currentSection tailSections
   _ -> Left <$> parseExpressionStatement (currentSection <| tailSections)
-
-parsePrintStatement :: Section -> ParseFunction PStatement
-parsePrintStatement printTokenSection expressionSections = case expressionSections of
-  Empty -> singleError $ PrintStatementEmptyExpressionError $ getRange printTokenSection
-  _ -> PrintStatement statementRange <$> expressionOrErrors
-    where
-      statementRange = getRange (printTokenSection, seqTail expressionSections)
-      expressionRange = getRange expressionSections
-      expressionOrErrors = catchUnboundError (PrintStatementInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
 
 parseVariableDeclarationStatement :: Section -> ParseFunction PStatement
 parseVariableDeclarationStatement letTokenSection sections = execErrorState sections $ do

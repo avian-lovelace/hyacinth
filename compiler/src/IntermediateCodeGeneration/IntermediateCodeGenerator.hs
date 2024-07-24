@@ -119,9 +119,6 @@ statementGenerator (FieldMutationStatement _ record field value) = do
         let fieldMutationStatement = FieldMutationStmt (IdentifierExpr caseParameter) fieldIndex encodedValue
         return (getRecordIdentifierIndex recordName, caseParameter, ScopeExpr $ Seq.singleton fieldMutationStatement)
       return $ ExpressionStmt $ CaseExpr encodedRecord encodedCases
-statementGenerator (PrintStatement _ expression) = do
-  encodedExpression <- expressionGenerator expression
-  return $ ExpressionStmt (BuiltInFunctionExpr PrintFn $ Seq.singleton encodedExpression)
 statementGenerator (ExpressionStatement _ expression) = do
   encodedExpression <- expressionGenerator expression
   return $ ExpressionStmt encodedExpression
@@ -152,10 +149,15 @@ expressionGenerator (IdentifierExpression TCExpresionData {expressionRange} iden
     let identifierUnusableError = ShouldNotGetHereError "Found unusable value identifier in expressionGenerator. This should have already been caught in identifier binding."
     encodedIdentifier <- getIdentifierInContext identifierUnusableError valueIdentifier
     return $ IdentifierExpr (getValueIdentifierIndex encodedIdentifier)
-  FunctionValueIdentifier functionIdentifier _ -> do
+  FunctionValueIdentifier (Left functionIdentifier) _ -> do
     capturedIdentifiers <- getFunctionCapturedIdentifiersInContext expressionRange functionIdentifier
     let (BoundFunctionIdentifier functionIndex _) = functionIdentifier
     return $ FunctionExpr functionIndex (getValueIdentifierIndex <$> capturedIdentifiers)
+  FunctionValueIdentifier (Right builtInFunction) _ -> do
+    let builtInFn = case builtInFunction of
+          PrintFunction -> PrintFn
+          PrintLineFunction -> PrintLineFn
+    return $ BuiltInFunctionExpr builtInFn
 expressionGenerator (FunctionExpression _ functionDefinition) = do
   let combinedCapturedIdentifiers = tcFunctionDefinitionCapturedIdentifiers . getFunctionDefinitionData $ functionDefinition
   (capturedValueIdentifiers, capturedFunctionIdentifiers) <- consolidateCapturedIdentifiers combinedCapturedIdentifiers
@@ -207,30 +209,30 @@ expressionGenerator (BoolLiteralExpression _ value) = return $ LiteralExpr (Bool
 expressionGenerator (NilExpression _) = return $ LiteralExpr NilLiteral
 expressionGenerator (NegateExpression _ inner) = do
   encodedInner <- expressionGenerator inner
-  return $ BuiltInFunctionExpr NegateFn (Seq.singleton encodedInner)
+  return $ CallExpr (BuiltInFunctionExpr NegateFn) (Seq.singleton encodedInner)
 expressionGenerator (AddExpression _ left right) = do
   encodedLeft <- expressionGenerator left
   encodedRight <- expressionGenerator right
-  return $ BuiltInFunctionExpr AddFn (Seq.fromList [encodedLeft, encodedRight])
+  return $ CallExpr (BuiltInFunctionExpr AddFn) (Seq.fromList [encodedLeft, encodedRight])
 expressionGenerator (SubtractExpression _ left right) = do
   encodedLeft <- expressionGenerator left
   encodedRight <- expressionGenerator right
-  return $ BuiltInFunctionExpr SubtractFn (Seq.fromList [encodedLeft, encodedRight])
+  return $ CallExpr (BuiltInFunctionExpr SubtractFn) (Seq.fromList [encodedLeft, encodedRight])
 expressionGenerator (MultiplyExpression _ left right) = do
   encodedLeft <- expressionGenerator left
   encodedRight <- expressionGenerator right
-  return $ BuiltInFunctionExpr MultiplyFn (Seq.fromList [encodedLeft, encodedRight])
+  return $ CallExpr (BuiltInFunctionExpr MultiplyFn) (Seq.fromList [encodedLeft, encodedRight])
 expressionGenerator (DivideExpression _ left right) = do
   encodedLeft <- expressionGenerator left
   encodedRight <- expressionGenerator right
-  return $ BuiltInFunctionExpr DivideFn (Seq.fromList [encodedLeft, encodedRight])
+  return $ CallExpr (BuiltInFunctionExpr DivideFn) (Seq.fromList [encodedLeft, encodedRight])
 expressionGenerator (ModuloExpression _ left right) = do
   encodedLeft <- expressionGenerator left
   encodedRight <- expressionGenerator right
-  return $ BuiltInFunctionExpr ModuloFn (Seq.fromList [encodedLeft, encodedRight])
+  return $ CallExpr (BuiltInFunctionExpr ModuloFn) (Seq.fromList [encodedLeft, encodedRight])
 expressionGenerator (NotExpression _ inner) = do
   encodedInner <- expressionGenerator inner
-  return $ BuiltInFunctionExpr NotFn (Seq.singleton encodedInner)
+  return $ CallExpr (BuiltInFunctionExpr NotFn) (Seq.singleton encodedInner)
 expressionGenerator (AndExpression _ left right) = do
   encodedLeft <- expressionGenerator left
   encodedRight <- expressionGenerator right
@@ -242,27 +244,27 @@ expressionGenerator (OrExpression _ left right) = do
 expressionGenerator (EqualExpression _ left right) = do
   encodedLeft <- expressionGenerator left
   encodedRight <- expressionGenerator right
-  return $ BuiltInFunctionExpr EqualFn (Seq.fromList [encodedLeft, encodedRight])
+  return $ CallExpr (BuiltInFunctionExpr EqualFn) (Seq.fromList [encodedLeft, encodedRight])
 expressionGenerator (NotEqualExpression _ left right) = do
   encodedLeft <- expressionGenerator left
   encodedRight <- expressionGenerator right
-  return $ BuiltInFunctionExpr NotEqualFn (Seq.fromList [encodedLeft, encodedRight])
+  return $ CallExpr (BuiltInFunctionExpr NotEqualFn) (Seq.fromList [encodedLeft, encodedRight])
 expressionGenerator (GreaterExpression _ left right) = do
   encodedLeft <- expressionGenerator left
   encodedRight <- expressionGenerator right
-  return $ BuiltInFunctionExpr GreaterFn (Seq.fromList [encodedLeft, encodedRight])
+  return $ CallExpr (BuiltInFunctionExpr GreaterFn) (Seq.fromList [encodedLeft, encodedRight])
 expressionGenerator (LessExpression _ left right) = do
   encodedLeft <- expressionGenerator left
   encodedRight <- expressionGenerator right
-  return $ BuiltInFunctionExpr LessFn (Seq.fromList [encodedLeft, encodedRight])
+  return $ CallExpr (BuiltInFunctionExpr LessFn) (Seq.fromList [encodedLeft, encodedRight])
 expressionGenerator (GreaterEqualExpression _ left right) = do
   encodedLeft <- expressionGenerator left
   encodedRight <- expressionGenerator right
-  return $ BuiltInFunctionExpr GreaterEqualFn (Seq.fromList [encodedLeft, encodedRight])
+  return $ CallExpr (BuiltInFunctionExpr GreaterEqualFn) (Seq.fromList [encodedLeft, encodedRight])
 expressionGenerator (LessEqualExpression _ left right) = do
   encodedLeft <- expressionGenerator left
   encodedRight <- expressionGenerator right
-  return $ BuiltInFunctionExpr LessEqualFn (Seq.fromList [encodedLeft, encodedRight])
+  return $ CallExpr (BuiltInFunctionExpr LessEqualFn) (Seq.fromList [encodedLeft, encodedRight])
 expressionGenerator (IfThenElseExpression _ condition trueExpression maybeFalseExpression) = do
   encodedCondition <- expressionGenerator condition
   encodedTrueExpression <- expressionGenerator trueExpression

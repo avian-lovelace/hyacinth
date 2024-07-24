@@ -10,6 +10,6 @@ testComments :: Spec
 testComments = do
   describe "Comments:" $ do
     it "Anything on a line after // is ignored" $
-      "print \"Hello\"; // prints \"Hello\" " `runsSuccessfullyWithOutput` "Hello\n"
+      "print⟨String⟩[\"Hello\"]; // prints \"Hello\" " `runsSuccessfullyWithOutput` "Hello"
     it "Comments started with // end at the end of a line" $
-      "print \"Hello\"; // prints \"Hello\"\n print \"World\"; " `runsSuccessfullyWithOutput` "Hello\nWorld\n"
+      "printLine⟨String⟩[\"Hello\"]; // prints \"Hello\"\n printLine⟨String⟩[\"World\"]; " `runsSuccessfullyWithOutput` "Hello\nWorld\n"

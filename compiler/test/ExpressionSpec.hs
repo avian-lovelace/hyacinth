@@ -9,84 +9,84 @@ import Data.Text (pack)
 import EndToEnd
 import Test.Hspec
 
-evaluatesTo :: String -> String -> Expectation
-evaluatesTo expression value = code `runsSuccessfullyWithOutput` output
+evaluatesTo :: String -> String -> String -> Expectation
+evaluatesTo expression valueType value = code `runsSuccessfullyWithOutput` output
   where
-    code = pack $ "print " ++ expression ++ ";"
-    output = value ++ "\n"
+    code = pack $ "print⟨" ++ valueType ++ "⟩[" ++ expression ++ "];"
+    output = value
 
 testExpressions :: Spec
 testExpressions = do
   describe "Expressions:" $ do
     it "can be nil" $
-      "nil" `evaluatesTo` "nil"
+      evaluatesTo "nil" "Nil" "nil"
     it "negates" $
-      "-5" `evaluatesTo` "-5"
+      evaluatesTo "-5" "Int" "-5"
     it "adds" $
-      "17 + 5" `evaluatesTo` "22"
+      evaluatesTo "17 + 5" "Int" "22"
     it "subtracts" $
-      "17 - 5" `evaluatesTo` "12"
+      evaluatesTo "17 - 5" "Int" "12"
     it "multiplies" $
-      "17 * 5" `evaluatesTo` "85"
+      evaluatesTo "17 * 5" "Int" "85"
     it "divides" $
-      "17 / 5" `evaluatesTo` "3"
+      evaluatesTo "17 / 5" "Int" "3"
     it "modulos" $
-      "17 % 5" `evaluatesTo` "2"
+      evaluatesTo "17 % 5" "Int" "2"
     it "nots true" $
-      "!true" `evaluatesTo` "false"
+      evaluatesTo "!true" "Bool" "false"
     it "nots false" $
-      "!false" `evaluatesTo` "true"
+      evaluatesTo "!false" "Bool" "true"
     it "ands to true" $
-      "true && true" `evaluatesTo` "true"
+      evaluatesTo "true && true" "Bool" "true"
     it "ands to false" $
-      "true && false" `evaluatesTo` "false"
+      evaluatesTo "true && false" "Bool" "false"
     it "ors to true" $
-      "true || false" `evaluatesTo` "true"
+      evaluatesTo "true || false" "Bool" "true"
     it "or to false" $
-      "false || false" `evaluatesTo` "false"
+      evaluatesTo "false || false" "Bool" "false"
     it "checks equality to true" $
-      "1 + 1 == 2" `evaluatesTo` "true"
+      evaluatesTo "1 + 1 == 2" "Bool" "true"
     it "checks equality to false" $
-      "1 + 1 == 3" `evaluatesTo` "false"
+      evaluatesTo "1 + 1 == 3" "Bool" "false"
     it "checks inequality to true" $
-      "1 + 1 != 3" `evaluatesTo` "true"
+      evaluatesTo "1 + 1 != 3" "Bool" "true"
     it "checks inequality to false" $
-      "1 + 1 != 2" `evaluatesTo` "false"
+      evaluatesTo "1 + 1 != 2" "Bool" "false"
     it "checks equality of strings (true)" $
-      "\"foo\" == \"foo\"" `evaluatesTo` "true"
+      evaluatesTo "\"foo\" == \"foo\"" "Bool" "true"
     it "checks equality of strings (false)" $
-      "\"foo\" == \"bar\"" `evaluatesTo` "false"
+      evaluatesTo "\"foo\" == \"bar\"" "Bool" "false"
     it "checks greater to true" $
-      "2 * 2 > 3" `evaluatesTo` "true"
+      evaluatesTo "2 * 2 > 3" "Bool" "true"
     it "checks greater to false" $
-      "2 * 2 > 4" `evaluatesTo` "false"
+      evaluatesTo "2 * 2 > 4" "Bool" "false"
     it "checks less to true" $
-      "2 * 2 < 5" `evaluatesTo` "true"
+      evaluatesTo "2 * 2 < 5" "Bool" "true"
     it "checks less to false" $
-      "2 * 2 < 4" `evaluatesTo` "false"
+      evaluatesTo "2 * 2 < 4" "Bool" "false"
     it "checks greater or euqal to true" $
-      "2 * 2 >= 4" `evaluatesTo` "true"
+      evaluatesTo "2 * 2 >= 4" "Bool" "true"
     it "checks greater or equal to false" $
-      "2 * 2 >= 5" `evaluatesTo` "false"
+      evaluatesTo "2 * 2 >= 5" "Bool" "false"
     it "checks less or equal to true" $
-      "2 * 2 <= 4" `evaluatesTo` "true"
+      evaluatesTo "2 * 2 <= 4" "Bool" "true"
     it "checks less or equal to false" $
-      "2 * 2 <= 3" `evaluatesTo` "false"
+      evaluatesTo "2 * 2 <= 3" "Bool" "false"
     it "left-associates addition and subtraction" $
-      "17 - 5 + 8 - 4" `evaluatesTo` "16"
+      evaluatesTo "17 - 5 + 8 - 4" "Int" "16"
     it "left-associates multiplication and division" $
-      "18 / 3 * 5 / 2" `evaluatesTo` "15"
+      evaluatesTo "18 / 3 * 5 / 2" "Int" "15"
     it "applies multiplication and division before addition and subtraction" $
-      "1 + 2 * 7 - 2" `evaluatesTo` "13"
+      evaluatesTo "1 + 2 * 7 - 2" "Int" "13"
     it "respects parentheses" $
-      "(1 + 2) * (7 - 2)" `evaluatesTo` "15"
+      evaluatesTo "(1 + 2) * (7 - 2)" "Int" "15"
     it "applies negation before addition" $
-      "8 + -3" `evaluatesTo` "5"
+      evaluatesTo "8 + -3" "Int" "5"
     it "applies negation before multiplication" $
-      "3 * -5" `evaluatesTo` "-15"
+      evaluatesTo "3 * -5" "Int" "-15"
     it "respects nested parentheses" $
-      "7 * (18 - (3 * 5))" `evaluatesTo` "21"
+      evaluatesTo "7 * (18 - (3 * 5))" "Int" "21"
     it "calculates with floats" $
-      "3.5 + 2.0" `evaluatesTo` "5.5"
+      evaluatesTo "3.5 + 2.0" "Float" "5.5"
     it "can be a statement" $
-      "2 + 2; print 5;" `runsSuccessfullyWithOutput` "5\n"
+      "2 + 2; print⟨Int⟩[5];" `runsSuccessfullyWithOutput` "5"
