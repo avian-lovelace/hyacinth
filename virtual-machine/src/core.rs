@@ -58,6 +58,7 @@ pub enum BuiltInFunction {
     LessEqual,
     Print,
     PrintLine,
+    ReadLine,
 }
 
 impl From<u8> for BuiltInFunction {
@@ -78,6 +79,7 @@ impl From<u8> for BuiltInFunction {
             13 => BuiltInFunction::LessEqual,
             14 => BuiltInFunction::Print,
             15 => BuiltInFunction::PrintLine,
+            16 => BuiltInFunction::ReadLine,
             id => panic!("Got invalid built-in function id {}", id),
         };
     }

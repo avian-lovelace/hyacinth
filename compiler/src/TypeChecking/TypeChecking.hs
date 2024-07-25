@@ -117,11 +117,13 @@ getFunctionType usageRange (Right builtInFunction) typeArguments = do
   let functionTypeArity = case builtInFunction of
         PrintFunction -> 1
         PrintLineFunction -> 1
+        ReadLineFunction -> 0
   unless (Seq.length typeArguments == functionTypeArity) $
     throwError (FunctionWrongNumberOfTypeArgumentsError usageRange (getTextName builtInFunction) functionTypeArity (Seq.length typeArguments))
   return $ case builtInFunction of
     PrintFunction -> FunctionType (Seq.singleton $ typeArguments `Seq.index` 0) NilType
     PrintLineFunction -> FunctionType (Seq.singleton $ typeArguments `Seq.index` 0) NilType
+    ReadLineFunction -> FunctionType Empty StringType
 
 setRecordFieldTypes :: BoundRecordIdentifier -> Int -> (Mutability -> Seq Type -> Map UnboundIdentifier Type) -> TypeChecker ()
 setRecordFieldTypes recordName recordTypeArity fieldTypeMapFunc = do

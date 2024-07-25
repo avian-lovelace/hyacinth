@@ -1,0 +1,13 @@
+printLine⟨String⟩["Can you guess my name? You have three tries!"];
+let mut guesses = 0;
+while guesses < 3 loop {
+    let guess = readLine[];
+    if guess == "Rumpelstiltskin" then {
+        printLine⟨String⟩["You guesed my name!"];
+        return;
+    } else {
+        printLine⟨String⟩["My name isn't " + guess];
+    };
+    mut guesses = guesses + 1;
+};
+printLine⟨String⟩["You're out of guesses!"];

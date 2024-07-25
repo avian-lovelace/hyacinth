@@ -1,6 +1,6 @@
 use core::fmt;
-use std::collections::HashSet;
 use std::str;
+use std::{collections::HashSet, io::stdin};
 
 use crate::core::{
     BuiltInFunction, ConstIndex, FieldIndex, FloatValue, Frame, FunctionIndex, InstructionOffset,
@@ -403,6 +403,16 @@ impl VM {
                                     _ => panic!("Ran printLine on {}", value),
                                 }
                                 self.push(Value::Nil);
+                            }
+                            BuiltInFunction::ReadLine => {
+                                self.pop();
+                                let mut input = String::new();
+                                stdin()
+                                    .read_line(&mut input)
+                                    .expect("Failed to read from stdin");
+                                let input_string_ref =
+                                    self.heap.add(Object::StringObj(input.trim().to_owned()));
+                                self.push(input_string_ref);
                             }
                         },
                         Value::Object(object_index) => match self.heap.get(object_index) {

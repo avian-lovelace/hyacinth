@@ -46,7 +46,8 @@ module IntermediateCodeGeneration.IntermediateCode
         GreaterEqualFn,
         LessEqualFn,
         PrintFn,
-        PrintLineFn
+        PrintLineFn,
+        ReadLineFn
       ),
   )
 where
@@ -116,4 +117,5 @@ data BuiltInFn
   | LessEqualFn
   | PrintFn
   | PrintLineFn
+  | ReadLineFn
   deriving (Show)

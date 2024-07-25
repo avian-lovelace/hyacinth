@@ -157,6 +157,7 @@ expressionGenerator (IdentifierExpression TCExpresionData {expressionRange} iden
     let builtInFn = case builtInFunction of
           PrintFunction -> PrintFn
           PrintLineFunction -> PrintLineFn
+          ReadLineFunction -> ReadLineFn
     return $ BuiltInFunctionExpr builtInFn
 expressionGenerator (FunctionExpression _ functionDefinition) = do
   let combinedCapturedIdentifiers = tcFunctionDefinitionCapturedIdentifiers . getFunctionDefinitionData $ functionDefinition

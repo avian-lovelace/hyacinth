@@ -13,7 +13,8 @@ module IdentifierBinding.SyntaxTree
     BoundFunctionIdentifier (BoundFunctionIdentifier),
     BuiltInFunction
       ( PrintFunction,
-        PrintLineFunction
+        PrintLineFunction,
+        ReadLineFunction
       ),
     BoundRecordIdentifier (BoundRecordIdentifier),
     IBRecordIdentifier,
@@ -138,6 +139,7 @@ type ValueIdentifierIndex = Int
 data BuiltInFunction
   = PrintFunction
   | PrintLineFunction
+  | ReadLineFunction
   deriving (Eq, Ord, Show)
 
 instance Pretty BuiltInFunction where
