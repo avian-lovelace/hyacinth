@@ -70,6 +70,8 @@
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#type-parameters">Type Parameters</a>
     </li>
+    <li class="toctree-l2"><a class="reference internal" href="#built-in-functions">Built-in Functions</a>
+    </li>
     </ul>
                 </li>
               </ul>
@@ -111,7 +113,7 @@
                 <h1 id="functions">Functions</h1>
 <p>In Hyacinth, function declarations statements can be used to define functions.</p>
 <pre><code>func sumSquare = [x: Int, y: Int]: Int -&gt; x * x + y * y;
-print sumSquare[3, 4];
+print⟨Int⟩[sumSquare[3, 4]];
 
 // Outputs:
 // 25
@@ -119,7 +121,7 @@ print sumSquare[3, 4];
 <p>Functions defined via function declaration statements may be referenced earlier in a scope than their definition.</p>
 <pre><code>printFoo[];
 func printFoo = []: Nil -&gt; {
-    print &quot;Foo&quot;;
+    print⟨String⟩[&quot;Foo&quot;];
 }
 
 // Outputs:
@@ -130,7 +132,7 @@ func printFoo = []: Nil -&gt; {
     if n &lt;= 0
         then 0
         else n + triangle[n-1];
-print triangle[5];
+print⟨Int⟩[triangle[5]];
 
 // Outputs:
 // 15
@@ -141,12 +143,12 @@ print triangle[5];
     if x &lt;= 0.0 then {
         return -x * 0.5;
     };
-    print &quot;input was positive&quot;;
+    printLine⟨String⟩[&quot;input was positive&quot;];
     return x * 2.0;
 };
 
-print myFunc[-1.2];
-print myFunc[1.2];
+printLine⟨Float⟩[myFunc[-1.2]];
+printLine⟨Float⟩[myFunc[1.2]];
 
 // Outputs:
 // 0.6
@@ -157,10 +159,10 @@ print myFunc[1.2];
 <p>Return statements can be used without a return value to return <code>nil</code>.</p>
 <pre><code>func countdown = [x: Int]: Nil -&gt; {
     if x &lt;= 0 then {
-        print &quot;Happy New Year!&quot;;
+        printLine⟨String⟩[&quot;Happy New Year!&quot;];
         return;
     };
-    print x;
+    printLine⟨Int⟩[x];
     countdown[x - 1];
 };
 countdown[3];
@@ -173,10 +175,12 @@ countdown[3];
 </code></pre>
 <h2 id="function-expressions">Function Expressions</h2>
 <p>Functions can also be created inline with function expressions.</p>
-<pre><code>print applyTwice[
-    // Function expression
-    [x] -&gt; x * 3,
-    1
+<pre><code>print⟨Int⟩[
+    applyTwice[
+        // Function expression
+        [x] -&gt; x * 3,
+        1
+    ]
 ];
 
 func applyTwice = [f: [Int] -&gt; Int, x: Int]: Int -&gt; f[f[x]];
@@ -185,7 +189,7 @@ func applyTwice = [f: [Int] -&gt; Int, x: Int]: Int -&gt; f[f[x]];
 </code></pre>
 <p>Function expressions can be combined with variables to get something like a function declaration statement.</p>
 <pre><code>let sumSquare = [x: Int, y: Int]: Int -&gt; x * x + y * y;
-print sumSquare[3, 4];
+print⟨Int⟩[sumSquare[3, 4]];
 
 // Outputs:
 // 25
@@ -195,7 +199,7 @@ print sumSquare[3, 4];
 <p>Functions can capture variables. That is, the body of a function can reference an identifier defined in an enclosing scope.</p>
 <pre><code>let message = &quot;Have a nice day :)&quot;;
 let printMessage = []: Nil -&gt; {
-    print message;
+    print⟨String⟩[message];
 };
 printMessage[];
 
@@ -205,10 +209,10 @@ printMessage[];
 <p>In Hyacinth, variables are captured statically, and if a captured variable is mutated after capture, the captured value will not change. For function expressions, variables are captured when the function is defined.</p>
 <pre><code>let mut x = 1;
 let printCapturedValue = []: Nil -&gt; {
-    print x;
+    printLine⟨Int⟩[x];
 };
 mut x = 2;
-print x;
+printLine⟨Int⟩[x];
 printCapturedValue[];
 
 // Outputs:
@@ -221,11 +225,11 @@ let firstReference = printCapturedValue;
 mut x = 2;
 printCapturedValue[];
 mut x = 3;
-print x;
+printLine⟨Int⟩[x];
 firstReference[];
 
 func printCapturedValue = []: Nil -&gt; {
-    print x;
+    printLine⟨Int⟩[x];
 };
 
 // Outputs:
@@ -236,10 +240,18 @@ func printCapturedValue = []: Nil -&gt; {
 <h2 id="type-parameters">Type Parameters</h2>
 <p>Functions defined by a function declaration statement may take type parameters. If a function has type parameters, type arguments must be explicitly provided when the function is referenced.</p>
 <pre><code>func apply = ⟨T, V⟩ =&gt; [f: [T] -&gt; V, x: T]: V -&gt; f[x];
-print apply⟨Int, Bool⟩[[x] -&gt; x &gt; 0, 5];
+print⟨Bool⟩[apply⟨Int, Bool⟩[[x] -&gt; x &gt; 0, 5]];
 
-// Outputs true
+// Outputs:
+// true
 </code></pre>
+<h2 id="built-in-functions">Built-in Functions</h2>
+<p>Hyacinth includes a number of built-in functions that give access to otherwise unavailable functionality. Below is a list of the currently provided built-in functions.</p>
+<ul>
+<li><code>print: ⟨T⟩ =&gt; [T] -&gt; Nil</code> - Outputs a value to the standard output</li>
+<li><code>printLine: ⟨T⟩ =&gt; [T] -&gt; Nil</code> - Outputs a value to the standard output with a line break after</li>
+<li><code>readLine: [] -&gt; String</code> - Reads a line from the standard input and returns it as a string</li>
+</ul>
               
             </div>
           </div><footer>

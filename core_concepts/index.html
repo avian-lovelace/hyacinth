@@ -108,7 +108,7 @@
               
                 <h1 id="core-concepts">Core Concepts</h1>
 <h2 id="statements">Statements</h2>
-<p>A Hyacinth program consists of a sequence of statements, separated by semicolons. We've already seen print statements in <a href="../getting_started/#running-the-compiler">Running the compiler</a>, and other statement types will be covered later in the docs.</p>
+<p>A Hyacinth program consists of a sequence of statements, separated by semicolons. We've already seen and example of an expression statement in <a href="../getting_started/#running-the-compiler">Running the compiler</a> that evaluates an expression for its side effects. Other types of statement will be covered later in the docs.</p>
 <h2 id="values">Values</h2>
 <p>Hyacinth has six core value types:</p>
 <ul>
@@ -120,12 +120,12 @@
 <li><code>Nil</code> - A type with a single possible value, <code>nil</code></li>
 </ul>
 <p>Each of the core value types can be created via literal expressions and output via print statements.</p>
-<pre><code>print 123;
-print 3.14;
-print 'a';
-print &quot;Hyacinth&quot;;
-print true;
-print nil;
+<pre><code>printLine⟨Int⟩[123];
+printLine⟨Float⟩[3.14];
+printLine⟨Char⟩['a'];
+printLine⟨String⟩[&quot;Hyacinth&quot;];
+printLine⟨Bool⟩[true];
+printLine⟨Nil⟩[nil];
 
 // Outputs:
 // 123
@@ -144,9 +144,9 @@ print nil;
 <li>Comparison: <code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, <code>&gt;=</code></li>
 <li>String concatenation: <code>+</code></li>
 </ul>
-<pre><code>print 1 + 2 * 3;
-print 15 % 4 == 3 &amp;&amp; 6 &gt; -13;
-print &quot;concatenating&quot; + ' ' + &quot;strings&quot;;
+<pre><code>printLine⟨Int⟩[1 + 2 * 3];
+printLine⟨Bool⟩[15 % 4 == 3 &amp;&amp; 6 &gt; -13];
+printLine⟨String⟩[&quot;concatenating&quot; + ' ' + &quot;strings&quot;];
 
 // Outputs:
 // 7
