@@ -12,8 +12,8 @@ let myPet = Dog[
     name = "Fido",
     age = 4,
 ];
-print myPet.name;
-print myPet.age;
+printLine⟨String⟩[myPet.name];
+printLine⟨Int⟩[myPet.age];
 
 // Outputs:
 // Fido
@@ -41,9 +41,9 @@ rec Bar = [
 ];
 
 let mut x: Foo | Bar = Foo[shared = 1, justFoo = "foo"];
-print x.shared;
+printLine⟨Int⟩[x.shared];
 mut x = Bar[shared = 2, justBar = true];
-print x.shared
+printLine⟨Int⟩[x.shared];
 
 // Outputs:
 // 1
@@ -57,10 +57,10 @@ rec Bar = [];
 
 func printFooBar = [fb: Foo | Bar]: Nil -> case fb of [
     Foo: f -> {
-        print f.value;
+        printLine⟨String⟩[f.value];
     },
     Bar: b -> {
-        print "Bar";
+        printLine⟨String⟩["Bar"];
     },
 ];
 
@@ -82,8 +82,8 @@ rec Pair = ⟨T⟩ => [
 ];
 
 let point = Pair⟨Float⟩[first = 1.23, second = 4.5];
-print point.first;
-print point.second;
+printLine⟨Float⟩[point.first];
+printLine⟨Float⟩[point.second];
 
 // Outputs:
 // 1.23
@@ -97,9 +97,9 @@ Records are immutable by default, but a record instance can be made mutable with
 rec Box = [value: Int];
 
 let myBox = mut Box[value = 1];
-print myBox.value;
+printLine⟨Int⟩[myBox.value];
 mut myBox.value = 2;
-print myBox.value;
+printLine⟨Int⟩[myBox.value];
 
 // Output
 // 1
@@ -115,9 +115,9 @@ func doubleValue = [box: mut Box]: Nil -> {
 };
 
 let myBox = mut Box[value = 4];
-print myBox.value;
+printLine⟨Int⟩[myBox.value];
 doubleValue[myBox];
-print myBox.value;
+printLine⟨Int⟩[myBox.value];
 
 // Outputs:
 // 4
@@ -136,9 +136,9 @@ let mutableFoo = mut Foo[
         b = 1
     ]
 ];
-print mutableFoo.a.b;
+printLine⟨Int⟩[mutableFoo.a.b];
 mut mutableFoo.a.b = 2;
-print mutableFoo.a.b;
+printLine⟨Int⟩[mutableFoo.a.b];
 
 let immutableFooCopy: Foo = mutableFoo;
 // The following would result in a type error, as immutableFooCopy is deeply immutable

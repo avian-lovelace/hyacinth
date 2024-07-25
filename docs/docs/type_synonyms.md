@@ -6,7 +6,7 @@ type FileName = String;
 type Extension = String;
 
 func printFile = [fileName: FileName, extension: Extension]: Nil -> {
-    print fileName + '.' + extension;
+    printLine⟨String⟩[fileName + '.' + extension];
 };
 
 printFile["myDoc", "txt"];
@@ -21,8 +21,8 @@ type Latitude = Float;
 type Longitude = Float;
 
 func printCoordinates = [lat: Latitude, lon: Longitude]: Nil -> {
-    print lat;
-    print lon;
+    printLine⟨Latitude⟩[lat];
+    printLine⟨Longitude⟩[lon];
 };
 
 let currentLat: Latitude = 32.1;
@@ -48,7 +48,7 @@ func getValueOrDefault = ⟨T⟩ => [maybe: Maybe⟨T⟩, default: T]: T ->
         Nothing: n -> default,
     ];
 
-print getValueOrDefault⟨Bool⟩[Just[value = true], false];
+print⟨Bool⟩[getValueOrDefault⟨Bool⟩[Just[value = true], false]];
 
 // Outputs:
 // true

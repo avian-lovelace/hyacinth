@@ -35,7 +35,7 @@ cargo install --path .
 
 Let's write our first Hyacinth program! Create a file named `Hello.hyc`, and write the following Hyacinth code to it.
 ```
-print "Hello, World!";
+printLine⟨String⟩["Hello, World!"];
 ```
 
 Navigate to the file location in a terminal and run the following command to compile your Hyacinth code file.

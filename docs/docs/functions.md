@@ -3,7 +3,7 @@
 In Hyacinth, function declarations statements can be used to define functions.
 ```
 func sumSquare = [x: Int, y: Int]: Int -> x * x + y * y;
-print sumSquare[3, 4];
+print⟨Int⟩[sumSquare[3, 4]];
 
 // Outputs:
 // 25
@@ -13,7 +13,7 @@ Functions defined via function declaration statements may be referenced earlier 
 ```
 printFoo[];
 func printFoo = []: Nil -> {
-    print "Foo";
+    print⟨String⟩["Foo"];
 }
 
 // Outputs:
@@ -26,7 +26,7 @@ func triangle = [n: Int]: Int ->
     if n <= 0
         then 0
         else n + triangle[n-1];
-print triangle[5];
+print⟨Int⟩[triangle[5]];
 
 // Outputs:
 // 15
@@ -40,12 +40,12 @@ func myFunc = [x: Float]: Float -> {
     if x <= 0.0 then {
         return -x * 0.5;
     };
-    print "input was positive";
+    printLine⟨String⟩["input was positive"];
     return x * 2.0;
 };
 
-print myFunc[-1.2];
-print myFunc[1.2];
+printLine⟨Float⟩[myFunc[-1.2]];
+printLine⟨Float⟩[myFunc[1.2]];
 
 // Outputs:
 // 0.6
@@ -59,10 +59,10 @@ Return statements can be used without a return value to return `nil`.
 ```
 func countdown = [x: Int]: Nil -> {
     if x <= 0 then {
-        print "Happy New Year!";
+        printLine⟨String⟩["Happy New Year!"];
         return;
     };
-    print x;
+    printLine⟨Int⟩[x];
     countdown[x - 1];
 };
 countdown[3];
@@ -78,10 +78,12 @@ countdown[3];
 
 Functions can also be created inline with function expressions.
 ```
-print applyTwice[
-    // Function expression
-    [x] -> x * 3,
-    1
+print⟨Int⟩[
+    applyTwice[
+        // Function expression
+        [x] -> x * 3,
+        1
+    ]
 ];
 
 func applyTwice = [f: [Int] -> Int, x: Int]: Int -> f[f[x]];
@@ -92,7 +94,7 @@ func applyTwice = [f: [Int] -> Int, x: Int]: Int -> f[f[x]];
 Function expressions can be combined with variables to get something like a function declaration statement.
 ```
 let sumSquare = [x: Int, y: Int]: Int -> x * x + y * y;
-print sumSquare[3, 4];
+print⟨Int⟩[sumSquare[3, 4]];
 
 // Outputs:
 // 25
@@ -106,7 +108,7 @@ Functions can capture variables. That is, the body of a function can reference a
 ```
 let message = "Have a nice day :)";
 let printMessage = []: Nil -> {
-    print message;
+    print⟨String⟩[message];
 };
 printMessage[];
 
@@ -118,10 +120,10 @@ In Hyacinth, variables are captured statically, and if a captured variable is mu
 ```
 let mut x = 1;
 let printCapturedValue = []: Nil -> {
-    print x;
+    printLine⟨Int⟩[x];
 };
 mut x = 2;
-print x;
+printLine⟨Int⟩[x];
 printCapturedValue[];
 
 // Outputs:
@@ -136,11 +138,11 @@ let firstReference = printCapturedValue;
 mut x = 2;
 printCapturedValue[];
 mut x = 3;
-print x;
+printLine⟨Int⟩[x];
 firstReference[];
 
 func printCapturedValue = []: Nil -> {
-    print x;
+    printLine⟨Int⟩[x];
 };
 
 // Outputs:
@@ -154,7 +156,16 @@ func printCapturedValue = []: Nil -> {
 Functions defined by a function declaration statement may take type parameters. If a function has type parameters, type arguments must be explicitly provided when the function is referenced.
 ```
 func apply = ⟨T, V⟩ => [f: [T] -> V, x: T]: V -> f[x];
-print apply⟨Int, Bool⟩[[x] -> x > 0, 5];
+print⟨Bool⟩[apply⟨Int, Bool⟩[[x] -> x > 0, 5]];
 
-// Outputs true
+// Outputs:
+// true
 ```
+
+## Built-in Functions
+
+Hyacinth includes a number of built-in functions that give access to otherwise unavailable functionality. Below is a list of the currently provided built-in functions.
+
+ - `print: ⟨T⟩ => [T] -> Nil` - Outputs a value to the standard output
+ - `printLine: ⟨T⟩ => [T] -> Nil` - Outputs a value to the standard output with a line break after
+ - `readLine: [] -> String` - Reads a line from the standard input and returns it as a string
