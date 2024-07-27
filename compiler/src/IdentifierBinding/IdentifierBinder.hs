@@ -291,6 +291,14 @@ expressionBinder (FunctionCallExpression d function arguments) = do
 expressionBinder (FieldAccessExpression d inner field) = do
   boundInner <- expressionBinder inner
   return $ FieldAccessExpression d boundInner field
+expressionBinder (ListExpression d mutability typeArguments listValues) = do
+  boundTypeArguments <- mapM typeExpressionBinder typeArguments
+  boundListValues <- mapM expressionBinder listValues
+  return $ ListExpression d mutability boundTypeArguments boundListValues
+expressionBinder (IndexExpression d innerExpression indexExpression) = do
+  boundInnerExpression <- expressionBinder innerExpression
+  boundIndexExpression <- expressionBinder indexExpression
+  return $ IndexExpression d boundInnerExpression boundIndexExpression
 
 bindScope :: PScope -> IdentifierBinder IBScope
 bindScope (Scope () nonPositionalStatements statements) = do
@@ -318,13 +326,7 @@ typeExpressionBinder (FunctionTypeExpression typeExpressionRange parameterTypes 
   boundReturnType <- typeExpressionBinder returnType
   return $ FunctionTypeExpression typeExpressionRange boundParameterTypes boundReturnType
 typeExpressionBinder (IdentifierTypeExpression typeExpressionRange mutability typeIdentifier typeArguments) = do
-  boundMutability <- case mutability of
-    Left m -> return $ Left m
-    Right mutabilityIdentifier -> do
-      identifierInfo <- getIdentifierBinding typeExpressionRange mutabilityIdentifier
-      case identifierInfo of
-        MutabilityParameterInfo _ boundMutabilityIdentifier -> return $ Right boundMutabilityIdentifier
-        nonMutabilityIdentifier -> throwError $ IdentifierUsedAsMutabilityParameterError mutabilityIdentifier (tryGetRange nonMutabilityIdentifier) typeExpressionRange
+  boundMutability <- mutabilityExpressionBinder typeExpressionRange mutability
   boundTypeArguments <- mapM typeExpressionBinder typeArguments
   identifierInfo <- getIdentifierBinding typeExpressionRange typeIdentifier
   case identifierInfo of
@@ -351,3 +353,17 @@ typeExpressionBinder (RecordUnionTypeExpression typeExpressionRange mutability r
     boundRecordTypeArguments <- mapM typeExpressionBinder recordTypeArguments
     return (boundRecordName, boundRecordTypeArguments)
   return $ RecordUnionTypeExpression typeExpressionRange boundMutability boundRecords
+typeExpressionBinder (ListTypeExpression typeExpressionRange mutability typeArguments) = do
+  boundMutability <- mutabilityExpressionBinder typeExpressionRange mutability
+  boundTypeArguments <- mapM typeExpressionBinder typeArguments
+  return $ ListTypeExpression typeExpressionRange boundMutability boundTypeArguments
+
+mutabilityExpressionBinder :: Range -> PMutabilityExpression -> IdentifierBinder IBMutabilityExpression
+mutabilityExpressionBinder typeExpressionRange mutability = case mutability of
+  Left m -> return $ Left m
+  Right mutabilityIdentifier -> do
+    identifierInfo <- getIdentifierBinding typeExpressionRange mutabilityIdentifier
+    case identifierInfo of
+      MutabilityParameterInfo _ boundMutabilityIdentifier -> return $ Right boundMutabilityIdentifier
+      nonMutabilityIdentifier ->
+        throwError $ IdentifierUsedAsMutabilityParameterError mutabilityIdentifier (tryGetRange nonMutabilityIdentifier) typeExpressionRange

@@ -409,7 +409,17 @@ postfixExpressionParser = do
   return $ foldl' (&) innerExpression operators
 
 postfixOperatorParser :: Parser (PExpression -> PExpression)
-postfixOperatorParser = fieldAccessParser <|> functionCallParser
+postfixOperatorParser = indexingParser <|> fieldAccessParser <|> functionCallParser
+
+indexingParser :: Parser (PExpression -> PExpression)
+indexingParser = do
+  pNext <&&> matchHashSection
+  indexExpression <- primaryExpressionParser
+  return $ \innerExpression -> IndexExpression (getRange innerExpression <> getRange indexExpression) innerExpression indexExpression
+
+matchHashSection :: Section -> Maybe ()
+matchHashSection (TokenSection (HashToken _)) = Just ()
+matchHashSection _ = Nothing
 
 fieldAccessParser :: Parser (PExpression -> PExpression)
 fieldAccessParser = do
@@ -461,6 +471,7 @@ primaryExpressionParser =
     <|> ifExpressionParser
     <|> caseExpressionParser
     <|> recordExpressionParser
+    <|> listExpressionParser
     <|> identifierExpressionParser
     <|> literalExpressionParser
 
@@ -656,6 +667,31 @@ matchAngleBracketSection :: Section -> Maybe (Range, Seq Section)
 matchAngleBracketSection (AngleBracketSection range innerSections) = Just (range, innerSections)
 matchAngleBracketSection _ = Nothing
 
+listExpressionParser :: Parser PExpression
+listExpressionParser = do
+  maybeMutRange <- pZeroOrOne $ pNext <&&> matchMutSection
+  listRange <- pNext <&&> matchListSection
+  maybeTypeArgumentInfo <- pZeroOrOne $ pNext <&&> matchAngleBracketSection
+  typeArguments <- case maybeTypeArgumentInfo of
+    Nothing -> return Empty
+    Just (typeArgumentsRange, typeArgumentsSections) -> returnWithErrors $ parseTypeArgumentList typeArgumentsRange typeArgumentsSections
+  (fieldsRange, fieldsSections) <- pNext <&&> matchSquareBracketSection
+  listValues <- returnWithErrors $ parseExpressionList fieldsRange fieldsSections
+  return $ case maybeMutRange of
+    Nothing -> ListExpression (listRange <> fieldsRange) Immutable typeArguments listValues
+    Just mutRange -> ListExpression (mutRange <> fieldsRange) Mutable typeArguments listValues
+
+parseExpressionList :: Range -> ParseFunction (Seq PExpression)
+parseExpressionList argumentsRange sections = do
+  let expressionSectionLists = seqSplitOn isCommaSection sections
+  consolidateErrors $ parseExpression <$> expressionSectionLists
+  where
+    parseExpression :: Seq Section -> WithErrors PExpression
+    parseExpression Empty = singleError $ ListValueEmptyError argumentsRange
+    parseExpression argumentSections =
+      catchUnboundError (ListValueMalformedError $ getRange argumentSections) $
+        runParserToEnd expressionParser argumentSections
+
 caseExpressionParser :: Parser PExpression
 caseExpressionParser = do
   caseRange <- pNext <&&> matchCaseSection
@@ -694,7 +730,26 @@ matchOfSection _ = Nothing
 -- Types
 
 typeExpressionParser :: Parser PTypeExpression
-typeExpressionParser = functionTypeParser <|> identifierOrRecordUnionTypeParser <|> simpleTypeParser <|> parenthesesTypeExpressionParser
+typeExpressionParser = listTypeParser <|> functionTypeParser <|> identifierOrRecordUnionTypeParser <|> simpleTypeParser <|> parenthesesTypeExpressionParser
+
+listTypeParser :: Parser PTypeExpression
+listTypeParser = do
+  mutabilityExpressionInfo <- pZeroOrOne $ pNext <&&> matchMutabilityExpression
+  listRange <- pNext <&&> matchListSection
+  (typeArguments, typeArgumentsRange) <- typeArgumentsParser
+  return $ case mutabilityExpressionInfo of
+    Nothing -> ListTypeExpression (listRange <>? typeArgumentsRange) (Left Immutable) typeArguments
+    Just (mutabilityRange, mutabilityExpression) ->
+      ListTypeExpression (mutabilityRange <> listRange <>? typeArgumentsRange) mutabilityExpression typeArguments
+
+matchListSection :: Section -> Maybe Range
+matchListSection (TokenSection (ListToken range)) = Just range
+matchListSection _ = Nothing
+
+matchMutabilityExpression :: Section -> Maybe (Range, PMutabilityExpression)
+matchMutabilityExpression (TokenSection (MutToken range)) = Just (range, Left Mutable)
+matchMutabilityExpression (TokenSection (IdentifierToken range identifierName)) = Just (range, Right identifierName)
+matchMutabilityExpression _ = Nothing
 
 functionTypeParser :: Parser PTypeExpression
 functionTypeParser = do
@@ -719,14 +774,12 @@ parseParameterTypes parameterListRange sections = do
 identifierOrRecordUnionTypeParser :: Parser PTypeExpression
 identifierOrRecordUnionTypeParser = do
   (mutability, firstRecordName, startRange) <- mutabilityParameterParser <|> mutableParser <|> immutableParser
-  (firstRecordTypeArguments, maybeFirstRecordTypeArgumentsRange) <- typeArgumentParser
-  let firstRecordRange = case maybeFirstRecordTypeArgumentsRange of
-        Nothing -> startRange
-        Just firstRecordTypeArgumentsRange -> startRange <> firstRecordTypeArgumentsRange
+  (firstRecordTypeArguments, maybeFirstRecordTypeArgumentsRange) <- typeArgumentsParser
+  let firstRecordRange = startRange <>? maybeFirstRecordTypeArgumentsRange
   restRecords <- pZeroOrMore $ do
     _ <- pNext <&&> matchPipeSection
     (recordNameRange, recordName) <- pNext <&&> matchIdentifierSection
-    (recordTypeArguments, maybeTypeArgumentsRange) <- typeArgumentParser
+    (recordTypeArguments, maybeTypeArgumentsRange) <- typeArgumentsParser
     let recordRange = case maybeTypeArgumentsRange of
           Nothing -> recordNameRange
           Just typeArgumentsRange -> typeArgumentsRange
@@ -752,13 +805,15 @@ identifierOrRecordUnionTypeParser = do
       (mutabilityParameterRange, mutabilityParameterName) <- pNext <&&> matchIdentifierSection
       (firstRecordNameRange, firstRecordName) <- pNext <&&> matchIdentifierSection
       return (Right mutabilityParameterName, firstRecordName, mutabilityParameterRange <> firstRecordNameRange)
-    typeArgumentParser = do
-      typeArgumentListInfo <- pZeroOrOne $ pNext <&&> matchAngleBracketSection
-      case typeArgumentListInfo of
-        Nothing -> return (Empty, Nothing)
-        Just (typeArgumentsRange, typeArgumentsSections) -> do
-          typeArguments <- returnWithErrors $ parseTypeArgumentList typeArgumentsRange typeArgumentsSections
-          return (typeArguments, Just typeArgumentsRange)
+
+typeArgumentsParser :: Parser (Seq PTypeExpression, Maybe Range)
+typeArgumentsParser = do
+  typeArgumentListInfo <- pZeroOrOne $ pNext <&&> matchAngleBracketSection
+  case typeArgumentListInfo of
+    Nothing -> return (Empty, Nothing)
+    Just (typeArgumentsRange, typeArgumentsSections) -> do
+      typeArguments <- returnWithErrors $ parseTypeArgumentList typeArgumentsRange typeArgumentsSections
+      return (typeArguments, Just typeArgumentsRange)
 
 matchPipeSection :: Section -> Maybe Range
 matchPipeSection (TokenSection (PipeToken range)) = Just range

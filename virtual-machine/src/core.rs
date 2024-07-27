@@ -95,6 +95,9 @@ pub enum Object {
         record_id: RecordId,
         fields: Vec<Value>,
     },
+    ListObj {
+        values: Vec<Value>,
+    },
 }
 
 impl fmt::Display for Object {
@@ -109,6 +112,13 @@ impl fmt::Display for Object {
                 write!(f, "RecordObj {} [", record_id)?;
                 for field in fields {
                     write!(f, "{} ", field)?
+                }
+                write!(f, "]")
+            }
+            Object::ListObj { values } => {
+                write!(f, "ListObj [")?;
+                for value in values {
+                    write!(f, "{} ", value)?
                 }
                 write!(f, "]")
             }

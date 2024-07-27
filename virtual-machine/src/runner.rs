@@ -489,6 +489,40 @@ impl VM {
                         }
                     }
                 }
+                Instruction::List(list_length) => {
+                    let values = self.pop_slice(list_length as usize);
+                    let list_object = Object::ListObj { values };
+                    let list_object_value = self.heap.add(list_object);
+                    self.push(list_object_value);
+                }
+                Instruction::Index => {
+                    let index_value = self.pop();
+                    let list_object_value = self.pop();
+                    match (list_object_value, index_value) {
+                        (Value::Object(list_object_key), Value::Int(index)) => {
+                            match self.heap.get(list_object_key) {
+                                Object::ListObj { values } => match values.get(index as usize) {
+                                    Some(value) => self.push(value.clone()),
+                                    None => panic!(
+                                        "Attempted to get index {} of list object {} which has length {}",
+                                        index,
+                                        list_object_key,
+                                        values.len()
+                                    ),
+                                },
+                                list_object => {
+                                    panic!(
+                                        "Attempted to index into a list with list object {}",
+                                        list_object
+                                    );
+                                }
+                            }
+                        }
+                        _ => {
+                            panic!("Attempted to index into a list with list value {} and index value {}", list_object_value, index_value);
+                        }
+                    }
+                }
             };
             if self.heap.should_garbage_collect {
                 self.garbage_collect()
@@ -583,6 +617,8 @@ impl VM {
             20 => Instruction::Field(self.read_byte()),
             21 => Instruction::MutateField(self.read_byte()),
             22 => Instruction::JumpIfDoesntMatchRecordId(self.read_u16(), self.read_i16()),
+            23 => Instruction::List(self.read_byte()),
+            24 => Instruction::Index,
             op => panic!("Got invalid op code {}", op),
         }
     }
@@ -715,6 +751,8 @@ enum Instruction {
     Field(FieldIndex),
     MutateField(FieldIndex),
     JumpIfDoesntMatchRecordId(RecordId, InstructionOffset),
+    List(u8),
+    Index,
 }
 
 impl fmt::Display for Instruction {
@@ -754,6 +792,8 @@ impl fmt::Display for Instruction {
             Instruction::JumpIfDoesntMatchRecordId(record_id, offset) => {
                 write!(f, "JumpIfDoesntMatchRecordId {} {}", record_id, offset)
             }
+            Instruction::List(list_length) => write!(f, "List {}", list_length),
+            Instruction::Index => write!(f, "Index"),
         }
     }
 }

@@ -1,18 +1,18 @@
 module TypeChecking.TypeChecker (runTypeChecking) where
 
-import Control.Monad (foldM, forM, forM_, unless, (>=>))
+import Control.Monad (foldM, forM, forM_, unless, when, (>=>))
 import Core.ErrorState
 import Core.Errors
 import Core.FilePositions
 import Core.SyntaxTree
 import Core.Utils
 import Data.Bifunctor (Bifunctor (first), second)
-import Data.Foldable (fold)
+import Data.Foldable (fold, toList)
 import Data.Functor ((<&>))
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
-import Data.Sequence (Seq)
+import Data.Sequence (Seq (..))
 import qualified Data.Sequence as Seq
 import IdentifierBinding.SyntaxTree
 import Parsing.SyntaxTree
@@ -335,6 +335,29 @@ typeCheckExpression expectedType expression = case expression of
     checkedCases <- mapM (secondM $ typeCheckExpression expectedType) cases
     let returnInfo = (expressionReturnInfo . getExpressionData $ checkedSwitch) `riAnd` foldl1 riOr (expressionReturnInfo . getExpressionData . snd <$> Map.elems checkedCases)
     return $ CaseExpression (TCExpresionData expressionRange expectedType returnInfo) checkedSwitch checkedCases
+  (ListExpression expressionRange mutability typeArgumentExpressions values) -> do
+    expectedValueType <- case expectedType of
+      ListType _ expectedValueType -> return expectedValueType
+      _ -> throwError $ ListTypeError expressionRange expectedType
+    typeArguments <- mapM fromTypeExpression typeArgumentExpressions
+    valueType <- case typeArguments of
+      Empty -> return expectedValueType
+      valueType :<| Empty -> do
+        let actualType = ListType mutability valueType
+        typesAreCompatible <- actualType `isCompatibleWith` expectedType
+        unless typesAreCompatible $ throwError (TypeExpectationError expressionRange expectedType actualType)
+        return valueType
+      _ -> throwError $ ListWrongNumberOfTypeArgumentsError expressionRange (Seq.length typeArguments)
+    checkedValues <- forM values $ typeCheckExpression valueType
+    let returnInfo = foldMap (expressionReturnInfo . getExpressionData) checkedValues
+    return $ ListExpression (TCExpresionData expressionRange expectedType returnInfo) mutability () checkedValues
+  (IndexExpression expressionRange innerExpression indexExpression) -> do
+    checkedInnerExpression <- typeCheckExpression (ListType Immutable expectedType) innerExpression
+    checkedIndexExpression <- typeCheckExpression IntType indexExpression
+    let returnInfo =
+          (expressionReturnInfo . getExpressionData $ checkedInnerExpression)
+            `riAnd` (expressionReturnInfo . getExpressionData $ checkedIndexExpression)
+    return $ IndexExpression (TCExpresionData expressionRange expectedType returnInfo) checkedInnerExpression checkedIndexExpression
   _ -> typeCheckExpressionDefault
   where
     typeCheckExpressionDefault :: TypeChecker TCExpression
@@ -623,3 +646,31 @@ typeSynthesizeExpression (CaseExpression expressionRange switch cases) = do
     Just expressionType -> return expressionType
   let returnInfo = (expressionReturnInfo . getExpressionData $ checkedSwitch) `riAnd` foldl1 riOr (expressionReturnInfo . getExpressionData . snd <$> Map.elems checkedCases)
   return $ CaseExpression (TCExpresionData expressionRange expressionType returnInfo) checkedSwitch checkedCases
+typeSynthesizeExpression (ListExpression expressionRange mutability typeArgumentExpressions values) = do
+  typeArguments <- mapM fromTypeExpression typeArgumentExpressions
+  (valueType, checkedValues) <- case typeArguments of
+    Empty -> do
+      when (Seq.length values == 0) $
+        throwError (ListValueTypeInferenceError expressionRange)
+      checkedValues <- forM values typeSynthesizeExpression
+      let valueTypes = expressionType . getExpressionData <$> checkedValues
+      maybeCombinedValueType <- typeUnionF . NonEmpty.fromList . toList $ valueTypes
+      combinedValueType <- liftWithErrors . expectJust (ListValueTypeInferenceError expressionRange) $ maybeCombinedValueType
+      return (combinedValueType, checkedValues)
+    valueType :<| Empty -> do
+      checkedValues <- forM values $ typeCheckExpression valueType
+      return (valueType, checkedValues)
+    _ -> throwError $ ListWrongNumberOfTypeArgumentsError expressionRange (Seq.length typeArguments)
+  let expressionType = ListType mutability valueType
+  let returnInfo = foldMap (expressionReturnInfo . getExpressionData) checkedValues
+  return $ ListExpression (TCExpresionData expressionRange expressionType returnInfo) mutability () checkedValues
+typeSynthesizeExpression (IndexExpression expressionRange innerExpression indexExpression) = do
+  checkedInnerExpression <- typeSynthesizeExpression innerExpression
+  checkedIndexExpression <- typeCheckExpression IntType indexExpression
+  expressionType <- case expressionType . getExpressionData $ checkedInnerExpression of
+    ListType _ valueType -> return valueType
+    nonListType -> throwError $ IndexTypeError expressionRange nonListType
+  let returnInfo =
+        (expressionReturnInfo . getExpressionData $ checkedInnerExpression)
+          `riAnd` (expressionReturnInfo . getExpressionData $ checkedIndexExpression)
+  return $ IndexExpression (TCExpresionData expressionRange expressionType returnInfo) checkedInnerExpression checkedIndexExpression

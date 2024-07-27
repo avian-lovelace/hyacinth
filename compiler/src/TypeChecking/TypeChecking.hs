@@ -223,6 +223,10 @@ setRecordTypeParameterVariances recordName immutableVariances mutableVariances =
 getRecordNumTypeParameters :: BoundRecordIdentifier -> TypeChecker Int
 getRecordNumTypeParameters recordName = Seq.length <$> getRecordTypeParameterVariances recordName Mutable
 
+getListTypeParameterVariance :: Mutability -> Variance
+getListTypeParameterVariance Immutable = Covariant
+getListTypeParameterVariance Mutable = Invariant
+
 isCompatibleWith :: Type -> Type -> TypeChecker Bool
 isCompatibleWith (RecordUnionType actualMutability actualRecordMap) (RecordUnionType expectedMutability expectedRecordMap) =
   case (expectedMutability, actualMutability) of
@@ -233,11 +237,8 @@ isCompatibleWith (RecordUnionType actualMutability actualRecordMap) (RecordUnion
           Nothing -> return False
           Just expectedRecordArguments -> do
             parameterVariances <- getRecordTypeParameterVariances recordName expectedMutability
-            argumentCompatibilities <- forM (Seq.zip3 actualRecordArguments expectedRecordArguments parameterVariances) $
-              \(actualTypeArgument, expectedTypeArgument, typeParameterVariance) -> case typeParameterVariance of
-                Covariant -> actualTypeArgument `isCompatibleWith` expectedTypeArgument
-                Contravariant -> expectedTypeArgument `isCompatibleWith` actualTypeArgument
-                Invariant -> return $ expectedTypeArgument == actualTypeArgument
+            argumentCompatibilities <-
+              forM (Seq.zip3 parameterVariances actualRecordArguments expectedRecordArguments) $ uncurry3 typeArgumentCompatibility
             return (and argumentCompatibilities)
       return (and recordCompatibilities)
 isCompatibleWith (FunctionType actualParameterTypes actualReturnType) (FunctionType expectedParameterTypes expectedReturnType) =
@@ -248,7 +249,19 @@ isCompatibleWith (FunctionType actualParameterTypes actualReturnType) (FunctionT
         \(actualParameterType, expectedParameterType) -> expectedParameterType `isCompatibleWith` actualParameterType
       return $ returnTypesAreCompatible && and parameterTypesAreCompatible
     else return False
+isCompatibleWith (ListType actualMutability actualValueType) (ListType expectedMutability expectedValueType) =
+  case expectedMutability of
+    Immutable -> actualValueType `isCompatibleWith` expectedValueType
+    Mutable -> return $ actualMutability == Mutable && actualValueType == expectedValueType
 isCompatibleWith actualType expectedType = return $ actualType == expectedType
+
+typeArgumentCompatibility :: Variance -> Type -> Type -> TypeChecker Bool
+typeArgumentCompatibility Covariant actualTypeArgument expectedTypeArgument =
+  actualTypeArgument `isCompatibleWith` expectedTypeArgument
+typeArgumentCompatibility Contravariant actualTypeArgument expectedTypeArgument =
+  expectedTypeArgument `isCompatibleWith` actualTypeArgument
+typeArgumentCompatibility Invariant actualTypeArgument expectedTypeArgument =
+  return $ expectedTypeArgument == actualTypeArgument
 
 typeUnion :: Type -> Type -> TypeChecker (Maybe Type)
 typeUnion (RecordUnionType mutability1 recordMap1) (RecordUnionType mutability2 recordMap2) = do
@@ -263,11 +276,7 @@ typeUnion (RecordUnionType mutability1 recordMap1) (RecordUnionType mutability2 
       (Nothing, Just typeArguments2) -> return $ Just (recordName, typeArguments2)
       (Just typeArguments1, Just typeArguments2) -> do
         parameterVariances <- getRecordTypeParameterVariances recordName combinedMutability
-        combinedTypeParameters <- forM (Seq.zip3 typeArguments1 typeArguments2 parameterVariances) $
-          \(typeArgument1, typeArgument2, parameterVariance) -> case parameterVariance of
-            Covariant -> typeUnion typeArgument1 typeArgument2
-            Contravariant -> typeIntersection typeArgument1 typeArgument2
-            Invariant -> if typeArgument1 == typeArgument2 then return $ Just typeArgument1 else return Nothing
+        combinedTypeParameters <- forM (Seq.zip3 parameterVariances typeArguments1 typeArguments2) $ uncurry3 typeArgumentUnion
         return $ (recordName,) <$> sequenceA combinedTypeParameters
   return $ RecordUnionType combinedMutability . Map.fromList <$> sequence recordNameTypeParametersPairs
 typeUnion (FunctionType parameterTypes1 returnType1) (FunctionType parameterTypes2 returnType2) =
@@ -277,7 +286,18 @@ typeUnion (FunctionType parameterTypes1 returnType1) (FunctionType parameterType
       combinedReturnType <- typeUnion returnType1 returnType2
       return $ liftA2 FunctionType combinedParameterTypes combinedReturnType
     else return Nothing
+typeUnion (ListType mutability1 valueType1) (ListType mutability2 valueType2) = do
+  let combinedMutability = case (mutability1, mutability2) of
+        (Mutable, Mutable) -> Mutable
+        _ -> Immutable
+  combinedValueType <- typeArgumentUnion (getListTypeParameterVariance combinedMutability) valueType1 valueType2
+  return $ ListType combinedMutability <$> combinedValueType
 typeUnion type1 type2 = if type1 == type2 then return $ Just type1 else return Nothing
+
+typeArgumentUnion :: Variance -> Type -> Type -> TypeChecker (Maybe Type)
+typeArgumentUnion Covariant typeArgument1 typeArgument2 = typeUnion typeArgument1 typeArgument2
+typeArgumentUnion Contravariant typeArgument1 typeArgument2 = typeIntersection typeArgument1 typeArgument2
+typeArgumentUnion Invariant typeArgument1 typeArgument2 = if typeArgument1 == typeArgument2 then return $ Just typeArgument1 else return Nothing
 
 typeUnionF :: (Foldable1 t, Functor t) => t Type -> TypeChecker (Maybe Type)
 typeUnionF types = foldlM1 typeUnionM (Just <$> types)
@@ -299,11 +319,7 @@ typeIntersection (RecordUnionType mutability1 recordMap1) (RecordUnionType mutab
         case (Map.lookup recordName recordMap1, Map.lookup recordName recordMap2) of
           (Just typeArguments1, Just typeArguments2) -> do
             parameterVariances <- getRecordTypeParameterVariances recordName combinedMutability
-            combinedTypeParameters <- forM (Seq.zip3 typeArguments1 typeArguments2 parameterVariances) $
-              \(typeArgument1, typeArgument2, parameterVariance) -> case parameterVariance of
-                Covariant -> typeIntersection typeArgument1 typeArgument2
-                Contravariant -> typeUnion typeArgument1 typeArgument2
-                Invariant -> if typeArgument1 == typeArgument2 then return $ Just typeArgument1 else return Nothing
+            combinedTypeParameters <- forM (Seq.zip3 parameterVariances typeArguments1 typeArguments2) $ uncurry3 typeArgumentIntersection
             return $ (recordName,) <$> sequenceA combinedTypeParameters
           _ -> throwError $ ShouldNotGetHereError "Got record name missing in a map in typeIntersection"
       return $ RecordUnionType combinedMutability . Map.fromList <$> sequence recordNameTypeParametersPairs
@@ -314,7 +330,18 @@ typeIntersection (FunctionType parameterTypes1 returnType1) (FunctionType parame
       combinedReturnType <- typeIntersection returnType1 returnType2
       return $ liftA2 FunctionType combinedParameterTypes combinedReturnType
     else return Nothing
+typeIntersection (ListType mutability1 valueType1) (ListType mutability2 valueType2) = do
+  let combinedMutability = case (mutability1, mutability2) of
+        (Immutable, Immutable) -> Immutable
+        _ -> Mutable
+  combinedValueType <- typeArgumentIntersection (getListTypeParameterVariance combinedMutability) valueType1 valueType2
+  return $ ListType combinedMutability <$> combinedValueType
 typeIntersection type1 type2 = if type1 == type2 then return $ Just type1 else return Nothing
+
+typeArgumentIntersection :: Variance -> Type -> Type -> TypeChecker (Maybe Type)
+typeArgumentIntersection Covariant typeArgument1 typeArgument2 = typeIntersection typeArgument1 typeArgument2
+typeArgumentIntersection Contravariant typeArgument1 typeArgument2 = typeUnion typeArgument1 typeArgument2
+typeArgumentIntersection Invariant typeArgument1 typeArgument2 = if typeArgument1 == typeArgument2 then return $ Just typeArgument1 else return Nothing
 
 typeIntersectionF :: (Foldable1 t, Functor t) => t Type -> TypeChecker (Maybe Type)
 typeIntersectionF types = foldlM1 typeIntersectionM (Just <$> types)
@@ -357,6 +384,14 @@ fromTypeExpression (RecordUnionTypeExpression expressionRange (Left mutability) 
           Nothing -> return updatedMap
   records <- foldM addRecord Map.empty recordExpressions
   return $ RecordUnionType mutability records
+fromTypeExpression (ListTypeExpression expressionRange mutabilityExpression typeArgumentExpressions) = do
+  mutability <- case mutabilityExpression of
+    Left mutability -> return mutability
+    Right _ -> throwError $ ShouldNotGetHereError "Encountered mutability parameter outside of scope"
+  typeArguments <- mapM fromTypeExpression typeArgumentExpressions
+  unless (Seq.length typeArguments == 1) $
+    throwError (ListWrongNumberOfTypeArgumentsError expressionRange (Seq.length typeArguments))
+  return $ ListType mutability (seqHead typeArguments)
 
 getRecordFieldTypeFunc :: Bool -> Maybe IBMutabilityParameter -> Seq IBTypeParameter -> IBTypeExpression -> TypeChecker (Mutability -> Seq Type -> Type)
 getRecordFieldTypeFunc _ _ _ (IntTypeExpression _) = return $ const . const IntType
@@ -395,6 +430,12 @@ getRecordFieldTypeFunc atTopLevel maybeMutabilityParameter typeParameters (Recor
           Nothing -> return updatedMap
   recordFuncs <- foldM addRecord Map.empty recordExpressions
   return $ \recordMutability recordTypeParameters -> RecordUnionType (mutabilityFunc recordMutability) (fmap (fmap $ \f -> f recordMutability recordTypeParameters) recordFuncs)
+getRecordFieldTypeFunc atTopLevel maybeMutabilityParameter typeParameters (ListTypeExpression expressionRange mutabilityExpression typeArgumentExpressions) = do
+  mutabilityFunc <- getRecordFieldTypeMutability expressionRange atTopLevel maybeMutabilityParameter mutabilityExpression
+  typeArguments <- forM typeArgumentExpressions $ getRecordFieldTypeFunc False maybeMutabilityParameter typeParameters
+  unless (Seq.length typeArguments == 1) $
+    throwError (ListWrongNumberOfTypeArgumentsError expressionRange (Seq.length typeArguments))
+  return $ \recordMutability recordTypeParameters -> ListType (mutabilityFunc recordMutability) (seqHead typeArguments recordMutability recordTypeParameters)
 
 getRecordFieldTypeMutability :: Range -> Bool -> Maybe IBMutabilityParameter -> IBMutabilityExpression -> TypeChecker (Mutability -> Mutability)
 getRecordFieldTypeMutability expressionRange atTopLevel maybeMutabilityParameter mutabilityExpression =
@@ -464,6 +505,15 @@ getParametrizedTypeFunc maybeMutabilityParameter typeParameters (RecordUnionType
   return $ \mutability typeArguments ->
     let recordTypeArgumentsMap = recordTypeArgumentFuncsMap <&> \f -> f mutability typeArguments
      in RecordUnionType (mutabilityFunc mutability) recordTypeArgumentsMap
+getParametrizedTypeFunc maybeMutabilityParameter typeParameters (ListTypeExpression expressionRange mutabilityExpression typeArgumentExpressions) = do
+  mutabilityFunc <- case mutabilityExpression of
+    Left mutability -> return $ const mutability
+    Right mutabilityIdentifier | maybeMutabilityParameter == Just mutabilityIdentifier -> return id
+    _ -> throwError $ ShouldNotGetHereError "Encountered out of scope mutability parameter"
+  typeArguments <- forM typeArgumentExpressions $ getParametrizedTypeFunc maybeMutabilityParameter typeParameters
+  unless (Seq.length typeArguments == 1) $
+    throwError (ListWrongNumberOfTypeArgumentsError expressionRange (Seq.length typeArguments))
+  return $ \recordMutability recordTypeParameters -> ListType (mutabilityFunc recordMutability) (seqHead typeArguments recordMutability recordTypeParameters)
 
 addRecordFieldOrder :: BoundRecordIdentifier -> Seq UnboundIdentifier -> TypeChecker ()
 addRecordFieldOrder recordName fields = do

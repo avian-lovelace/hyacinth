@@ -21,6 +21,7 @@ module Parsing.SyntaxTree
     PTypeIdentifier,
     PTypeParameter,
     PMutabilityParameter,
+    PMutabilityExpression,
   )
 where
 
@@ -139,3 +140,5 @@ type instance TypeExpressionData ParsingPhase = Range
 
 instance WithRange PTypeExpression where
   getRange = getTypeExpressionData
+
+type PMutabilityExpression = MutabilityExpression ParsingPhase

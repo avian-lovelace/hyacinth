@@ -20,7 +20,9 @@ module IntermediateCodeGeneration.IntermediateCode
         CallExpr,
         RecordExpr,
         FieldExpr,
-        CaseExpr
+        CaseExpr,
+        ListExpr,
+        IndexExpr
       ),
     FieldIndex,
     LiteralValue
@@ -88,6 +90,8 @@ data Expr
   | RecordExpr RecordIndex (Seq Expr)
   | FieldExpr Expr FieldIndex
   | CaseExpr Expr (Seq (RecordIndex, ValueIdentifierIndex, Expr))
+  | ListExpr (Seq Expr)
+  | IndexExpr Expr Expr
   deriving (Show)
 
 type FieldIndex = Int

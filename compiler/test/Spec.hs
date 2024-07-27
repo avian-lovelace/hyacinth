@@ -2,6 +2,7 @@ import CommentSpec
 import ControlFlowSpec
 import ExpressionSpec
 import FunctionSpec
+import ListSpec
 import RecordSpec
 import StringSpec
 import Test.Hspec
@@ -16,3 +17,4 @@ main = hspec $ do
   testFunctions
   testRecords
   testComments
+  testLists

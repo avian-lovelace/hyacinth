@@ -13,6 +13,7 @@ module Lexing.Tokens
         LoopToken,
         ReturnToken,
         RecToken,
+        ListToken,
         SemicolonToken,
         ColonToken,
         EqualsToken,
@@ -56,7 +57,8 @@ module Lexing.Tokens
         LessToken,
         GreaterEqualToken,
         LessEqualToken,
-        DotToken
+        DotToken,
+        HashToken
       ),
   )
 where
@@ -80,6 +82,7 @@ data Token
   | LoopToken Range
   | ReturnToken Range
   | RecToken Range
+  | ListToken Range
   | -- Separators
     SemicolonToken Range
   | ColonToken Range
@@ -130,6 +133,7 @@ data Token
   | GreaterEqualToken Range
   | LessEqualToken Range
   | DotToken Range
+  | HashToken Range
   deriving (Show, Eq)
 
 instance Pretty Token where
@@ -146,6 +150,7 @@ instance Pretty Token where
   pretty (LoopToken _) = "loop"
   pretty (ReturnToken _) = "return"
   pretty (RecToken _) = "rec"
+  pretty (ListToken _) = "List"
   pretty (SemicolonToken _) = ";"
   pretty (ColonToken _) = ":"
   pretty (EqualsToken _) = "="
@@ -190,6 +195,7 @@ instance Pretty Token where
   pretty (GreaterEqualToken _) = ">="
   pretty (LessEqualToken _) = "<="
   pretty (DotToken _) = "."
+  pretty (HashToken _) = "#"
 
 instance WithRange Token where
   getRange (TypeToken range) = range
@@ -205,6 +211,7 @@ instance WithRange Token where
   getRange (LoopToken range) = range
   getRange (ReturnToken range) = range
   getRange (RecToken range) = range
+  getRange (ListToken range) = range
   getRange (SemicolonToken range) = range
   getRange (ColonToken range) = range
   getRange (EqualsToken range) = range
@@ -249,3 +256,4 @@ instance WithRange Token where
   getRange (GreaterEqualToken range) = range
   getRange (LessEqualToken range) = range
   getRange (DotToken range) = range
+  getRange (HashToken range) = range

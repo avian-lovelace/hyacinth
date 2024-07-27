@@ -9,6 +9,8 @@ module Core.Utils
     firstM,
     secondM,
     insertAndReplace,
+    (<>?),
+    uncurry3,
   )
 where
 
@@ -93,3 +95,10 @@ secondM f (a, b) = do
 
 insertAndReplace :: (Ord k) => k -> a -> Map k a -> (Maybe a, Map k a)
 insertAndReplace = Map.insertLookupWithKey (\_ a _ -> a)
+
+(<>?) :: (Semigroup a) => a -> Maybe a -> a
+x <>? Nothing = x
+x <>? (Just y) = x <> y
+
+uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
+uncurry3 f (x, y, z) = f x y z

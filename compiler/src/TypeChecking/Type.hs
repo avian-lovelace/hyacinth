@@ -8,7 +8,8 @@ module TypeChecking.Type
         NilType,
         FunctionType,
         RecordUnionType,
-        IdentifierType
+        IdentifierType,
+        ListType
       ),
   )
 where
@@ -35,6 +36,7 @@ data Type
   | FunctionType (Seq Type) Type
   | RecordUnionType Mutability (Map BoundRecordIdentifier (Seq Type))
   | IdentifierType Int Text
+  | ListType Mutability Type
   deriving (Eq)
 
 instance Pretty Type where
@@ -55,3 +57,8 @@ instance Pretty Type where
       printTypeArguments [] = ""
       printTypeArguments typeArguments = "⟨" ++ (fold . intersperse " | " $ (pretty <$> typeArguments))
   pretty (IdentifierType _ identifierName) = pretty identifierName
+  pretty (ListType mutability valueType) = mutabilityString ++ "List⟨" ++ pretty valueType ++ "⟩"
+    where
+      mutabilityString = case mutability of
+        Mutable -> "mut "
+        Immutable -> ""

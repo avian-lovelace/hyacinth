@@ -162,6 +162,17 @@ encodeExpression (CaseExpr switch cases) = do
           <> BB.lazyByteString caseValueBytestring
           <> jumpInstruction (fromIntegral $ LB.length restCasesBytestring)
           <> BB.lazyByteString restCasesBytestring
+encodeExpression (ListExpr values) = do
+  startingStackSize <- getStackSize
+  encodedValues <- mapM encodeExpression values
+  setStackSize $ startingStackSize + 1
+  return $ fold encodedValues <> listInstruction (fromIntegral $ Seq.length values)
+encodeExpression (IndexExpr innerExpr indexExpr) = do
+  startingStackSize <- getStackSize
+  encodedInner <- encodeExpression innerExpr
+  encodedIndex <- encodeExpression indexExpr
+  setStackSize $ startingStackSize + 1
+  return $ encodedInner <> encodedIndex <> indexInstruction
 
 pushIdentifierValue :: ValueIdentifierIndex -> BytecodeGenerator BB.Builder
 pushIdentifierValue identifier = do

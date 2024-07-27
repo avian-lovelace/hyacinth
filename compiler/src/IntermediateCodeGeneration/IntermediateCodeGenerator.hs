@@ -280,3 +280,10 @@ expressionGenerator (FunctionCallExpression _ function arguments) = do
   encodedFunction <- expressionGenerator function
   encodedArguments <- traverse' expressionGenerator arguments
   return $ CallExpr encodedFunction encodedArguments
+expressionGenerator (ListExpression _ _ _ values) = do
+  encodedValues <- traverse' expressionGenerator values
+  return $ ListExpr encodedValues
+expressionGenerator (IndexExpression _ innerExpression indexExpression) = do
+  encodedInner <- expressionGenerator innerExpression
+  encodedIndex <- expressionGenerator indexExpression
+  return $ IndexExpr encodedInner encodedIndex

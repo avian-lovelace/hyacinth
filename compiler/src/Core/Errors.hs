@@ -66,6 +66,8 @@ module Core.Errors
         TypeStatementMalformedError,
         TypeStatementEmptyValueError,
         TypeStatementMalformedValueError,
+        ListValueEmptyError,
+        ListValueMalformedError,
         ConflictingIdentifierDefinitionsError,
         IdentifierUndefinedAtReferenceError,
         VariableDefinedAfterReferenceError,
@@ -149,10 +151,15 @@ module Core.Errors
         TypeSynonymCyclicReferencesError,
         TypeArrgumentsAppliedToTypeParameterError,
         MutabilityAppliedToTypeParameterError,
+        ListWrongNumberOfTypeArgumentsError,
+        ListTypeError,
+        ListValueTypeInferenceError,
+        IndexTypeError,
         RuntimeError
       ),
     WithErrors (Error, Success),
     singleError,
+    expectJust,
     foldrWithErrors,
     consolidateErrors,
     consolidateErrors2,
@@ -242,6 +249,8 @@ data Error
   | TypeStatementMalformedError Range
   | TypeStatementEmptyValueError Range
   | TypeStatementMalformedValueError Range
+  | ListValueEmptyError Range
+  | ListValueMalformedError Range
   | -- Identifier binding
     ConflictingIdentifierDefinitionsError Text Range Range
   | IdentifierUndefinedAtReferenceError Text Range
@@ -326,6 +335,10 @@ data Error
   | TypeSynonymCyclicReferencesError [Text]
   | TypeArrgumentsAppliedToTypeParameterError Range Text
   | MutabilityAppliedToTypeParameterError Range Text
+  | ListWrongNumberOfTypeArgumentsError Range Int
+  | ListTypeError Range Type
+  | ListValueTypeInferenceError Range
+  | IndexTypeError Range Type
   | -- Function lifting
     MutatedCapturedIdentifierError Text Range
   | IdentifierUndefinedBeforeCaptureError Text Text Range
@@ -410,6 +423,8 @@ instance Pretty Error where
   pretty (TypeStatementMalformedError range) = "Failed to parse type statement at " ++ pretty range
   pretty (TypeStatementEmptyValueError range) = "Type statement had no value at " ++ pretty range
   pretty (TypeStatementMalformedValueError range) = "Failed to parse value of type statement " ++ pretty range
+  pretty (ListValueEmptyError range) = "List value was empty at " ++ pretty range
+  pretty (ListValueMalformedError range) = "Failed to parse list value at " ++ pretty range
   pretty (ConflictingIdentifierDefinitionsError variableName declarationRange1 declarationRange2) =
     "Identifier " ++ Text.unpack variableName ++ " has conflicting definitions at " ++ pretty declarationRange1 ++ " and " ++ pretty declarationRange2
   pretty (IdentifierUndefinedAtReferenceError variableName range) =
@@ -593,6 +608,12 @@ instance Pretty Error where
     "Type arguments cannot be applied to type paramter " ++ pretty typeParameter ++ " at " ++ pretty expressionRange
   pretty (MutabilityAppliedToTypeParameterError expressionRange typeParameter) =
     "Type arguments cannot be applied to type paramter " ++ pretty typeParameter ++ " at " ++ pretty expressionRange
+  pretty (ListWrongNumberOfTypeArgumentsError range numArguments) =
+    "Type List has one type parameter, but " ++ pretty numArguments ++ " type arguments are applied at " ++ pretty range
+  pretty (ListTypeError range expectedType) =
+    "Expected a value of type " ++ pretty expectedType ++ " but got a list at " ++ pretty range
+  pretty (ListValueTypeInferenceError range) = "Could not infer a value type for list literal at " ++ pretty range
+  pretty (IndexTypeError range actualType) = "Indexed value must be a list, but was " ++ pretty actualType ++ " at " ++ pretty range
   pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
 
 instance Show Error where
@@ -620,6 +641,10 @@ instance Monad WithErrors where
   (>>=) m f = case m of
     Error e -> Error e
     Success r -> f r
+
+expectJust :: Error -> Maybe a -> WithErrors a
+expectJust _ (Just x) = return x
+expectJust err Nothing = singleError err
 
 {- An alternate version of the Applicative operator <*> that if both argument error, passes through both sets of errors.
 Unfortunately, this can't be the actual Applicative implementation, as there is no compatible Monad instance.

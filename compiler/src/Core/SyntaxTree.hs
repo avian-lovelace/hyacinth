@@ -69,7 +69,9 @@ module Core.SyntaxTree
         FunctionCallExpression,
         RecordExpression,
         FieldAccessExpression,
-        CaseExpression
+        CaseExpression,
+        ListExpression,
+        IndexExpression
       ),
     ExpressionData,
     getExpressionData,
@@ -86,7 +88,8 @@ module Core.SyntaxTree
         NilTypeExpression,
         FunctionTypeExpression,
         RecordUnionTypeExpression,
-        IdentifierTypeExpression
+        IdentifierTypeExpression,
+        ListTypeExpression
       ),
     TypeExpressionData,
     getTypeExpressionData,
@@ -285,6 +288,8 @@ data Expression phase
   | RecordExpression (ExpressionData phase) Mutability (RecordIdentifier phase) (TypeArguments phase) (Map (FieldIdentifier phase) (Expression phase))
   | FieldAccessExpression (ExpressionData phase) (Expression phase) (FieldIdentifier phase)
   | CaseExpression (ExpressionData phase) (Expression phase) (CaseList phase)
+  | ListExpression (ExpressionData phase) Mutability (TypeArguments phase) (Seq (Expression phase))
+  | IndexExpression (ExpressionData phase) (Expression phase) (Expression phase)
 
 type family ExpressionData phase
 
@@ -339,6 +344,10 @@ instance
     "(RecordExpression " ++ pretty mutability ++ " " ++ pretty recordName ++ " " ++ pretty typeArguments ++ " " ++ pretty fields ++ ")"
   pretty (FieldAccessExpression _ inner field) = "(FieldAccessExpression " ++ pretty inner ++ " " ++ pretty field ++ ")"
   pretty (CaseExpression _ switch cases) = "(CaseExpression " ++ pretty switch ++ " " ++ pretty cases ++ ")"
+  pretty (ListExpression _ mutability typeArguments values) =
+    "(ListExpression " ++ pretty mutability ++ " " ++ pretty typeArguments ++ " " ++ pretty values ++ ")"
+  pretty (IndexExpression _ innerExpression indexExpression) =
+    "(IndexExpression " ++ pretty innerExpression ++ " " ++ pretty indexExpression ++ ")"
 
 getExpressionData :: Expression phase -> ExpressionData phase
 getExpressionData (IntLiteralExpression d _) = d
@@ -370,6 +379,8 @@ getExpressionData (FunctionCallExpression d _ _) = d
 getExpressionData (RecordExpression d _ _ _ _) = d
 getExpressionData (FieldAccessExpression d _ _) = d
 getExpressionData (CaseExpression d _ _) = d
+getExpressionData (ListExpression d _ _ _) = d
+getExpressionData (IndexExpression d _ _) = d
 
 -- Type annotation
 data WithTypeAnnotation phase a = WithTypeAnnotation a (TypeAnnotation phase)
@@ -390,6 +401,7 @@ data TypeExpression phase
   | FunctionTypeExpression (TypeExpressionData phase) (Seq (TypeExpression phase)) (TypeExpression phase)
   | RecordUnionTypeExpression (TypeExpressionData phase) (MutabilityExpression phase) (Seq (RecordIdentifier phase, Seq (TypeExpression phase)))
   | IdentifierTypeExpression (TypeExpressionData phase) (MutabilityExpression phase) (TypeIdentifier phase) (Seq (TypeExpression phase))
+  | ListTypeExpression (TypeExpressionData phase) (MutabilityExpression phase) (Seq (TypeExpression phase))
 
 type family TypeExpressionData phase
 
@@ -412,6 +424,8 @@ instance
   pretty (RecordUnionTypeExpression _ mutability records) = "(RecordUnionTypeExpression" ++ pretty mutability ++ " " ++ pretty records ++ ")"
   pretty (IdentifierTypeExpression _ mutability identifier typeArguments) =
     "(IdentifierTypeExpression " ++ pretty mutability ++ " " ++ pretty identifier ++ " " ++ pretty typeArguments ++ ")"
+  pretty (ListTypeExpression _ mutability typeArguments) =
+    "(ListTypeExpression " ++ pretty mutability ++ " " ++ pretty typeArguments ++ ")"
 
 getTypeExpressionData :: TypeExpression phase -> TypeExpressionData phase
 getTypeExpressionData (IntTypeExpression d) = d
@@ -423,3 +437,4 @@ getTypeExpressionData (NilTypeExpression d) = d
 getTypeExpressionData (FunctionTypeExpression d _ _) = d
 getTypeExpressionData (RecordUnionTypeExpression d _ _) = d
 getTypeExpressionData (IdentifierTypeExpression d _ _ _) = d
+getTypeExpressionData (ListTypeExpression d _ _) = d
