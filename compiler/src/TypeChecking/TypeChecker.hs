@@ -170,7 +170,7 @@ typeCheckStatement (FieldMutationStatement statementRange record field value) = 
     Nothing -> throwError $ FieldTypesHaveEmptyIntersectionError field (first getTextName <$> recordFieldTypePairs) statementRange
     Just expressionType -> return expressionType
   checkedValue <- typeCheckExpression fieldType value
-  let statementReturnInfo = expressionReturnInfo . getExpressionData $ checkedValue
+  let statementReturnInfo = (expressionReturnInfo . getExpressionData $ checkedRecord) `riAnd` (expressionReturnInfo . getExpressionData $ checkedValue)
   return $ FieldMutationStatement (TCStatementData statementRange statementReturnInfo) checkedRecord field checkedValue
   where
     getRecordFieldTypePair mutability innerExpressionType (recordName, recordTypeParameters) = do
@@ -178,6 +178,19 @@ typeCheckStatement (FieldMutationStatement statementRange record field value) = 
       case Map.lookup field fieldTypeMap of
         Nothing -> throwError $ MutatedFieldNotInRecordError (getTextName recordName) field innerExpressionType statementRange
         Just fieldType -> return (recordName, fieldType)
+typeCheckStatement (IndexMutationStatement statementRange list index value) = do
+  checkedList <- typeSynthesizeExpression list
+  valueType <- case expressionType . getExpressionData $ checkedList of
+    ListType Mutable valueType -> return valueType
+    ListType Immutable valueType -> throwError $ MutatedImmutableListIndexError statementRange (ListType Immutable valueType)
+    nonListType -> throwError $ MutatedNonListIndexError statementRange nonListType
+  checkedIndex <- typeCheckExpression IntType index
+  checkedValue <- typeCheckExpression valueType value
+  let statementReturnInfo =
+        (expressionReturnInfo . getExpressionData $ checkedList)
+          `riAnd` (expressionReturnInfo . getExpressionData $ checkedIndex)
+          `riAnd` (expressionReturnInfo . getExpressionData $ checkedValue)
+  return $ IndexMutationStatement (TCStatementData statementRange statementReturnInfo) checkedList checkedIndex checkedValue
 typeCheckStatement (ExpressionStatement statementRange expression) = do
   checkedExpression <- typeSynthesizeExpression expression
   let statementReturnInfo = expressionReturnInfo . getExpressionData $ checkedExpression

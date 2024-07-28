@@ -155,6 +155,8 @@ module Core.Errors
         ListTypeError,
         ListValueTypeInferenceError,
         IndexTypeError,
+        MutatedNonListIndexError,
+        MutatedImmutableListIndexError,
         RuntimeError
       ),
     WithErrors (Error, Success),
@@ -339,6 +341,8 @@ data Error
   | ListTypeError Range Type
   | ListValueTypeInferenceError Range
   | IndexTypeError Range Type
+  | MutatedNonListIndexError Range Type
+  | MutatedImmutableListIndexError Range Type
   | -- Function lifting
     MutatedCapturedIdentifierError Text Range
   | IdentifierUndefinedBeforeCaptureError Text Text Range
@@ -614,6 +618,10 @@ instance Pretty Error where
     "Expected a value of type " ++ pretty expectedType ++ " but got a list at " ++ pretty range
   pretty (ListValueTypeInferenceError range) = "Could not infer a value type for list literal at " ++ pretty range
   pretty (IndexTypeError range actualType) = "Indexed value must be a list, but was " ++ pretty actualType ++ " at " ++ pretty range
+  pretty (MutatedNonListIndexError range actualType) =
+    "Tried to mutate value of non-list type " ++ pretty actualType ++ " at " ++ pretty range
+  pretty (MutatedImmutableListIndexError range actualType) =
+    "Tried to mutate value of immutable list of type " ++ pretty actualType ++ " at " ++ pretty range
   pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
 
 instance Show Error where

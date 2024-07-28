@@ -121,6 +121,11 @@ statementBinder (BindingReady (FieldMutationStatement statementRange record fiel
   boundRecord <- expressionBinder record
   boundValue <- expressionBinder value
   return $ FieldMutationStatement statementRange boundRecord field boundValue
+statementBinder (BindingReady (IndexMutationStatement statementRange list index value)) = do
+  boundList <- expressionBinder list
+  boundIndex <- expressionBinder index
+  boundValue <- expressionBinder value
+  return $ IndexMutationStatement statementRange boundList boundIndex boundValue
 statementBinder (BindingReady (ExpressionStatement range expression)) = do
   boundExpression <- expressionBinder expression
   return $ ExpressionStatement range boundExpression

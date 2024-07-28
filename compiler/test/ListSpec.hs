@@ -18,6 +18,10 @@ testLists = do
       "let foo = List[Foo, Bar]; rec Foo = []; rec Bar = [];" `runsSuccessfullyWithOutput` ""
     it "The value type of a list can be inferred with unions" $
       "let foo: List⟨Foo | Bar⟩ = List[Foo]; rec Foo = []; rec Bar = [];" `runsSuccessfullyWithOutput` ""
+    it "Lists can be mutated" $
+      "let foo = mut List[10, 11, 12]; printLine⟨Int⟩[foo#1]; mut foo#1 = 13; printLine⟨Int⟩[foo#1]" `runsSuccessfullyWithOutput` "11\n13\n"
+    it "Nested lists can be mutated" $
+      "let foo = mut List[mut List[10, 11], mut List[12]]; printLine⟨Int⟩[foo#0#1]; mut foo#0#1 = 13; printLine⟨Int⟩[foo#0#1]" `runsSuccessfullyWithOutput` "11\n13\n"
   describe "List errors:" $ do
     it "The value type of an empty list cannot be generated" $
       "let foo = List[]" `failsToCompileWithError` listValueTypeInferenceError
@@ -27,6 +31,10 @@ testLists = do
       "let foo: Int = List[3, 4]" `failsToCompileWithError` listTypeError
     it "Non-list types cannot indexed into" $
       "let foo = 5; foo#3;" `failsToCompileWithError` indexTypeError
+    it "Non-list types cannot have an index mutated" $
+      "let foo = 5; mut foo#3 = 1;" `failsToCompileWithError` mutatedNonListIndexError
+    it "Immutable lists cannot have an index mutated" $
+      "let foo = List[10, 11, 12]; mut foo#1 = 13;" `failsToCompileWithError` mutatedImmutableListIndexError
 
 listValueTypeInferenceError :: Error -> Bool
 listValueTypeInferenceError (ListValueTypeInferenceError {}) = True
@@ -39,3 +47,11 @@ listTypeError _ = False
 indexTypeError :: Error -> Bool
 indexTypeError (IndexTypeError {}) = True
 indexTypeError _ = False
+
+mutatedNonListIndexError :: Error -> Bool
+mutatedNonListIndexError (MutatedNonListIndexError {}) = True
+mutatedNonListIndexError _ = False
+
+mutatedImmutableListIndexError :: Error -> Bool
+mutatedImmutableListIndexError (MutatedImmutableListIndexError {}) = True
+mutatedImmutableListIndexError _ = False

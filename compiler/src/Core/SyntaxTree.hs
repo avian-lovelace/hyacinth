@@ -18,6 +18,7 @@ module Core.SyntaxTree
       ( VariableDeclarationStatement,
         VariableMutationStatement,
         FieldMutationStatement,
+        IndexMutationStatement,
         ExpressionStatement,
         WhileLoopStatement,
         ReturnStatement
@@ -163,6 +164,7 @@ data Statement phase
   = VariableDeclarationStatement (StatementData phase) Mutability (WithTypeAnnotation phase (ValueIdentifier phase)) (Expression phase)
   | VariableMutationStatement (StatementData phase) (ValueIdentifier phase) (Expression phase)
   | FieldMutationStatement (StatementData phase) (Expression phase) (FieldIdentifier phase) (Expression phase)
+  | IndexMutationStatement (StatementData phase) (Expression phase) (Expression phase) (Expression phase)
   | ExpressionStatement (StatementData phase) (Expression phase)
   | {- The body of a while loop statement could really be a statement rather than an expression. However, this would
       require a while loop statement to create a new scope for its body. For now, to avoid having to implement the
@@ -192,6 +194,8 @@ instance
   pretty (VariableMutationStatement _ variableName value) = "(VariableMutationStatement " ++ pretty variableName ++ " " ++ pretty value ++ ")"
   pretty (FieldMutationStatement _ record fieldName value) =
     "(FieldMutationStatement " ++ pretty record ++ " " ++ pretty fieldName ++ " " ++ pretty value ++ ")"
+  pretty (IndexMutationStatement _ list index value) =
+    "(IndexMutationStatement " ++ pretty list ++ " " ++ pretty index ++ " " ++ pretty value ++ ")"
   pretty (ExpressionStatement _ expression) = "(ExpressionStatement " ++ pretty expression ++ ")"
   pretty (WhileLoopStatement _ condition statement) = "(WhileLoopStatement " ++ pretty condition ++ " " ++ pretty statement ++ ")"
   pretty (ReturnStatement _ (Just expression)) = "(ReturnStatement " ++ pretty expression ++ ")"
@@ -201,6 +205,7 @@ getStatementData :: Statement phase -> StatementData phase
 getStatementData (VariableDeclarationStatement d _ _ _) = d
 getStatementData (VariableMutationStatement d _ _) = d
 getStatementData (FieldMutationStatement d _ _ _) = d
+getStatementData (IndexMutationStatement d _ _ _) = d
 getStatementData (ExpressionStatement d _) = d
 getStatementData (WhileLoopStatement d _ _) = d
 getStatementData (ReturnStatement d _) = d

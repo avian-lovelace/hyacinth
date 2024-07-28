@@ -523,6 +523,40 @@ impl VM {
                         }
                     }
                 }
+                Instruction::MutateIndex => {
+                    let value = self.pop();
+                    let index_value = self.pop();
+                    let list_object_value = self.pop();
+                    match (list_object_value, index_value) {
+                        (Value::Object(list_object_key), Value::Int(index)) => {
+                            match self.heap.get_mut(list_object_key) {
+                                Object::ListObj { values } => {
+                                    if index < 0 || (index as usize) >= values.len() {
+                                        panic!(
+                                            "Attempted to mutate index {} of list object {} which has length {}",
+                                            index,
+                                            list_object_key,
+                                            values.len()
+                                        )
+                                    }
+                                    values[index as usize] = value;
+                                }
+                                list_object => {
+                                    panic!(
+                                        "Attempted to mutate list with list object {}",
+                                        list_object
+                                    );
+                                }
+                            }
+                        }
+                        _ => {
+                            panic!(
+                                "Attempted to mutate list with list value {} and index value {}",
+                                list_object_value, index_value
+                            );
+                        }
+                    }
+                }
             };
             if self.heap.should_garbage_collect {
                 self.garbage_collect()
@@ -619,6 +653,7 @@ impl VM {
             22 => Instruction::JumpIfDoesntMatchRecordId(self.read_u16(), self.read_i16()),
             23 => Instruction::List(self.read_byte()),
             24 => Instruction::Index,
+            25 => Instruction::MutateIndex,
             op => panic!("Got invalid op code {}", op),
         }
     }
@@ -753,6 +788,7 @@ enum Instruction {
     JumpIfDoesntMatchRecordId(RecordId, InstructionOffset),
     List(u8),
     Index,
+    MutateIndex,
 }
 
 impl fmt::Display for Instruction {
@@ -794,6 +830,7 @@ impl fmt::Display for Instruction {
             }
             Instruction::List(list_length) => write!(f, "List {}", list_length),
             Instruction::Index => write!(f, "Index"),
+            Instruction::MutateIndex => write!(f, "MutateIndex"),
         }
     }
 }

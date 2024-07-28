@@ -6,6 +6,7 @@ module IntermediateCodeGeneration.IntermediateCode
       ( VariableDeclarationStmt,
         VariableMutationStmt,
         FieldMutationStmt,
+        IndexMutationStmt,
         ExpressionStmt,
         WhileLoopStmt,
         ReturnStmt
@@ -73,6 +74,7 @@ data Stmt
   = VariableDeclarationStmt ValueIdentifierIndex Expr
   | VariableMutationStmt ValueIdentifierIndex Expr
   | FieldMutationStmt Expr FieldIndex Expr
+  | IndexMutationStmt Expr Expr Expr
   | ExpressionStmt Expr
   | WhileLoopStmt Expr Expr
   | ReturnStmt Expr

@@ -25,6 +25,7 @@ module BytecodeGeneration.Bytecode
     mutateFieldInstruction,
     listInstruction,
     indexInstruction,
+    mutateIndexInstruction,
     Constant (StringConstant),
     encodeConstant,
   )
@@ -151,6 +152,9 @@ listInstruction listLength = BB.word8 23 <> BB.word8 listLength
 
 indexInstruction :: BB.Builder
 indexInstruction = BB.word8 24
+
+mutateIndexInstruction :: BB.Builder
+mutateIndexInstruction = BB.word8 25
 
 -- Constants
 data Constant

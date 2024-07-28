@@ -119,6 +119,11 @@ statementGenerator (FieldMutationStatement _ record field value) = do
         let fieldMutationStatement = FieldMutationStmt (IdentifierExpr caseParameter) fieldIndex encodedValue
         return (getRecordIdentifierIndex recordName, caseParameter, ScopeExpr $ Seq.singleton fieldMutationStatement)
       return $ ExpressionStmt $ CaseExpr encodedRecord encodedCases
+statementGenerator (IndexMutationStatement _ list index value) = do
+  encodedList <- expressionGenerator list
+  encodedIndex <- expressionGenerator index
+  encodedValue <- expressionGenerator value
+  return $ IndexMutationStmt encodedList encodedIndex encodedValue
 statementGenerator (ExpressionStatement _ expression) = do
   encodedExpression <- expressionGenerator expression
   return $ ExpressionStmt encodedExpression

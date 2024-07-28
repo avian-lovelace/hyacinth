@@ -14,7 +14,7 @@ import Data.Foldable
 import Data.Function ((&))
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|))
+import Data.Sequence (Seq (..), (<|))
 import qualified Data.Sequence as Seq
 import Lexing.Tokens
 import Parsing.Parsing
@@ -91,13 +91,13 @@ parseMutationStatement mutTokenSection restSections1 = do
   (leftSections, valueSections) <- case Seq.breakl isEqualsSection restSections1 of
     (_, Empty) -> singleError $ MutationStatementMalformedError statementRange
     (leftSections, _equalsSection :<| valueSections) -> return (leftSections, valueSections)
-  makeStatement <- case leftSections of
-    (TokenSection (IdentifierToken _ variableName)) :<| Empty -> return $ VariableMutationStatement statementRange variableName
-    (recordExpressionSections :|> TokenSection (DotToken _)) :|> TokenSection (IdentifierToken _ fieldName) -> case recordExpressionSections of
-      Empty -> singleError $ FieldMutationStatementEmptyRecordError statementRange
-      _ -> do
-        record <- catchUnboundError (FieldMutationStatementMalformedRecordError (getRange recordExpressionSections)) $ runParserToEnd expressionParser recordExpressionSections
-        return $ FieldMutationStatement statementRange record fieldName
+  leftExpression <-
+    catchUnboundError (MutationStatementMalformedError (getRange mutTokenSection)) $
+      runParserToEnd expressionParser leftSections
+  makeStatement <- case leftExpression of
+    IdentifierExpression _ (PIdentifier variableName Empty) -> return $ VariableMutationStatement statementRange variableName
+    FieldAccessExpression _ recordExpression fieldName -> return $ FieldMutationStatement statementRange recordExpression fieldName
+    IndexExpression _ listExpression indexExpression -> return $ IndexMutationStatement statementRange listExpression indexExpression
     _ -> singleError $ MutationStatementMalformedError (getRange mutTokenSection)
   value <- case valueSections of
     Empty -> singleError $ MutationStatementEmptyValueError statementRange
