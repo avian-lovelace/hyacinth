@@ -130,14 +130,14 @@ parseWhileLoopStatement whileTokenSection restSections = case Seq.breakl matchLo
     matchLoopTokenSection (TokenSection (LoopToken _)) = True
     matchLoopTokenSection _ = False
     -- Must check that restSections is non-empty before using
-    whileStatementRange = getRange (whileTokenSection, seqTail restSections)
+    whileStatementRange = getRange (whileTokenSection, seqLast restSections)
 
 parseReturnStatement :: Section -> ParseFunction PStatement
 parseReturnStatement returnTokenSection expressionSections = case expressionSections of
   Empty -> Success $ ReturnStatement (getRange returnTokenSection) Nothing
   _ -> ReturnStatement statementRange . Just <$> expressionOrErrors
     where
-      statementRange = getRange (returnTokenSection, seqTail expressionSections)
+      statementRange = getRange (returnTokenSection, seqLast expressionSections)
       expressionRange = getRange expressionSections
       expressionOrErrors = catchUnboundError (ReturnStatementInvalidExpressionError expressionRange) $ runParserToEnd expressionParser expressionSections
 
@@ -792,7 +792,7 @@ identifierOrRecordUnionTypeParser = do
     Empty -> return $ IdentifierTypeExpression firstRecordRange mutability firstRecordName firstRecordTypeArguments
     _ -> do
       let recordsWithRange = ((firstRecordName, firstRecordTypeArguments), firstRecordRange) <| restRecords
-      return $ RecordUnionTypeExpression (snd (seqHead recordsWithRange) <> snd (seqTail recordsWithRange)) mutability (fst <$> recordsWithRange)
+      return $ RecordUnionTypeExpression (snd (seqHead recordsWithRange) <> snd (seqLast recordsWithRange)) mutability (fst <$> recordsWithRange)
   where
     mutableParser = do
       mutSectionRange <- pNext <&&> matchMutSection

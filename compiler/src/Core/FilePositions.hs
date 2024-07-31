@@ -52,4 +52,4 @@ instance (WithRange wr1, WithRange wr2) => WithRange (wr1, wr2) where
 
 instance (WithRange wr) => WithRange (Seq wr) where
   -- This function requires that the sequence is non-empty and sorted by position
-  getRange wrs = getRange (seqHead wrs, seqTail wrs)
+  getRange wrs = getRange (seqHead wrs, seqLast wrs)

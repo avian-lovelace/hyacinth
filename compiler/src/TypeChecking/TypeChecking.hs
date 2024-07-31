@@ -1,18 +1,20 @@
 module TypeChecking.TypeChecking
   ( TypeChecker,
-    TypeCheckingState (recordFieldOrders),
+    TypeCheckingState,
     FunctionContext (FunctionContext, contextReturnType),
     Variance (Covariant, Contravariant, Invariant),
+    MutabilityContext (NormalContext),
+    VarianceInfo,
+    recordContext,
     setValueIdentifierType,
     getValueIdentifierType,
     getFunctionContext,
     initialTypeCheckingState,
-    setFunctionType,
+    setFunctionTypeInfo,
     getFunctionType,
-    setRecordFieldTypes,
+    setRecordTypeInfo,
     getRecordFieldTypes,
     withFunctionContext,
-    addRecordFieldOrder,
     getRecordFieldOrders,
     isCompatibleWith,
     typeUnion,
@@ -20,27 +22,28 @@ module TypeChecking.TypeChecking
     typeIntersection,
     typeIntersectionF,
     getRecordNumTypeParameters,
-    setRecordTypeParameterVariances,
     fromTypeExpression,
-    getRecordFieldTypeFunc,
     getParametrizedTypeFunc,
-    initializeTypeSynonymType,
-    getTypeSynonymType,
+    initializeTypeSynonymTypeInfo,
+    initialVarianceFunc,
+    getTypeSynonymTypeInfo,
+    calculateVariances,
   )
 where
 
-import Control.Monad (foldM, unless)
+import Control.Monad (foldM, forM_, unless)
 import Core.ErrorState
 import Core.Errors
 import Core.FilePositions
 import Core.SyntaxTree
 import Core.Utils
-import Data.Foldable (toList)
+import Data.Bifunctor (Bifunctor (bimap))
+import Data.Foldable (Foldable (fold), toList)
 import Data.Foldable1 (Foldable1, foldlM1)
-import Data.Functor ((<&>))
+import Data.Functor (($>), (<&>))
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (isNothing, listToMaybe)
+import Data.Maybe (listToMaybe)
 import Data.Sequence (Seq (..))
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
@@ -48,27 +51,46 @@ import Data.Traversable (forM)
 import IdentifierBinding.SyntaxTree
 import Parsing.SyntaxTree
 import TypeChecking.Type
+import TypeChecking.Variance
 
 data TypeCheckingState = TypeCheckingState
   { valueIdentifierTypes :: Map BoundValueIdentifier Type,
-    functionTypes :: Map BoundFunctionIdentifier (Int, Seq Type -> Type),
-    recordTypes :: Map BoundRecordIdentifier (Int, Mutability -> Seq Type -> Map UnboundIdentifier Type),
-    typeSynonymTypes ::
+    functionTypeInfos :: Map BoundFunctionIdentifier FunctionTypeInfo,
+    recordTypeInfos :: Map BoundRecordIdentifier RecordTypeInfo,
+    typeSynonymTypeInfos ::
       Map
         BoundTypeSynonym
         ( Either
             (Maybe IBMutabilityParameter, Seq IBTypeParameter, IBTypeExpression)
-            (Int, Mutability -> Seq Type -> Type)
+            TypeSynonymTypeInfo
         ),
     functionContextStack :: [FunctionContext],
-    recordFieldOrders :: Map BoundRecordIdentifier (Seq UnboundIdentifier),
-    recordTypeParameterVariances :: Map BoundRecordIdentifier (Seq Variance, Seq Variance),
     inProgressTypeSynonyms :: Seq BoundTypeSynonym
+  }
+
+data FunctionTypeInfo = FunctionTypeInfo
+  { functionTypeArity :: Int,
+    functionTypeFunc :: Seq Type -> Type
+  }
+
+data TypeSynonymTypeInfo = TypeSynonymTypeInfo
+  { typeSynonymArity :: Int,
+    typeSynonymTypeFunc :: Mutability -> Seq Type -> Type,
+    typeSynonymVarianceFunc :: Mutability -> Seq Variance
+  }
+
+data RecordTypeInfo = RecordTypeInfo
+  { recordArity :: Int,
+    recordFieldTypesFunc :: Mutability -> Seq Type -> Map UnboundIdentifier Type,
+    recordVarianceFunc :: Mutability -> Seq Variance,
+    recordFieldOrder :: Seq UnboundIdentifier
   }
 
 newtype FunctionContext = FunctionContext {contextReturnType :: Type}
 
-data Variance = Covariant | Contravariant | Invariant
+data MutabilityContext
+  = RecordContext (Maybe IBMutabilityParameter) Bool
+  | NormalContext (Maybe IBMutabilityParameter)
 
 type TypeChecker = ErrorState TypeCheckingState
 
@@ -76,19 +98,20 @@ initialTypeCheckingState :: TypeCheckingState
 initialTypeCheckingState =
   TypeCheckingState
     { valueIdentifierTypes = Map.empty,
-      functionTypes = Map.empty,
-      recordTypes = Map.empty,
-      typeSynonymTypes = Map.empty,
+      functionTypeInfos = Map.empty,
+      recordTypeInfos = Map.empty,
+      typeSynonymTypeInfos = Map.empty,
       functionContextStack = [],
-      recordFieldOrders = Map.empty,
-      recordTypeParameterVariances = Map.empty,
       inProgressTypeSynonyms = []
     }
 
+-- Identifier info getters/setters
+
 setValueIdentifierType :: BoundValueIdentifier -> Type -> TypeChecker ()
 setValueIdentifierType identifier identifierType = do
-  valueIdentifierTypes <- valueIdentifierTypes <$> getState
-  setValueIdentifierTypes $ Map.insert identifier identifierType valueIdentifierTypes
+  state <- getState
+  let updatedValueIdentifierTypes = Map.insert identifier identifierType $ valueIdentifierTypes state
+  setState state {valueIdentifierTypes = updatedValueIdentifierTypes}
 
 getValueIdentifierType :: BoundValueIdentifier -> TypeChecker Type
 getValueIdentifierType identifier = do
@@ -98,17 +121,17 @@ getValueIdentifierType identifier = do
     Nothing -> do
       throwError $ ShouldNotGetHereError "Called getValueIdentifierType before identifier was initialized"
 
-setFunctionType :: BoundFunctionIdentifier -> Int -> (Seq Type -> Type) -> TypeChecker ()
-setFunctionType functionName numTypeParameters functionTypeFunc = do
+setFunctionTypeInfo :: BoundFunctionIdentifier -> Int -> (Seq Type -> Type) -> TypeChecker ()
+setFunctionTypeInfo functionName functionTypeArity functionTypeFunc = do
   state <- getState
-  let updatedFunctionTypes = Map.insert functionName (numTypeParameters, functionTypeFunc) $ functionTypes state
-  setState state {functionTypes = updatedFunctionTypes}
+  let updatedFunctionTypeInfo = Map.insert functionName FunctionTypeInfo {functionTypeArity, functionTypeFunc} $ functionTypeInfos state
+  setState state {functionTypeInfos = updatedFunctionTypeInfo}
 
 getFunctionType :: Range -> Either BoundFunctionIdentifier BuiltInFunction -> Seq Type -> TypeChecker Type
 getFunctionType usageRange (Left functionName) typeArguments = do
-  functionTypes <- functionTypes <$> getState
+  functionTypes <- functionTypeInfos <$> getState
   case Map.lookup functionName functionTypes of
-    Just (functionTypeArity, functionTypeFunc) -> do
+    Just FunctionTypeInfo {functionTypeArity, functionTypeFunc} -> do
       unless (Seq.length typeArguments == functionTypeArity) $
         throwError (FunctionWrongNumberOfTypeArgumentsError usageRange (getTextName functionName) functionTypeArity (Seq.length typeArguments))
       return $ functionTypeFunc typeArguments
@@ -125,107 +148,355 @@ getFunctionType usageRange (Right builtInFunction) typeArguments = do
     PrintLineFunction -> FunctionType (Seq.singleton $ typeArguments `Seq.index` 0) NilType
     ReadLineFunction -> FunctionType Empty StringType
 
-setRecordFieldTypes :: BoundRecordIdentifier -> Int -> (Mutability -> Seq Type -> Map UnboundIdentifier Type) -> TypeChecker ()
-setRecordFieldTypes recordName recordTypeArity fieldTypeMapFunc = do
+setRecordTypeInfo ::
+  BoundRecordIdentifier ->
+  Int ->
+  (Mutability -> Seq Type -> Map UnboundIdentifier Type) ->
+  (Mutability -> Seq Variance) ->
+  Seq UnboundIdentifier ->
+  TypeChecker ()
+setRecordTypeInfo recordName recordArity recordFieldTypesFunc recordVarianceFunc recordFieldOrder = do
   state <- getState
-  let updatedRecordTypes = Map.insert recordName (recordTypeArity, fieldTypeMapFunc) $ recordTypes state
-  setState $ state {recordTypes = updatedRecordTypes}
+  let newInfo = RecordTypeInfo {recordArity, recordFieldTypesFunc, recordVarianceFunc, recordFieldOrder}
+  let updatedRecordTypeInfo = Map.insert recordName newInfo $ recordTypeInfos state
+  setState $ state {recordTypeInfos = updatedRecordTypeInfo}
+
+setRecordVariancesFunc :: BoundRecordIdentifier -> (Mutability -> Seq Variance) -> TypeChecker ()
+setRecordVariancesFunc recordName recordVarianceFunc = do
+  state <- getState
+  let currentRecordTypeInfos = recordTypeInfos state
+  let updatedRecordTypeInfo = (currentRecordTypeInfos Map.! recordName) {recordVarianceFunc}
+  let updatedRecordTypeInfos = Map.insert recordName updatedRecordTypeInfo $ currentRecordTypeInfos
+  setState $ state {recordTypeInfos = updatedRecordTypeInfos}
+
+getRecordTypeInfo :: BoundRecordIdentifier -> TypeChecker RecordTypeInfo
+getRecordTypeInfo recordName = do
+  recordTypeInfos <- recordTypeInfos <$> getState
+  case Map.lookup recordName recordTypeInfos of
+    Nothing -> throwError $ ShouldNotGetHereError "Called getRecordTypeInfo before record was initialized"
+    Just recordTypeInfo -> return recordTypeInfo
 
 getRecordFieldTypes :: Range -> BoundRecordIdentifier -> Mutability -> Seq Type -> TypeChecker (Map UnboundIdentifier Type)
 getRecordFieldTypes usageRange recordName mutability typeArguments = do
-  recordTypes <- recordTypes <$> getState
-  case Map.lookup recordName recordTypes of
-    Nothing -> throwError $ ShouldNotGetHereError "Called getFunctionType before function was initialized"
-    Just (recordTypeArity, fieldTypeMapFunc) -> do
-      unless (Seq.length typeArguments == recordTypeArity) $
-        throwError (RecordExpresssionNumTypeArgumentsError usageRange (getTextName recordName) recordTypeArity (Seq.length typeArguments))
-      return $ fieldTypeMapFunc mutability typeArguments
+  RecordTypeInfo {recordArity, recordFieldTypesFunc} <- getRecordTypeInfo recordName
+  unless (Seq.length typeArguments == recordArity) $
+    throwError (RecordExpresssionNumTypeArgumentsError usageRange (getTextName recordName) recordArity (Seq.length typeArguments))
+  return $ recordFieldTypesFunc mutability typeArguments
 
-initializeTypeSynonymType :: IBTypeSynonym -> Maybe IBMutabilityParameter -> Seq IBTypeParameter -> IBTypeExpression -> TypeChecker ()
-initializeTypeSynonymType typeSynonym maybeMutabilityParameter typeParameters typeValueExpression = do
+getRecordVariances :: BoundRecordIdentifier -> Mutability -> TypeChecker (Seq Variance)
+getRecordVariances recordName mutability = do
+  RecordTypeInfo {recordVarianceFunc} <- getRecordTypeInfo recordName
+  return $ recordVarianceFunc mutability
+
+getRecordFieldOrders :: TypeCheckingState -> Map BoundRecordIdentifier (Seq UnboundIdentifier)
+getRecordFieldOrders = (recordFieldOrder <$>) . recordTypeInfos
+
+getRecordNumTypeParameters :: BoundRecordIdentifier -> TypeChecker Int
+getRecordNumTypeParameters recordName = Seq.length <$> getRecordVariances recordName Mutable
+
+initializeTypeSynonymTypeInfo :: IBTypeSynonym -> Maybe IBMutabilityParameter -> Seq IBTypeParameter -> IBTypeExpression -> TypeChecker ()
+initializeTypeSynonymTypeInfo typeSynonym maybeMutabilityParameter typeParameters typeValueExpression = do
   state <- getState
-  setState state {typeSynonymTypes = Map.insert typeSynonym (Left (maybeMutabilityParameter, typeParameters, typeValueExpression)) $ typeSynonymTypes state}
+  let updatedTypeSynonymTypeInfo = Map.insert typeSynonym (Left (maybeMutabilityParameter, typeParameters, typeValueExpression)) $ typeSynonymTypeInfos state
+  setState state {typeSynonymTypeInfos = updatedTypeSynonymTypeInfo}
 
-getTypeSynonymType :: Range -> Int -> BoundTypeSynonym -> TypeChecker (Mutability -> Seq Type -> Type)
-getTypeSynonymType usageRange numTypeArguments typeSynonym = do
-  typeSynonymTypes <- typeSynonymTypes <$> getState
+setTypeSynonymTypeInfo :: BoundTypeSynonym -> TypeSynonymTypeInfo -> TypeChecker ()
+setTypeSynonymTypeInfo typeSynonym typeSynonymTypeInfo = do
+  state <- getState
+  let updatedTypeSynonymTypeInfos = Map.insert typeSynonym (Right typeSynonymTypeInfo) $ typeSynonymTypeInfos state
+  setState state {typeSynonymTypeInfos = updatedTypeSynonymTypeInfos}
+
+setTypeSynonymVariancesFunc :: BoundTypeSynonym -> (Mutability -> Seq Variance) -> TypeChecker ()
+setTypeSynonymVariancesFunc typeSynonym typeSynonymVarianceFunc = do
+  currentTypeSynonymTypeInfo <- getTypeSynonymTypeInfo typeSynonym
+  setTypeSynonymTypeInfo typeSynonym currentTypeSynonymTypeInfo {typeSynonymVarianceFunc}
+
+getTypeSynonymTypeInfo :: BoundTypeSynonym -> TypeChecker TypeSynonymTypeInfo
+getTypeSynonymTypeInfo typeSynonym = do
+  typeSynonymTypes <- typeSynonymTypeInfos <$> getState
   case Map.lookup typeSynonym typeSynonymTypes of
     Nothing -> throwError $ ShouldNotGetHereError "Called getTypeSynonymType before type synonym was initialized"
-    Just (Right (typeSynonymArity, typeValueFunction)) -> do
-      unless (numTypeArguments == typeSynonymArity) $
-        throwError (TypeSynonymWrongNumberOfTypeArgumentsError usageRange (getTextName typeSynonym) typeSynonymArity numTypeArguments)
-      return typeValueFunction
+    Just (Right typeSynonymTypeInfo) -> return typeSynonymTypeInfo
     Just (Left (maybeMutabilityParameter, typeParameters, typeValueExpression)) -> do
-      unless (numTypeArguments == Seq.length typeParameters) $
-        throwError (TypeSynonymWrongNumberOfTypeArgumentsError usageRange (getTextName typeSynonym) (Seq.length typeParameters) numTypeArguments)
       inProgressTypeSynonyms <- inProgressTypeSynonyms <$> getState
       case Seq.elemIndexL typeSynonym inProgressTypeSynonyms of
         Nothing -> return ()
         Just index -> throwError $ TypeSynonymCyclicReferencesError (toList $ Seq.take (index + 1) $ getTextName <$> inProgressTypeSynonyms)
-      setTypeSynonymInProgress typeSynonym
-      typeSynonymValueFunc <- getParametrizedTypeFunc maybeMutabilityParameter typeParameters typeValueExpression
-      setTypeSynonymValueFunc typeSynonym (Seq.length typeParameters) typeSynonymValueFunc
-      setTypeSynonymNotInProgress typeSynonym
-      return typeSynonymValueFunc
+      setTypeSynonymInProgress
+      typeSynonymTypeFunc <- getParametrizedTypeFunc (NormalContext maybeMutabilityParameter) typeParameters typeValueExpression
+      typeSynonymVarianceFunc <- getTypeVarianceFunc (NormalContext maybeMutabilityParameter) typeParameters typeValueExpression
+      let typeSynonymTypeInfo = TypeSynonymTypeInfo {typeSynonymArity = Seq.length typeParameters, typeSynonymTypeFunc, typeSynonymVarianceFunc}
+      setTypeSynonymTypeInfo typeSynonym typeSynonymTypeInfo
+      setTypeSynonymNotInProgress
+      return typeSynonymTypeInfo
+  where
+    setTypeSynonymInProgress = do
+      state <- getState
+      setState state {inProgressTypeSynonyms = typeSynonym :<| inProgressTypeSynonyms state}
+    setTypeSynonymNotInProgress = do
+      state <- getState
+      case inProgressTypeSynonyms state of
+        headInProgress :<| tailInProgress | headInProgress == typeSynonym -> setState state {inProgressTypeSynonyms = tailInProgress}
+        _ -> throwError $ ShouldNotGetHereError "setTypeSynonymNotInProgress error"
 
-setTypeSynonymValueFunc :: BoundTypeSynonym -> Int -> (Mutability -> Seq Type -> Type) -> TypeChecker ()
-setTypeSynonymValueFunc typeSynonym typeSynonymArity typeSynonymValueFunc = do
-  state <- getState
-  setState state {typeSynonymTypes = Map.insert typeSynonym (Right (typeSynonymArity, typeSynonymValueFunc)) $ typeSynonymTypes state}
+getTypeSynonymTypeFunc :: Range -> Int -> BoundTypeSynonym -> TypeChecker (Mutability -> Seq Type -> Type)
+getTypeSynonymTypeFunc usageRange numArguments typeSynonym = do
+  TypeSynonymTypeInfo {typeSynonymArity, typeSynonymTypeFunc} <- getTypeSynonymTypeInfo typeSynonym
+  unless (numArguments == typeSynonymArity) $
+    throwError (TypeSynonymWrongNumberOfTypeArgumentsError usageRange (getTextName typeSynonym) typeSynonymArity numArguments)
+  return $ typeSynonymTypeFunc
 
-setTypeSynonymInProgress :: BoundTypeSynonym -> TypeChecker ()
-setTypeSynonymInProgress typeSynonym = do
-  state <- getState
-  setState state {inProgressTypeSynonyms = typeSynonym :<| inProgressTypeSynonyms state}
+getTypeSynonymVariances :: BoundTypeSynonym -> Mutability -> TypeChecker (Seq Variance)
+getTypeSynonymVariances typeSynonym mutability = do
+  TypeSynonymTypeInfo {typeSynonymVarianceFunc} <- getTypeSynonymTypeInfo typeSynonym
+  return $ typeSynonymVarianceFunc mutability
 
-setTypeSynonymNotInProgress :: BoundTypeSynonym -> TypeChecker ()
-setTypeSynonymNotInProgress typeSynonym = do
-  state <- getState
-  case inProgressTypeSynonyms state of
-    headInProgress :<| tailInProgress | headInProgress == typeSynonym -> setState state {inProgressTypeSynonyms = tailInProgress}
-    _ -> throwError $ ShouldNotGetHereError "setTypeSynonymNotInProgress error"
+getListVariance :: Mutability -> Variance
+getListVariance Immutable = Covariant
+getListVariance Mutable = Invariant
 
-getFunctionContext :: TypeChecker (Maybe FunctionContext)
-getFunctionContext = listToMaybe . functionContextStack <$> getState
+-- Mutability context
 
-pushFunctionContext :: FunctionContext -> TypeChecker ()
-pushFunctionContext functionContext = do
-  functionContextStack <- functionContextStack <$> getState
-  setFunctionContextStack (functionContext : functionContextStack)
+getMutabilityFunc :: Range -> MutabilityContext -> IBMutabilityExpression -> TypeChecker (Mutability -> Mutability)
+getMutabilityFunc usageRange mutabilityContext mutabilityExpression = case mutabilityContext of
+  (RecordContext Nothing True) -> case mutabilityExpression of
+    Left Immutable -> return id
+    Left Mutable -> throwError $ RecordFieldExplicitMutabilityError usageRange
+    Right _ -> throwError (ShouldNotGetHereError "Encountered out-of-scope mutability parameter in getMutabilityFunc")
+  (RecordContext maybeMutabilityParameter _) -> case mutabilityExpression of
+    Left mutability -> return $ const mutability
+    Right mutabilityIdentifier -> do
+      unless (maybeMutabilityParameter == Just mutabilityIdentifier) $
+        throwError (ShouldNotGetHereError "Encountered out-of-scope mutability parameter in getMutabilityFunc")
+      return id
+  (NormalContext maybeMutabilityParameter) -> case mutabilityExpression of
+    Left mutability -> return $ const mutability
+    Right mutabilityIdentifier -> do
+      unless (maybeMutabilityParameter == Just mutabilityIdentifier) $
+        throwError (ShouldNotGetHereError "Encountered out-of-scope mutability parameter in getMutabilityFunc")
+      return id
 
-popFunctionContext :: TypeChecker ()
-popFunctionContext = do
-  functionContextStack <- functionContextStack <$> getState
-  setFunctionContextStack $ tail functionContextStack
+recordContext :: Maybe IBMutabilityParameter -> MutabilityContext
+recordContext maybeMutabilityParameter = RecordContext maybeMutabilityParameter True
 
-withFunctionContext :: FunctionContext -> TypeChecker a -> TypeChecker a
-withFunctionContext functionContext checker =
-  do
-    pushFunctionContext functionContext
-    checker
-    `andFinally` popFunctionContext
+updateMutabilityContext :: MutabilityContext -> MutabilityContext
+updateMutabilityContext (RecordContext maybeMutabilityParameter _) = RecordContext maybeMutabilityParameter False
+updateMutabilityContext (NormalContext maybeMutabilityParameter) = NormalContext maybeMutabilityParameter
 
-getRecordTypeParameterVariances :: BoundRecordIdentifier -> Mutability -> TypeChecker (Seq Variance)
-getRecordTypeParameterVariances recordName mutability = do
-  state <- getState
-  case Map.lookup recordName (recordTypeParameterVariances state) of
-    Nothing -> throwError $ ShouldNotGetHereError ""
-    Just (immutableVariances, mutableVariances) -> case mutability of
-      Immutable -> return immutableVariances
-      Mutable -> return mutableVariances
+-- Variance calculation
 
-setRecordTypeParameterVariances :: BoundRecordIdentifier -> Seq Variance -> Seq Variance -> TypeChecker ()
-setRecordTypeParameterVariances recordName immutableVariances mutableVariances = do
-  state <- getState
-  let updatedRecordTypeParameterVariances = Map.insert recordName (immutableVariances, mutableVariances) (recordTypeParameterVariances state)
-  setState state {recordTypeParameterVariances = updatedRecordTypeParameterVariances}
+initialVarianceFunc :: Seq IBTypeParameter -> Mutability -> Seq Variance
+initialVarianceFunc typeParameters = const (typeParameters $> Bivariant)
 
-getRecordNumTypeParameters :: BoundRecordIdentifier -> TypeChecker Int
-getRecordNumTypeParameters recordName = Seq.length <$> getRecordTypeParameterVariances recordName Mutable
+type VarianceInfo = (Either (IBRecordIdentifier, Seq IBTypeExpression) (IBTypeSynonym, IBTypeExpression), Maybe IBMutabilityParameter, Seq IBTypeParameter)
 
-getListTypeParameterVariance :: Mutability -> Variance
-getListTypeParameterVariance Immutable = Covariant
-getListTypeParameterVariance Mutable = Invariant
+type VarianceMap = Map (Either IBRecordIdentifier IBTypeSynonym, Mutability) (Seq Variance)
+
+calculateVariances :: Seq VarianceInfo -> TypeChecker ()
+calculateVariances typeInfos = do
+  initialVarianceMap <- getVariancesMap $ typeInfos <&> \(typeNameAndValues, _, _) -> bimap fst fst typeNameAndValues
+  calculateVariancesHelper typeInfos initialVarianceMap
+
+calculateVariancesHelper :: Seq VarianceInfo -> VarianceMap -> TypeChecker ()
+calculateVariancesHelper typeInfos initialVarianceMap = do
+  forM_ typeInfos $ \(typeName, mutabilityParameter, typeParameters) -> case typeName of
+    Left (recordName, fieldTypeExpressions) -> do
+      let mutabilityContext = recordContext mutabilityParameter
+      fieldVarianceFuncs <- forM fieldTypeExpressions $ getTypeVarianceFunc mutabilityContext typeParameters
+      let combinedVarianceFunc mutability = case mutability of
+            -- In an immutable record, field values are used only as outputs, so the record is covariant to all of its fields
+            Immutable -> collapse $ fieldVarianceFuncs <&> ($ mutability)
+            {- In a mutable record, field values are used both as inputs and outputs, so the record is invariant to all
+               of its fields
+            -}
+            Mutable -> (Invariant ~*) <$> collapse (fieldVarianceFuncs <&> ($ mutability))
+      setRecordVariancesFunc recordName combinedVarianceFunc
+    Right (typeSynonym, vaueTypeExpression) -> do
+      let mutabilityContext = NormalContext mutabilityParameter
+      valueTypeExpressionVarianceFunc <- getTypeVarianceFunc mutabilityContext typeParameters vaueTypeExpression
+      setTypeSynonymVariancesFunc typeSynonym valueTypeExpressionVarianceFunc
+  finalVariancesMap <- getVariancesMap $ typeInfos <&> \(typeNameAndValues, _, _) -> bimap fst fst typeNameAndValues
+  if initialVarianceMap == finalVariancesMap
+    then return ()
+    else calculateVariancesHelper typeInfos finalVariancesMap
+
+getVariancesMap :: Seq (Either IBRecordIdentifier IBTypeSynonym) -> TypeChecker VarianceMap
+getVariancesMap typeNames = do
+  variancePairsList <- forM typeNames $ \typeName -> do
+    let getVariances = case typeName of
+          Left recordName -> getRecordVariances recordName
+          Right typeSynonym -> getTypeSynonymVariances typeSynonym
+    immutableVariances <- getVariances Immutable
+    mutableVariances <- getVariances Mutable
+    return [((typeName, Immutable), immutableVariances), ((typeName, Mutable), mutableVariances)]
+  return $ Map.fromList . concat $ variancePairsList
+
+getTypeVarianceFunc ::
+  MutabilityContext ->
+  Seq IBTypeParameter ->
+  IBTypeExpression ->
+  TypeChecker (Mutability -> Seq Variance)
+getTypeVarianceFunc mutabilityContext typeParameters typeExpression = case typeExpression of
+  IntTypeExpression _ -> return . const $ typeParameters $> Bivariant
+  FloatTypeExpression _ -> return . const $ typeParameters $> Bivariant
+  CharTypeExpression _ -> return . const $ typeParameters $> Bivariant
+  StringTypeExpression _ -> return . const $ typeParameters $> Bivariant
+  BoolTypeExpression _ -> return . const $ typeParameters $> Bivariant
+  NilTypeExpression _ -> return . const $ typeParameters $> Bivariant
+  FunctionTypeExpression _ parameterTypeExpression returnTypeExpression -> do
+    parameterVarianceFuncs <- forM parameterTypeExpression $ getTypeVarianceFunc updatedMutabilityContext typeParameters
+    returnVarianceFunc <- getTypeVarianceFunc updatedMutabilityContext typeParameters returnTypeExpression
+    return $ \mutabilityArgument ->
+      let parameterVariances = parameterVarianceFuncs <&> ($ mutabilityArgument)
+          invertedParameterVariances = fmap (fmap (Contravariant ~*)) parameterVariances
+          returnVariances = returnVarianceFunc mutabilityArgument
+       in foldr (Seq.zipWith (<>)) returnVariances invertedParameterVariances
+  IdentifierTypeExpression _ _ (Left typeParameter) _ ->
+    return . const $ typeParameters <&> \tp -> if tp == typeParameter then Covariant else Bivariant
+  IdentifierTypeExpression expressionRange mutabilityExpression (Right typeSynonym) typeArguments -> do
+    typeArgumentVarianceFuncs <- forM typeArguments $ getTypeVarianceFunc updatedMutabilityContext typeParameters
+    typeSynonymVarianceFunc <- typeSynonymVarianceFunc <$> getTypeSynonymTypeInfo typeSynonym
+    mutabilityFunc <- getMutabilityFunc expressionRange mutabilityContext mutabilityExpression
+    return $ \mutabilityArgument ->
+      let mutability = mutabilityFunc mutabilityArgument
+          typeArgumentVariances = typeArgumentVarianceFuncs <&> ($ mutabilityArgument)
+          typeSynonymInnerVariances = typeSynonymVarianceFunc mutability
+       in matrixMultiply typeArgumentVariances typeSynonymInnerVariances
+  ListTypeExpression expressionRange mutabilityExpression typeArguments -> do
+    unless (Seq.length typeArguments == 1) $
+      throwError (ListWrongNumberOfTypeArgumentsError expressionRange (Seq.length typeArguments))
+    let typeArgument = seqHead typeArguments
+    typeArgumentVarianceFunc <- getTypeVarianceFunc updatedMutabilityContext typeParameters typeArgument
+    mutabilityFunc <- getMutabilityFunc expressionRange mutabilityContext mutabilityExpression
+    return $ \mutabilityArgument ->
+      let mutability = mutabilityFunc mutabilityArgument
+          listInnerVariance = getListVariance mutability
+          typeArgumentVariances = typeArgumentVarianceFunc mutabilityArgument
+       in (listInnerVariance ~*) <$> typeArgumentVariances
+  RecordUnionTypeExpression expressionRange mutabilityExpression records -> do
+    mutabilityFunc <- getMutabilityFunc expressionRange mutabilityContext mutabilityExpression
+    recordVarianceFuncs <- forM records $ \(recordName, _) -> recordVarianceFunc <$> getRecordTypeInfo recordName
+    typeArgumentVarianceFuncs <- forM records $ \(_, typeArguments) -> forM typeArguments $ getTypeVarianceFunc updatedMutabilityContext typeParameters
+    return $ \mutabilityArgument ->
+      let mutability = mutabilityFunc mutabilityArgument
+          recordInnerVariances = recordVarianceFuncs <&> ($ mutability)
+          typeArgumentVariancesList = typeArgumentVarianceFuncs <&> (<&> ($ mutabilityArgument))
+       in collapse $ Seq.zipWith matrixMultiply typeArgumentVariancesList recordInnerVariances
+  where
+    updatedMutabilityContext = updateMutabilityContext mutabilityContext
+    -- Performs a matrix multiplication between a variance matrix and vector. This can be used to find the variances of
+    -- a type function application where the matrix is the list of type argument variance lists, and the vector is the
+    -- variance list of the type function with respect to its own arguments
+    matrixMultiply :: Seq (Seq Variance) -> Seq Variance -> Seq Variance
+    matrixMultiply typeArgumentsVariances innerVariances =
+      collapse $ Seq.zipWith (\typeArgumentVariance innerVariance -> (innerVariance ~*) <$> typeArgumentVariance) typeArgumentsVariances innerVariances
+
+-- Takes a list of type parameter variance lists and sums them element-wise into a combined type parameter variance lists
+collapse :: Seq (Seq Variance) -> Seq Variance
+collapse matrix = fold <$> seqTranspose matrix
+
+-- Type expression resolvers
+
+fromTypeExpression :: IBTypeExpression -> TypeChecker Type
+fromTypeExpression typeExpression = case typeExpression of
+  (IntTypeExpression _) -> return IntType
+  (FloatTypeExpression _) -> return FloatType
+  (CharTypeExpression _) -> return CharType
+  (StringTypeExpression _) -> return StringType
+  (BoolTypeExpression _) -> return BoolType
+  (NilTypeExpression _) -> return NilType
+  (FunctionTypeExpression _ parameterTypeExpressions returnTypeExpression) -> do
+    parameterTypes <- mapM fromTypeExpression parameterTypeExpressions
+    returnType <- fromTypeExpression returnTypeExpression
+    return $ FunctionType parameterTypes returnType
+  (IdentifierTypeExpression expressionRange mutabilityExpression (Left typeParameter) typeArguments) -> do
+    unless (null typeArguments) $
+      throwError (TypeArrgumentsAppliedToTypeParameterError expressionRange (getTextName typeParameter))
+    unless (mutabilityExpression == Left Immutable) $
+      throwError (MutabilityAppliedToTypeParameterError expressionRange (getTextName typeParameter))
+    return (IdentifierType (getTypeParameterIndex typeParameter) (getTextName typeParameter))
+  (IdentifierTypeExpression typeSynonymRange mutabilityExpression (Right typeSynonym) typeSynonymArgumentExpressions) -> do
+    mutability <- getMutability mutabilityExpression
+    typeSynonymTypeFunc <- getTypeSynonymTypeFunc typeSynonymRange (Seq.length typeSynonymArgumentExpressions) typeSynonym
+    typeSynonymArguments <- forM typeSynonymArgumentExpressions fromTypeExpression
+    return $ typeSynonymTypeFunc mutability typeSynonymArguments
+  (RecordUnionTypeExpression expressionRange mutabilityExpression recordExpressions) -> do
+    mutability <- getMutability mutabilityExpression
+    let addRecord recordMap (recordName, recordTypeParameterExpressions) = do
+          recordTypeParameters <- mapM fromTypeExpression recordTypeParameterExpressions
+          let (conflictingRecordType, updatedMap) = insertAndReplace recordName recordTypeParameters recordMap
+          case conflictingRecordType of
+            Just _ -> throwError $ RecordUnionTypeExpressionDuplicateRecordsError expressionRange (getTextName recordName)
+            Nothing -> return updatedMap
+    records <- foldM addRecord Map.empty recordExpressions
+    return $ RecordUnionType mutability records
+  (ListTypeExpression expressionRange mutabilityExpression typeArgumentExpressions) -> do
+    mutability <- getMutability mutabilityExpression
+    typeArguments <- mapM fromTypeExpression typeArgumentExpressions
+    unless (Seq.length typeArguments == 1) $
+      throwError (ListWrongNumberOfTypeArgumentsError expressionRange (Seq.length typeArguments))
+    return $ ListType mutability (seqHead typeArguments)
+  where
+    getMutability mutabilityExpression = case mutabilityExpression of
+      Left mutability -> return mutability
+      Right _ -> throwError $ ShouldNotGetHereError "Encountered mutability parameter outside of scope"
+
+getParametrizedTypeFunc :: MutabilityContext -> Seq IBTypeParameter -> IBTypeExpression -> TypeChecker (Mutability -> Seq Type -> Type)
+getParametrizedTypeFunc mutabilityContext typeParameters typeExpression = case typeExpression of
+  (IntTypeExpression _) -> return $ const . const IntType
+  (FloatTypeExpression _) -> return $ const . const FloatType
+  (CharTypeExpression _) -> return $ const . const CharType
+  (StringTypeExpression _) -> return $ const . const StringType
+  (BoolTypeExpression _) -> return $ const . const BoolType
+  (NilTypeExpression _) -> return $ const . const NilType
+  (IdentifierTypeExpression expressionRange mutabilityExpression (Left typeParameterReference) identifierTypeArgumentExpressions) -> do
+    unless (null identifierTypeArgumentExpressions) $
+      throwError (TypeArrgumentsAppliedToTypeParameterError expressionRange (getTextName typeParameterReference))
+    unless (mutabilityExpression == Left Immutable) $
+      throwError (MutabilityAppliedToTypeParameterError expressionRange (getTextName typeParameterReference))
+    case Seq.elemIndexL typeParameterReference typeParameters of
+      Nothing -> return $ const . const $ IdentifierType (getTypeParameterIndex typeParameterReference) (getTextName typeParameterReference)
+      Just paramterIndex -> return $ \_ functionTypeArguments -> Seq.index functionTypeArguments paramterIndex
+  (IdentifierTypeExpression expressionRange mutabilityExpression (Right typeSynonym) synonymTypeArgumentExpressions) -> do
+    mutabilityFunc <- getMutabilityFunc expressionRange mutabilityContext mutabilityExpression
+    typeSynonymTypeFunc <- getTypeSynonymTypeFunc expressionRange (Seq.length synonymTypeArgumentExpressions) typeSynonym
+    synonymTypeArgumentFuncs <- forM synonymTypeArgumentExpressions $ getParametrizedTypeFunc updatedMutabilityContext typeParameters
+    return $ \mutability typeArguments ->
+      let synonymTypeArguments = synonymTypeArgumentFuncs <&> \f -> f mutability typeArguments
+       in typeSynonymTypeFunc (mutabilityFunc mutability) synonymTypeArguments
+  (FunctionTypeExpression _ functionParameterTypeExpressions functionReturnTypeExpression) -> do
+    functionParameterTypeFuncs <- forM functionParameterTypeExpressions $ getParametrizedTypeFunc updatedMutabilityContext typeParameters
+    functionReturnTypeFunc <- getParametrizedTypeFunc updatedMutabilityContext typeParameters functionReturnTypeExpression
+    return $ \mutability typeArguments ->
+      let functionParameterTypes = functionParameterTypeFuncs <&> \f -> f mutability typeArguments
+          functionReturnType = functionReturnTypeFunc mutability typeArguments
+       in FunctionType functionParameterTypes functionReturnType
+  (RecordUnionTypeExpression expressionRange mutabilityExpression recordExpressions) -> do
+    mutabilityFunc <- getMutabilityFunc expressionRange mutabilityContext mutabilityExpression
+    let addRecord recordMap (recordName, recordTypeArgumentExpressions) = do
+          recordTypeArgumentFuncs <- forM recordTypeArgumentExpressions $ getParametrizedTypeFunc updatedMutabilityContext typeParameters
+          let (conflictingRecordType, updatedMap) =
+                insertAndReplace
+                  recordName
+                  (\mutabilityArgument typeArguments -> recordTypeArgumentFuncs <&> \f -> f mutabilityArgument typeArguments)
+                  recordMap
+          case conflictingRecordType of
+            Just _ -> throwError $ RecordUnionTypeExpressionDuplicateRecordsError expressionRange (getTextName recordName)
+            Nothing -> return updatedMap
+    recordTypeArgumentFuncsMap <- foldM addRecord Map.empty recordExpressions
+    return $ \mutability typeArguments ->
+      let recordTypeArgumentsMap = recordTypeArgumentFuncsMap <&> \f -> f mutability typeArguments
+       in RecordUnionType (mutabilityFunc mutability) recordTypeArgumentsMap
+  (ListTypeExpression expressionRange mutabilityExpression typeArgumentExpressions) -> do
+    mutabilityFunc <- getMutabilityFunc expressionRange mutabilityContext mutabilityExpression
+    typeArguments <- forM typeArgumentExpressions $ getParametrizedTypeFunc updatedMutabilityContext typeParameters
+    unless (Seq.length typeArguments == 1) $
+      throwError (ListWrongNumberOfTypeArgumentsError expressionRange (Seq.length typeArguments))
+    return $ \recordMutability recordTypeParameters -> ListType (mutabilityFunc recordMutability) (seqHead typeArguments recordMutability recordTypeParameters)
+  where
+    updatedMutabilityContext = updateMutabilityContext mutabilityContext
+
+-- Type functions
 
 isCompatibleWith :: Type -> Type -> TypeChecker Bool
 isCompatibleWith (RecordUnionType actualMutability actualRecordMap) (RecordUnionType expectedMutability expectedRecordMap) =
@@ -236,7 +507,7 @@ isCompatibleWith (RecordUnionType actualMutability actualRecordMap) (RecordUnion
         case Map.lookup recordName expectedRecordMap of
           Nothing -> return False
           Just expectedRecordArguments -> do
-            parameterVariances <- getRecordTypeParameterVariances recordName expectedMutability
+            parameterVariances <- getRecordVariances recordName expectedMutability
             argumentCompatibilities <-
               forM (Seq.zip3 parameterVariances actualRecordArguments expectedRecordArguments) $ uncurry3 typeArgumentCompatibility
             return (and argumentCompatibilities)
@@ -262,6 +533,8 @@ typeArgumentCompatibility Contravariant actualTypeArgument expectedTypeArgument 
   expectedTypeArgument `isCompatibleWith` actualTypeArgument
 typeArgumentCompatibility Invariant actualTypeArgument expectedTypeArgument =
   return $ expectedTypeArgument == actualTypeArgument
+typeArgumentCompatibility Bivariant _ _ =
+  return True
 
 typeUnion :: Type -> Type -> TypeChecker (Maybe Type)
 typeUnion (RecordUnionType mutability1 recordMap1) (RecordUnionType mutability2 recordMap2) = do
@@ -275,7 +548,7 @@ typeUnion (RecordUnionType mutability1 recordMap1) (RecordUnionType mutability2 
       (Just typeArguments1, Nothing) -> return $ Just (recordName, typeArguments1)
       (Nothing, Just typeArguments2) -> return $ Just (recordName, typeArguments2)
       (Just typeArguments1, Just typeArguments2) -> do
-        parameterVariances <- getRecordTypeParameterVariances recordName combinedMutability
+        parameterVariances <- getRecordVariances recordName combinedMutability
         combinedTypeParameters <- forM (Seq.zip3 parameterVariances typeArguments1 typeArguments2) $ uncurry3 typeArgumentUnion
         return $ (recordName,) <$> sequenceA combinedTypeParameters
   return $ RecordUnionType combinedMutability . Map.fromList <$> sequence recordNameTypeParametersPairs
@@ -290,7 +563,7 @@ typeUnion (ListType mutability1 valueType1) (ListType mutability2 valueType2) = 
   let combinedMutability = case (mutability1, mutability2) of
         (Mutable, Mutable) -> Mutable
         _ -> Immutable
-  combinedValueType <- typeArgumentUnion (getListTypeParameterVariance combinedMutability) valueType1 valueType2
+  combinedValueType <- typeArgumentUnion (getListVariance combinedMutability) valueType1 valueType2
   return $ ListType combinedMutability <$> combinedValueType
 typeUnion type1 type2 = if type1 == type2 then return $ Just type1 else return Nothing
 
@@ -298,6 +571,7 @@ typeArgumentUnion :: Variance -> Type -> Type -> TypeChecker (Maybe Type)
 typeArgumentUnion Covariant typeArgument1 typeArgument2 = typeUnion typeArgument1 typeArgument2
 typeArgumentUnion Contravariant typeArgument1 typeArgument2 = typeIntersection typeArgument1 typeArgument2
 typeArgumentUnion Invariant typeArgument1 typeArgument2 = if typeArgument1 == typeArgument2 then return $ Just typeArgument1 else return Nothing
+typeArgumentUnion Bivariant typeArgument1 typeArgument2 = typeUnion typeArgument1 typeArgument2
 
 typeUnionF :: (Foldable1 t, Functor t) => t Type -> TypeChecker (Maybe Type)
 typeUnionF types = foldlM1 typeUnionM (Just <$> types)
@@ -318,7 +592,7 @@ typeIntersection (RecordUnionType mutability1 recordMap1) (RecordUnionType mutab
       recordNameTypeParametersPairs <- forM (Set.toList overlappingRecordNames) $ \recordName -> do
         case (Map.lookup recordName recordMap1, Map.lookup recordName recordMap2) of
           (Just typeArguments1, Just typeArguments2) -> do
-            parameterVariances <- getRecordTypeParameterVariances recordName combinedMutability
+            parameterVariances <- getRecordVariances recordName combinedMutability
             combinedTypeParameters <- forM (Seq.zip3 parameterVariances typeArguments1 typeArguments2) $ uncurry3 typeArgumentIntersection
             return $ (recordName,) <$> sequenceA combinedTypeParameters
           _ -> throwError $ ShouldNotGetHereError "Got record name missing in a map in typeIntersection"
@@ -334,7 +608,7 @@ typeIntersection (ListType mutability1 valueType1) (ListType mutability2 valueTy
   let combinedMutability = case (mutability1, mutability2) of
         (Immutable, Immutable) -> Immutable
         _ -> Mutable
-  combinedValueType <- typeArgumentIntersection (getListTypeParameterVariance combinedMutability) valueType1 valueType2
+  combinedValueType <- typeArgumentIntersection (getListVariance combinedMutability) valueType1 valueType2
   return $ ListType combinedMutability <$> combinedValueType
 typeIntersection type1 type2 = if type1 == type2 then return $ Just type1 else return Nothing
 
@@ -342,6 +616,7 @@ typeArgumentIntersection :: Variance -> Type -> Type -> TypeChecker (Maybe Type)
 typeArgumentIntersection Covariant typeArgument1 typeArgument2 = typeIntersection typeArgument1 typeArgument2
 typeArgumentIntersection Contravariant typeArgument1 typeArgument2 = typeUnion typeArgument1 typeArgument2
 typeArgumentIntersection Invariant typeArgument1 typeArgument2 = if typeArgument1 == typeArgument2 then return $ Just typeArgument1 else return Nothing
+typeArgumentIntersection Bivariant typeArgument1 typeArgument2 = typeIntersection typeArgument1 typeArgument2
 
 typeIntersectionF :: (Foldable1 t, Functor t) => t Type -> TypeChecker (Maybe Type)
 typeIntersectionF types = foldlM1 typeIntersectionM (Just <$> types)
@@ -350,190 +625,26 @@ typeIntersectionF types = foldlM1 typeIntersectionM (Just <$> types)
       (Just type1, Just type2) -> typeIntersection type1 type2
       _ -> return Nothing
 
-fromTypeExpression :: IBTypeExpression -> TypeChecker Type
-fromTypeExpression (IntTypeExpression _) = return IntType
-fromTypeExpression (FloatTypeExpression _) = return FloatType
-fromTypeExpression (CharTypeExpression _) = return CharType
-fromTypeExpression (StringTypeExpression _) = return StringType
-fromTypeExpression (BoolTypeExpression _) = return BoolType
-fromTypeExpression (NilTypeExpression _) = return NilType
-fromTypeExpression (FunctionTypeExpression _ parameterTypeExpressions returnTypeExpression) = do
-  parameterTypes <- mapM fromTypeExpression parameterTypeExpressions
-  returnType <- fromTypeExpression returnTypeExpression
-  return $ FunctionType parameterTypes returnType
-fromTypeExpression (IdentifierTypeExpression expressionRange mutabilityExpression (Left typeParameter) typeArguments) = do
-  unless (null typeArguments) $
-    throwError (TypeArrgumentsAppliedToTypeParameterError expressionRange (getTextName typeParameter))
-  unless (mutabilityExpression == Left Immutable) $
-    throwError (MutabilityAppliedToTypeParameterError expressionRange (getTextName typeParameter))
-  return (IdentifierType (getTypeParameterIndex typeParameter) (getTextName typeParameter))
-fromTypeExpression (IdentifierTypeExpression typeSynonymRange mutabilityExpression (Right typeSynonym) typeSynonymArgumentExpressions) = do
-  mutability <- case mutabilityExpression of
-    Left mutability -> return mutability
-    Right _ -> throwError $ ShouldNotGetHereError "Encountered mutability parameter outside of scope"
-  typeSynonymValueFunc <- getTypeSynonymType typeSynonymRange (Seq.length typeSynonymArgumentExpressions) typeSynonym
-  typeSynonymArguments <- forM typeSynonymArgumentExpressions fromTypeExpression
-  return $ typeSynonymValueFunc mutability typeSynonymArguments
-fromTypeExpression (RecordUnionTypeExpression _ (Right _) _) = throwError $ ShouldNotGetHereError "Encountered mutability parameter outside of scope"
-fromTypeExpression (RecordUnionTypeExpression expressionRange (Left mutability) recordExpressions) = do
-  let addRecord recordMap (recordName, recordTypeParameterExpressions) = do
-        recordTypeParameters <- mapM fromTypeExpression recordTypeParameterExpressions
-        let (conflictingRecordType, updatedMap) = insertAndReplace recordName recordTypeParameters recordMap
-        case conflictingRecordType of
-          Just _ -> throwError $ RecordUnionTypeExpressionDuplicateRecordsError expressionRange (getTextName recordName)
-          Nothing -> return updatedMap
-  records <- foldM addRecord Map.empty recordExpressions
-  return $ RecordUnionType mutability records
-fromTypeExpression (ListTypeExpression expressionRange mutabilityExpression typeArgumentExpressions) = do
-  mutability <- case mutabilityExpression of
-    Left mutability -> return mutability
-    Right _ -> throwError $ ShouldNotGetHereError "Encountered mutability parameter outside of scope"
-  typeArguments <- mapM fromTypeExpression typeArgumentExpressions
-  unless (Seq.length typeArguments == 1) $
-    throwError (ListWrongNumberOfTypeArgumentsError expressionRange (Seq.length typeArguments))
-  return $ ListType mutability (seqHead typeArguments)
+-- Function context
 
-getRecordFieldTypeFunc :: Bool -> Maybe IBMutabilityParameter -> Seq IBTypeParameter -> IBTypeExpression -> TypeChecker (Mutability -> Seq Type -> Type)
-getRecordFieldTypeFunc _ _ _ (IntTypeExpression _) = return $ const . const IntType
-getRecordFieldTypeFunc _ _ _ (FloatTypeExpression _) = return $ const . const FloatType
-getRecordFieldTypeFunc _ _ _ (CharTypeExpression _) = return $ const . const CharType
-getRecordFieldTypeFunc _ _ _ (StringTypeExpression _) = return $ const . const StringType
-getRecordFieldTypeFunc _ _ _ (BoolTypeExpression _) = return $ const . const BoolType
-getRecordFieldTypeFunc _ _ _ (NilTypeExpression _) = return $ const . const NilType
-getRecordFieldTypeFunc _ _ typeParameters (IdentifierTypeExpression expressionRange mutabilityExpression (Left identifier) typeArguments) = do
-  unless (null typeArguments) $
-    throwError (TypeArrgumentsAppliedToTypeParameterError expressionRange (getTextName identifier))
-  unless (mutabilityExpression == Left Immutable) $
-    throwError (MutabilityAppliedToTypeParameterError expressionRange (getTextName identifier))
-  case Seq.elemIndexL identifier typeParameters of
-    Nothing -> return $ const . const $ IdentifierType (getTypeParameterIndex identifier) (getTextName identifier)
-    Just paramterIndex -> return $ \_ recordTypeArguments -> Seq.index recordTypeArguments paramterIndex
-getRecordFieldTypeFunc atTopLevel maybeMutabilityParameter typeParameters (IdentifierTypeExpression typeSynonymRange mutabilityExpression (Right typeSynonym) synonymTypeArgumentExpressions) = do
-  mutabilityFunc <- getRecordFieldTypeMutability typeSynonymRange atTopLevel maybeMutabilityParameter mutabilityExpression
-  typeSynonymValueFunc <- getTypeSynonymType typeSynonymRange (Seq.length synonymTypeArgumentExpressions) typeSynonym
-  synonymTypeArgumentFuncs <- forM synonymTypeArgumentExpressions $ getRecordFieldTypeFunc False maybeMutabilityParameter typeParameters
-  return $ \mutability typeArguments ->
-    let synonymTypeArguments = synonymTypeArgumentFuncs <&> \f -> f mutability typeArguments
-     in typeSynonymValueFunc (mutabilityFunc mutability) synonymTypeArguments
-getRecordFieldTypeFunc _ maybeMutabilityParameter typeParameters (FunctionTypeExpression _ parameterTypeExpressions returnTypeExpression) = do
-  parameterTypeFuncs <- mapM (getRecordFieldTypeFunc False maybeMutabilityParameter typeParameters) parameterTypeExpressions
-  returnTypeFunc <- getRecordFieldTypeFunc False maybeMutabilityParameter typeParameters returnTypeExpression
-  return $ \recordMutability recordTypeArguments ->
-    FunctionType (parameterTypeFuncs <&> (\f -> f recordMutability recordTypeArguments)) (returnTypeFunc recordMutability recordTypeArguments)
-getRecordFieldTypeFunc atTopLevel maybeMutabilityParameter typeParameters (RecordUnionTypeExpression expressionRange mutabilityExpression recordExpressions) = do
-  mutabilityFunc <- getRecordFieldTypeMutability expressionRange atTopLevel maybeMutabilityParameter mutabilityExpression
-  let addRecord recordMap (recordName, recordTypeParameterExpressions) = do
-        recordTypeParameterFuncs <- mapM (getRecordFieldTypeFunc False maybeMutabilityParameter typeParameters) recordTypeParameterExpressions
-        let (conflictingRecordType, updatedMap) = insertAndReplace recordName recordTypeParameterFuncs recordMap
-        case conflictingRecordType of
-          Just _ -> throwError $ RecordUnionTypeExpressionDuplicateRecordsError expressionRange (getTextName recordName)
-          Nothing -> return updatedMap
-  recordFuncs <- foldM addRecord Map.empty recordExpressions
-  return $ \recordMutability recordTypeParameters -> RecordUnionType (mutabilityFunc recordMutability) (fmap (fmap $ \f -> f recordMutability recordTypeParameters) recordFuncs)
-getRecordFieldTypeFunc atTopLevel maybeMutabilityParameter typeParameters (ListTypeExpression expressionRange mutabilityExpression typeArgumentExpressions) = do
-  mutabilityFunc <- getRecordFieldTypeMutability expressionRange atTopLevel maybeMutabilityParameter mutabilityExpression
-  typeArguments <- forM typeArgumentExpressions $ getRecordFieldTypeFunc False maybeMutabilityParameter typeParameters
-  unless (Seq.length typeArguments == 1) $
-    throwError (ListWrongNumberOfTypeArgumentsError expressionRange (Seq.length typeArguments))
-  return $ \recordMutability recordTypeParameters -> ListType (mutabilityFunc recordMutability) (seqHead typeArguments recordMutability recordTypeParameters)
+getFunctionContext :: TypeChecker (Maybe FunctionContext)
+getFunctionContext = listToMaybe . functionContextStack <$> getState
 
-getRecordFieldTypeMutability :: Range -> Bool -> Maybe IBMutabilityParameter -> IBMutabilityExpression -> TypeChecker (Mutability -> Mutability)
-getRecordFieldTypeMutability expressionRange atTopLevel maybeMutabilityParameter mutabilityExpression =
-  if atTopLevel && isNothing maybeMutabilityParameter
-    {- If a record does not explicitly handle mutability with a mutability parameter, mutability is automatically
-      propogated to fields of record type.
-    -}
-    then case mutabilityExpression of
-      Left Immutable -> return id
-      Left Mutable -> throwError $ RecordFieldExplicitMutabilityError expressionRange
-      Right _ -> throwError (ShouldNotGetHereError "Encountered out-of-scope mutability parameter in getRecordFieldTypeFunc")
-    else case mutabilityExpression of
-      Left mutability -> return $ const mutability
-      Right mutabilityIdentifier -> do
-        unless (maybeMutabilityParameter == Just mutabilityIdentifier) $
-          throwError (ShouldNotGetHereError "Encountered out-of-scope mutability parameter in getRecordFieldTypeFunc")
-        return id
-
-getParametrizedTypeFunc :: Maybe IBMutabilityParameter -> Seq IBTypeParameter -> IBTypeExpression -> TypeChecker (Mutability -> Seq Type -> Type)
-getParametrizedTypeFunc _ _ (IntTypeExpression _) = return $ const . const IntType
-getParametrizedTypeFunc _ _ (FloatTypeExpression _) = return $ const . const FloatType
-getParametrizedTypeFunc _ _ (CharTypeExpression _) = return $ const . const CharType
-getParametrizedTypeFunc _ _ (StringTypeExpression _) = return $ const . const StringType
-getParametrizedTypeFunc _ _ (BoolTypeExpression _) = return $ const . const BoolType
-getParametrizedTypeFunc _ _ (NilTypeExpression _) = return $ const . const NilType
-getParametrizedTypeFunc _ typeParameters (IdentifierTypeExpression expressionRange mutabilityExpression (Left typeParameterReference) identifierTypeArgumentExpressions) = do
-  unless (null identifierTypeArgumentExpressions) $
-    throwError (TypeArrgumentsAppliedToTypeParameterError expressionRange (getTextName typeParameterReference))
-  unless (mutabilityExpression == Left Immutable) $
-    throwError (MutabilityAppliedToTypeParameterError expressionRange (getTextName typeParameterReference))
-  case Seq.elemIndexL typeParameterReference typeParameters of
-    Nothing -> return $ const . const $ IdentifierType (getTypeParameterIndex typeParameterReference) (getTextName typeParameterReference)
-    Just paramterIndex -> return $ \_ functionTypeArguments -> Seq.index functionTypeArguments paramterIndex
-getParametrizedTypeFunc maybeMutabilityParameter typeParameters (IdentifierTypeExpression typeSynonymRange mutabilityExpression (Right typeSynonym) synonymTypeArgumentExpressions) = do
-  mutabilityFunc <- case mutabilityExpression of
-    Left mutability -> return $ const mutability
-    Right mutabilityIdentifier | maybeMutabilityParameter == Just mutabilityIdentifier -> return id
-    _ -> throwError $ ShouldNotGetHereError "Encountered out of scope mutability parameter"
-  typeSynonymValueFunc <- getTypeSynonymType typeSynonymRange (Seq.length synonymTypeArgumentExpressions) typeSynonym
-  synonymTypeArgumentFuncs <- forM synonymTypeArgumentExpressions $ getParametrizedTypeFunc maybeMutabilityParameter typeParameters
-  return $ \mutability typeArguments ->
-    let synonymTypeArguments = synonymTypeArgumentFuncs <&> \f -> f mutability typeArguments
-     in typeSynonymValueFunc (mutabilityFunc mutability) synonymTypeArguments
-getParametrizedTypeFunc maybeMutabilityParameter typeParameters (FunctionTypeExpression _ functionParameterTypeExpressions functionReturnTypeExpression) = do
-  functionParameterTypeFuncs <- forM functionParameterTypeExpressions $ getParametrizedTypeFunc maybeMutabilityParameter typeParameters
-  functionReturnTypeFunc <- getParametrizedTypeFunc maybeMutabilityParameter typeParameters functionReturnTypeExpression
-  return $ \mutability typeArguments ->
-    let functionParameterTypes = functionParameterTypeFuncs <&> \f -> f mutability typeArguments
-        functionReturnType = functionReturnTypeFunc mutability typeArguments
-     in FunctionType functionParameterTypes functionReturnType
-getParametrizedTypeFunc maybeMutabilityParameter typeParameters (RecordUnionTypeExpression expressionRange mutabilityExpression recordExpressions) = do
-  mutabilityFunc <- case mutabilityExpression of
-    Left mutability -> return $ const mutability
-    Right mutabilityIdentifier | maybeMutabilityParameter == Just mutabilityIdentifier -> return id
-    _ -> throwError $ ShouldNotGetHereError "Encountered out of scope mutability parameter"
-  let addRecord recordMap (recordName, recordTypeArgumentExpressions) = do
-        recordTypeArgumentFuncs <- forM recordTypeArgumentExpressions $ getParametrizedTypeFunc maybeMutabilityParameter typeParameters
-        let (conflictingRecordType, updatedMap) =
-              insertAndReplace
-                recordName
-                (\mutabilityArgument typeArguments -> recordTypeArgumentFuncs <&> \f -> f mutabilityArgument typeArguments)
-                recordMap
-        case conflictingRecordType of
-          Just _ -> throwError $ RecordUnionTypeExpressionDuplicateRecordsError expressionRange (getTextName recordName)
-          Nothing -> return updatedMap
-  recordTypeArgumentFuncsMap <- foldM addRecord Map.empty recordExpressions
-  return $ \mutability typeArguments ->
-    let recordTypeArgumentsMap = recordTypeArgumentFuncsMap <&> \f -> f mutability typeArguments
-     in RecordUnionType (mutabilityFunc mutability) recordTypeArgumentsMap
-getParametrizedTypeFunc maybeMutabilityParameter typeParameters (ListTypeExpression expressionRange mutabilityExpression typeArgumentExpressions) = do
-  mutabilityFunc <- case mutabilityExpression of
-    Left mutability -> return $ const mutability
-    Right mutabilityIdentifier | maybeMutabilityParameter == Just mutabilityIdentifier -> return id
-    _ -> throwError $ ShouldNotGetHereError "Encountered out of scope mutability parameter"
-  typeArguments <- forM typeArgumentExpressions $ getParametrizedTypeFunc maybeMutabilityParameter typeParameters
-  unless (Seq.length typeArguments == 1) $
-    throwError (ListWrongNumberOfTypeArgumentsError expressionRange (Seq.length typeArguments))
-  return $ \recordMutability recordTypeParameters -> ListType (mutabilityFunc recordMutability) (seqHead typeArguments recordMutability recordTypeParameters)
-
-addRecordFieldOrder :: BoundRecordIdentifier -> Seq UnboundIdentifier -> TypeChecker ()
-addRecordFieldOrder recordName fields = do
-  recordFieldOrders <- recordFieldOrders <$> getState
-  setRecordFieldOrders $ Map.insert recordName fields recordFieldOrders
-
-getRecordFieldOrders :: TypeChecker (Map BoundRecordIdentifier (Seq UnboundIdentifier))
-getRecordFieldOrders = recordFieldOrders <$> getState
-
-setValueIdentifierTypes :: Map BoundValueIdentifier Type -> TypeChecker ()
-setValueIdentifierTypes valueIdentifierTypes = do
+pushFunctionContext :: FunctionContext -> TypeChecker ()
+pushFunctionContext functionContext = do
   state <- getState
-  setState state {valueIdentifierTypes}
+  let updatedFunctionContextStack = functionContext : functionContextStack state
+  setState state {functionContextStack = updatedFunctionContextStack}
 
-setFunctionContextStack :: [FunctionContext] -> TypeChecker ()
-setFunctionContextStack functionContextStack = do
+popFunctionContext :: TypeChecker ()
+popFunctionContext = do
   state <- getState
-  setState state {functionContextStack}
+  let updatedFunctionContextStack = tail $ functionContextStack state
+  setState state {functionContextStack = updatedFunctionContextStack}
 
-setRecordFieldOrders :: Map BoundRecordIdentifier (Seq UnboundIdentifier) -> TypeChecker ()
-setRecordFieldOrders recordFieldOrders = do
-  state <- getState
-  setState state {recordFieldOrders}
+withFunctionContext :: FunctionContext -> TypeChecker a -> TypeChecker a
+withFunctionContext functionContext checker =
+  do
+    pushFunctionContext functionContext
+    checker
+    `andFinally` popFunctionContext

@@ -1,7 +1,7 @@
 module Core.Utils
   ( Pretty (pretty),
     seqHead,
-    seqTail,
+    seqLast,
     seqSplitOn,
     seqPartitionEither,
     seqFilterMap,
@@ -11,6 +11,7 @@ module Core.Utils
     insertAndReplace,
     (<>?),
     uncurry3,
+    seqTranspose,
   )
 where
 
@@ -62,8 +63,8 @@ instance (Pretty a, Pretty b) => Pretty (Map a b) where
 seqHead :: Seq a -> a
 seqHead s = Seq.index s 0
 
-seqTail :: Seq a -> a
-seqTail s = Seq.index s (Seq.length s - 1)
+seqLast :: Seq a -> a
+seqLast s = Seq.index s (Seq.length s - 1)
 
 seqSplitOn :: (a -> Bool) -> Seq a -> Seq (Seq a)
 seqSplitOn _ Empty = Empty
@@ -102,3 +103,9 @@ x <>? (Just y) = x <> y
 
 uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
 uncurry3 f (x, y, z) = f x y z
+
+seqTranspose :: Seq (Seq a) -> Seq (Seq a)
+seqTranspose seqs =
+  if all Seq.null seqs
+    then Empty
+    else (seqHead <$> seqs) :<| seqTranspose (Seq.drop 1 <$> seqs)

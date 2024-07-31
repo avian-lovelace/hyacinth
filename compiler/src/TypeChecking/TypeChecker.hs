@@ -24,7 +24,7 @@ runTypeChecking :: IBModule -> WithErrors (Map BoundRecordIdentifier (Seq Unboun
 runTypeChecking m = do
   let (finalState, typeCheckingResult) = runErrorState (typeCheckModule m) initialTypeCheckingState
   checkedModule <- typeCheckingResult
-  return (recordFieldOrders finalState, checkedModule)
+  return (getRecordFieldOrders finalState, checkedModule)
 
 typeCheckModule :: IBModule -> TypeChecker TCModule
 typeCheckModule (Module () mainFunction) = do
@@ -39,7 +39,8 @@ typeCheckMainFunction (MainFunction () scope) = do
 typeCheckScope :: IBScope -> TypeChecker TCScope
 typeCheckScope (Scope () nonPositionalStatements statements) = do
   mapM_ initializeTypeSynonym nonPositionalStatements
-  mapM_ initializeNonPositionalStatement nonPositionalStatements
+  varianceInfos <- mapM initializeNonPositionalStatement nonPositionalStatements
+  calculateVariances $ seqFilterMap id varianceInfos
   checkedStatements <- mapM typeCheckStatement statements
   maybeCheckedNonPositionalStatements <- mapM typeCheckNonPositionalStatement nonPositionalStatements
   let checkedNonPositionalStatements = seqFilterMap id maybeCheckedNonPositionalStatements
@@ -48,17 +49,18 @@ typeCheckScope (Scope () nonPositionalStatements statements) = do
 
 initializeTypeSynonym :: IBNonPositionalStatement -> TypeChecker ()
 initializeTypeSynonym (TypeStatement _ typeSynonym maybeMutabilityParameter typeParameters typeValue) =
-  initializeTypeSynonymType typeSynonym maybeMutabilityParameter typeParameters typeValue
+  initializeTypeSynonymTypeInfo typeSynonym maybeMutabilityParameter typeParameters typeValue
 initializeTypeSynonym _ = return ()
 
-initializeNonPositionalStatement :: IBNonPositionalStatement -> TypeChecker ()
+initializeNonPositionalStatement :: IBNonPositionalStatement -> TypeChecker (Maybe VarianceInfo)
 initializeNonPositionalStatement (FunctionStatement statementRange functionName typeParameters (FunctionDefinition _ parameters (WithTypeAnnotation _ returnTypeAnnotation))) = do
-  parameterTypes <- mapM (getParameterTypeExpression >=> getParametrizedTypeFunc Nothing typeParameters) parameters
+  parameterTypes <- mapM (getParameterTypeExpression >=> getParametrizedTypeFunc (NormalContext Nothing) typeParameters) parameters
   returnTypeFunc <- case returnTypeAnnotation of
-    Just returnTypeExpression -> getParametrizedTypeFunc Nothing typeParameters returnTypeExpression
+    Just returnTypeExpression -> getParametrizedTypeFunc (NormalContext Nothing) typeParameters returnTypeExpression
     Nothing -> throwError $ FunctionMissingReturnTypeAnnotation statementRange
   let functionTypeFunc typeArguments = FunctionType (parameterTypes <&> (\f -> f Immutable typeArguments)) (returnTypeFunc Immutable typeArguments)
-  setFunctionType functionName (Seq.length typeParameters) functionTypeFunc
+  setFunctionTypeInfo functionName (Seq.length typeParameters) functionTypeFunc
+  return Nothing
   where
     getParameterTypeExpression :: IBWithTypeAnnotation IBValueIdentifier -> TypeChecker IBTypeExpression
     getParameterTypeExpression (WithTypeAnnotation _ parameterTypeAnnotation) = case parameterTypeAnnotation of
@@ -66,11 +68,10 @@ initializeNonPositionalStatement (FunctionStatement statementRange functionName 
       Nothing -> throwError $ FunctionMissingParameterTypeAnnotation statementRange
 initializeNonPositionalStatement (RecordStatement _ recordName mutabilityParameter typeParameters fieldTypePairs) = do
   fieldTypeExpressionMap <- foldM addFieldType Map.empty fieldTypePairs
-  fieldTypeFuncMap <- mapM (getRecordFieldTypeFunc True mutabilityParameter typeParameters) fieldTypeExpressionMap
-  setRecordFieldTypes recordName (Seq.length typeParameters) $ \mutability typeArguments -> fieldTypeFuncMap <&> \f -> f mutability typeArguments
-  addRecordFieldOrder recordName (fst <$> fieldTypePairs)
-  -- [BUG-4] Record type parameter variances should be properly calculated
-  setRecordTypeParameterVariances recordName (typeParameters <&> const Covariant) (typeParameters <&> const Invariant)
+  fieldTypeFuncMap <- mapM (getParametrizedTypeFunc (recordContext mutabilityParameter) typeParameters) fieldTypeExpressionMap
+  let fieldTypeMapFunc mutability typeArguments = fieldTypeFuncMap <&> \f -> f mutability typeArguments
+  setRecordTypeInfo recordName (Seq.length typeParameters) fieldTypeMapFunc (initialVarianceFunc typeParameters) (fst <$> fieldTypePairs)
+  return $ Just (Left (recordName, snd <$> fieldTypePairs), mutabilityParameter, typeParameters)
   where
     addFieldType :: Map IBFieldIdentifier IBTypeExpression -> (IBFieldIdentifier, IBTypeExpression) -> TypeChecker (Map IBFieldIdentifier IBTypeExpression)
     addFieldType recordMap (fieldName, fieldType) = do
@@ -79,9 +80,9 @@ initializeNonPositionalStatement (RecordStatement _ recordName mutabilityParamet
         Just conflictingType ->
           throwError $ RecordStatementConflictingFieldsError (getTextName recordName) fieldName (getRange fieldType) (getRange conflictingType)
         Nothing -> return updatedRecordMap
-initializeNonPositionalStatement (TypeStatement statementRange typeSynonym _ typeParameters _) = do
-  _ <- getTypeSynonymType statementRange (Seq.length typeParameters) typeSynonym
-  return ()
+initializeNonPositionalStatement (TypeStatement _ typeSynonym mutabilityParameter typeParameters typeValueExpression) = do
+  _ <- getTypeSynonymTypeInfo typeSynonym
+  return $ Just (Right (typeSynonym, typeValueExpression), mutabilityParameter, typeParameters)
 
 typeCheckNonPositionalStatement :: IBNonPositionalStatement -> TypeChecker (Maybe TCNonPositionalStatement)
 typeCheckNonPositionalStatement
