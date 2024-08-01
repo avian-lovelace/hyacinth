@@ -1,6 +1,5 @@
 module Core.Utils
-  ( Pretty (pretty),
-    seqHead,
+  ( seqHead,
     seqLast,
     seqSplitOn,
     seqPartitionEither,
@@ -26,40 +25,6 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 
--- Classes
-class Pretty t where
-  pretty :: t -> String
-
-instance (Pretty a) => Pretty (Seq a) where
-  pretty xs = fold . Seq.intersperse " " $ pretty <$> xs
-
-instance (Pretty a) => Pretty [a] where
-  pretty = pretty . Seq.fromList
-
-instance (Pretty a) => Pretty (Maybe a) where
-  pretty (Just x) = pretty x
-  pretty Nothing = "()"
-
-instance Pretty () where
-  pretty () = "()"
-
-instance Pretty Text where
-  pretty = Text.unpack
-
-instance Pretty Int where
-  pretty = show
-
-instance (Pretty a, Pretty b) => Pretty (Either a b) where
-  pretty (Left a) = pretty a
-  pretty (Right b) = pretty b
-
-instance (Pretty a, Pretty b) => Pretty (a, b) where
-  pretty (a, b) = pretty a ++ " " ++ pretty b
-
-instance (Pretty a, Pretty b) => Pretty (Map a b) where
-  pretty = pretty . Map.toList
-
--- Utility function
 seqHead :: Seq a -> a
 seqHead s = Seq.index s 0
 

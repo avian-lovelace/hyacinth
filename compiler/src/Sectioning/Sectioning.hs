@@ -14,6 +14,7 @@ where
 
 import Core.ErrorState
 import Core.FilePositions
+import Core.Pretty
 import Core.Utils
 import Data.Sequence (Seq (..))
 import Lexing.Tokens

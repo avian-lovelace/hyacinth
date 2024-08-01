@@ -9,6 +9,7 @@ import BytecodeGeneration.BytecodeGenerator
 import Control.Monad (forM_, when)
 import Core.EitherIO
 import Core.Errors
+import Core.Pretty
 import Core.Utils
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Builder as BB

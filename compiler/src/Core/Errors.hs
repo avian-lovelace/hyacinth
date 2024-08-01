@@ -171,6 +171,7 @@ module Core.Errors
 where
 
 import Core.FilePositions
+import Core.Pretty
 import Core.SyntaxTree (Mutability)
 import Core.Utils
 import Data.Foldable (fold)

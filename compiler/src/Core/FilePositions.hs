@@ -7,6 +7,7 @@ module Core.FilePositions
   )
 where
 
+import Core.Pretty
 import Core.Utils
 import Data.Sequence (Seq)
 

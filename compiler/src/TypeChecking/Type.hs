@@ -14,6 +14,7 @@ module TypeChecking.Type
   )
 where
 
+import Core.Pretty
 import Core.SyntaxTree
 import Core.Utils
 import Data.Foldable (fold, toList)

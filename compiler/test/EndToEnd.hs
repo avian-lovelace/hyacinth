@@ -2,6 +2,7 @@ module EndToEnd (runsSuccessfullyWithOutput, failsToCompileWithError) where
 
 import Core.EitherIO
 import Core.Errors
+import Core.Pretty
 import Core.Utils
 import Data.Foldable (fold)
 import qualified Data.Sequence as Seq
