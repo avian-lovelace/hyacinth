@@ -25,6 +25,7 @@ compiler/cabal.project.local
 compiler/cabal.project.local~
 compiler/.HTF/
 compiler/.ghc.environment.*
+compiler/test/Main
 
 hyacinth.cabal
 

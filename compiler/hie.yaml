@@ -1,13 +1,2 @@
 cradle:
-  cabal:
-    - path: "src"
-      component: "lib:hyacinth"
-
-    - path: "app/Main.hs"
-      component: "hyacinth:exe:hyacinth"
-
-    - path: "app/Paths_hyacinth.hs"
-      component: "hyacinth:exe:hyacinth"
-
-    - path: "test"
-      component: "hyacinth:test:hyacinth-test"
+    stack:

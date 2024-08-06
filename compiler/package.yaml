@@ -52,7 +52,11 @@ default-extensions:
     - ApplicativeDo
 
 library:
-    source-dirs: src
+    source-dirs:
+        - src
+        # As a workaround for issues with Haskell language server config, uncomment the line below and restart HLS when
+        # working on test files so that test module imports are recognized
+        # - test
 
 executables:
     hyacinth:
@@ -67,7 +71,7 @@ executables:
 
 tests:
     hyacinth-test:
-        main: Spec.hs
+        main: Main.hs
         source-dirs: test
         ghc-options:
             - -threaded
