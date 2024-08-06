@@ -304,6 +304,11 @@ expressionBinder (IndexExpression d innerExpression indexExpression) = do
   boundInnerExpression <- expressionBinder innerExpression
   boundIndexExpression <- expressionBinder indexExpression
   return $ IndexExpression d boundInnerExpression boundIndexExpression
+expressionBinder (MethodCallExpression d innerExpression method arguments) = do
+  boundInnerExpression <- expressionBinder innerExpression
+  boundMethod <- expressionBinder method
+  boundArguments <- traverse' expressionBinder arguments
+  return $ MethodCallExpression d boundInnerExpression boundMethod boundArguments
 
 bindScope :: PScope -> IdentifierBinder IBScope
 bindScope (Scope () nonPositionalStatements statements) = do

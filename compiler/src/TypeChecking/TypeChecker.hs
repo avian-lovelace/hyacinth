@@ -12,7 +12,7 @@ import Data.Functor ((<&>))
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
-import Data.Sequence (Seq (..))
+import Data.Sequence (Seq (..), (<|))
 import qualified Data.Sequence as Seq
 import IdentifierBinding.SyntaxTree
 import Parsing.SyntaxTree
@@ -688,3 +688,19 @@ typeSynthesizeExpression (IndexExpression expressionRange innerExpression indexE
         (expressionReturnInfo . getExpressionData $ checkedInnerExpression)
           `riAnd` (expressionReturnInfo . getExpressionData $ checkedIndexExpression)
   return $ IndexExpression (TCExpresionData expressionRange expressionType returnInfo) checkedInnerExpression checkedIndexExpression
+typeSynthesizeExpression (MethodCallExpression expressionRange innerExpression method arguments) = do
+  checkedMethod <- typeSynthesizeExpression method
+  (parameterTypes, returnType) <- case expressionType . getExpressionData $ checkedMethod of
+    FunctionType parameterTypes returnType -> return (parameterTypes, returnType)
+    unexpectedType -> throwError $ MethodCallExpressionNotAFunctionTypeError expressionRange unexpectedType
+  let allArguments = innerExpression <| arguments
+  unless (Seq.length parameterTypes == Seq.length allArguments) $
+    throwError (MethodCallExpressionArityError expressionRange (Seq.length parameterTypes) (Seq.length arguments))
+  checkedAllArguments <- forM (Seq.zip parameterTypes allArguments) (uncurry typeCheckExpression)
+  (checkedInnerExpression, checkedArguments) <- case checkedAllArguments of
+    checkedInnerExpression :<| checkedArguments -> return (checkedInnerExpression, checkedArguments)
+    _ -> throwError $ ShouldNotGetHereError "Argument list was unexpectedly empty when type synthesizing MethodCallExpression"
+  let returnInfo =
+        (expressionReturnInfo . getExpressionData $ checkedMethod)
+          `riAnd` foldMap (expressionReturnInfo . getExpressionData) checkedAllArguments
+  return $ MethodCallExpression (TCExpresionData expressionRange returnType returnInfo) checkedInnerExpression checkedMethod checkedArguments

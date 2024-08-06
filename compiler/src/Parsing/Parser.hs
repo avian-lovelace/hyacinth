@@ -405,11 +405,11 @@ toUnaryExpressionAndRange _ = Nothing
 postfixExpressionParser :: Parser PExpression
 postfixExpressionParser = do
   innerExpression <- primaryExpressionParser
-  operators <- pZeroOrMore $ postfixOperatorParser
+  operators <- pZeroOrMore postfixOperatorParser
   return $ foldl' (&) innerExpression operators
 
 postfixOperatorParser :: Parser (PExpression -> PExpression)
-postfixOperatorParser = indexingParser <|> fieldAccessParser <|> functionCallParser
+postfixOperatorParser = indexingParser <|> fieldAccessParser <|> functionCallParser <|> methodCallParser
 
 indexingParser :: Parser (PExpression -> PExpression)
 indexingParser = do
@@ -444,8 +444,7 @@ functionCallParser = do
 parseArguments :: Range -> ParseFunction (Seq PExpression)
 parseArguments argumentsRange sections = do
   let argumentSectionLists = seqSplitOn isCommaSection sections
-  arguments <- consolidateErrors $ parseArgument <$> argumentSectionLists
-  return arguments
+  consolidateErrors $ parseArgument <$> argumentSectionLists
   where
     parseArgument :: Seq Section -> WithErrors PExpression
     parseArgument Empty = singleError $ FunctionCallEmptyArgumentError argumentsRange
@@ -460,6 +459,18 @@ isCommaSection _ = False
 matchSquareBracketSection :: Section -> Maybe (Range, Seq Section)
 matchSquareBracketSection (SquareBracketSection range innerSections) = Just (range, innerSections)
 matchSquareBracketSection _ = Nothing
+
+methodCallParser :: Parser (PExpression -> PExpression)
+methodCallParser = do
+  pNext <&&> matchRightRightSection
+  methodExpression <- primaryExpressionParser
+  (argumentListRange, argumentListSections) <- pNext <&&> matchSquareBracketSection
+  arguments <- returnWithErrors $ parseArguments argumentListRange argumentListSections
+  return $ \innerExpression -> MethodCallExpression (getRange innerExpression <> argumentListRange) innerExpression methodExpression arguments
+
+matchRightRightSection :: Section -> Maybe ()
+matchRightRightSection (TokenSection (RightRightToken _)) = Just ()
+matchRightRightSection _ = Nothing
 
 -- Primary level
 

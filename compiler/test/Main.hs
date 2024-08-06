@@ -3,6 +3,7 @@ import ControlFlowSpec
 import ExpressionSpec
 import FunctionSpec
 import ListSpec
+import MethodSpec
 import RecordSpec
 import StringSpec
 import Test.Hspec
@@ -20,3 +21,4 @@ main = hspec $ do
   testComments
   testLists
   testVariance
+  testMethods

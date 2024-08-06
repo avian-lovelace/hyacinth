@@ -1,65 +1,5 @@
 module Lexing.Tokens
-  ( Token
-      ( TypeToken,
-        LetToken,
-        MutToken,
-        IfToken,
-        ThenToken,
-        ElseToken,
-        FuncToken,
-        CaseToken,
-        OfToken,
-        WhileToken,
-        LoopToken,
-        ReturnToken,
-        RecToken,
-        ListToken,
-        SemicolonToken,
-        ColonToken,
-        EqualsToken,
-        PipeToken,
-        SingleRightArrowToken,
-        DoubleRightArrowToken,
-        CommaToken,
-        LeftParenToken,
-        RightParenToken,
-        LeftCurlyBraceToken,
-        RightCurlyBraceToken,
-        LeftSquareBracketToken,
-        RightSquareBracketToken,
-        LeftAngleBracketToken,
-        RightAngleBracketToken,
-        IdentifierToken,
-        IntToken,
-        FloatToken,
-        CharToken,
-        StringToken,
-        BoolToken,
-        NilToken,
-        IntLiteralToken,
-        FloatLiteralToken,
-        CharLiteralToken,
-        StringLiteralToken,
-        BoolLiteralToken,
-        NilLiteralToken,
-        PlusToken,
-        MinusToken,
-        StarToken,
-        SlashToken,
-        PercentToken,
-        BangToken,
-        AndToken,
-        OrToken,
-        PlusPlusToken,
-        EqualEqualToken,
-        NotEqualToken,
-        GreaterToken,
-        LessToken,
-        GreaterEqualToken,
-        LessEqualToken,
-        DotToken,
-        HashToken
-      ),
+  ( Token (..),
   )
 where
 
@@ -134,6 +74,7 @@ data Token
   | LessEqualToken Range
   | DotToken Range
   | HashToken Range
+  | RightRightToken Range
   deriving (Show, Eq)
 
 instance Pretty Token where
@@ -196,6 +137,7 @@ instance Pretty Token where
   pretty (LessEqualToken _) = "<="
   pretty (DotToken _) = "."
   pretty (HashToken _) = "#"
+  pretty (RightRightToken _) = ">>"
 
 instance WithRange Token where
   getRange (TypeToken range) = range
@@ -257,3 +199,4 @@ instance WithRange Token where
   getRange (LessEqualToken range) = range
   getRange (DotToken range) = range
   getRange (HashToken range) = range
+  getRange (RightRightToken range) = range

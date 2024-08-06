@@ -140,7 +140,8 @@ data Error
   | IfThenExpressionNilTypeError Range Type
   | FunctionCallExpressionNotAFunctionTypeError Range Type
   | FunctionCallExpressionArityError Range Int Int
-  | FunctionCallExpressionArgumentTypeError Range Type Type
+  | MethodCallExpressionNotAFunctionTypeError Range Type
+  | MethodCallExpressionArityError Range Int Int
   | FunctionMissingParameterTypeAnnotation Range
   | FunctionMissingReturnTypeAnnotation Range
   | FunctionTypeError Range Type
@@ -368,8 +369,10 @@ instance Pretty Error where
     "Attempted to call a value of non-function type " ++ pretty functionType ++ " at " ++ pretty range
   pretty (FunctionCallExpressionArityError range numParameters numArguments) =
     "Attempted to call function with " ++ show numParameters ++ " parameters with " ++ show numArguments ++ " at " ++ pretty range
-  pretty (FunctionCallExpressionArgumentTypeError range parameterType argumentType) =
-    "When calling functtion, parameter type " ++ pretty parameterType ++ " does not match argument type " ++ pretty argumentType ++ " at " ++ pretty range
+  pretty (MethodCallExpressionNotAFunctionTypeError range functionType) =
+    "Attempted use a value of non-function type " ++ pretty functionType ++ " as a method at " ++ pretty range
+  pretty (MethodCallExpressionArityError range numParameters numArguments) =
+    "Attempted to call function as a method with " ++ show numParameters ++ " parameters (including the self parameter) with " ++ show numArguments ++ " at " ++ pretty range
   pretty (FunctionMissingParameterTypeAnnotation range) =
     "Function parameter has no type annotation at " ++ pretty range
   pretty (FunctionMissingReturnTypeAnnotation range) =

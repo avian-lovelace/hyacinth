@@ -14,24 +14,12 @@ module Core.SyntaxTree
     FunctionDefinitionData,
     getFunctionDefinitionData,
     TypeParameters,
-    Statement
-      ( VariableDeclarationStatement,
-        VariableMutationStatement,
-        FieldMutationStatement,
-        IndexMutationStatement,
-        ExpressionStatement,
-        WhileLoopStatement,
-        ReturnStatement
-      ),
+    Statement (..),
     StatementData,
     getStatementData,
-    NonPositionalStatement
-      ( FunctionStatement,
-        RecordStatement,
-        TypeStatement
-      ),
+    NonPositionalStatement (..),
     NonPositionalStatementData,
-    Mutability (Mutable, Immutable),
+    Mutability (..),
     Identifier,
     ValueIdentifier,
     FunctionIdentifier,
@@ -41,57 +29,14 @@ module Core.SyntaxTree
     TypeParameter,
     MutabilityParameter,
     TypeSynonym,
-    Expression
-      ( IntLiteralExpression,
-        FloatLiteralExpression,
-        CharLiteralExpression,
-        StringLiteralExpression,
-        BoolLiteralExpression,
-        NilExpression,
-        NegateExpression,
-        AddExpression,
-        SubtractExpression,
-        MultiplyExpression,
-        DivideExpression,
-        ModuloExpression,
-        NotExpression,
-        AndExpression,
-        OrExpression,
-        EqualExpression,
-        NotEqualExpression,
-        GreaterExpression,
-        LessExpression,
-        GreaterEqualExpression,
-        LessEqualExpression,
-        IdentifierExpression,
-        IfThenElseExpression,
-        ScopeExpression,
-        FunctionExpression,
-        FunctionCallExpression,
-        RecordExpression,
-        FieldAccessExpression,
-        CaseExpression,
-        ListExpression,
-        IndexExpression
-      ),
+    Expression (..),
     ExpressionData,
     getExpressionData,
     TypeArguments,
     CaseList,
     WithTypeAnnotation (WithTypeAnnotation),
     TypeAnnotation,
-    TypeExpression
-      ( IntTypeExpression,
-        FloatTypeExpression,
-        CharTypeExpression,
-        StringTypeExpression,
-        BoolTypeExpression,
-        NilTypeExpression,
-        FunctionTypeExpression,
-        RecordUnionTypeExpression,
-        IdentifierTypeExpression,
-        ListTypeExpression
-      ),
+    TypeExpression (..),
     TypeExpressionData,
     getTypeExpressionData,
     MutabilityExpression,
@@ -295,6 +240,7 @@ data Expression phase
   | CaseExpression (ExpressionData phase) (Expression phase) (CaseList phase)
   | ListExpression (ExpressionData phase) Mutability (TypeArguments phase) (Seq (Expression phase))
   | IndexExpression (ExpressionData phase) (Expression phase) (Expression phase)
+  | MethodCallExpression (ExpressionData phase) (Expression phase) (Expression phase) (Seq (Expression phase))
 
 type family ExpressionData phase
 
@@ -353,6 +299,8 @@ instance
     "(ListExpression " ++ pretty mutability ++ " " ++ pretty typeArguments ++ " " ++ pretty values ++ ")"
   pretty (IndexExpression _ innerExpression indexExpression) =
     "(IndexExpression " ++ pretty innerExpression ++ " " ++ pretty indexExpression ++ ")"
+  pretty (MethodCallExpression _ innerExpression method arguments) =
+    "(MethodCallExpression " ++ pretty innerExpression ++ " " ++ pretty method ++ " " ++ pretty arguments ++ ")"
 
 getExpressionData :: Expression phase -> ExpressionData phase
 getExpressionData (IntLiteralExpression d _) = d
@@ -386,6 +334,7 @@ getExpressionData (FieldAccessExpression d _ _) = d
 getExpressionData (CaseExpression d _ _) = d
 getExpressionData (ListExpression d _ _ _) = d
 getExpressionData (IndexExpression d _ _) = d
+getExpressionData (MethodCallExpression d _ _ _) = d
 
 -- Type annotation
 data WithTypeAnnotation phase a = WithTypeAnnotation a (TypeAnnotation phase)

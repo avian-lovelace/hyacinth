@@ -9,7 +9,7 @@ import Data.Foldable (toList)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
-import Data.Sequence (Seq, (><))
+import Data.Sequence (Seq, (<|), (><))
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -292,3 +292,8 @@ expressionGenerator (IndexExpression _ innerExpression indexExpression) = do
   encodedInner <- expressionGenerator innerExpression
   encodedIndex <- expressionGenerator indexExpression
   return $ IndexExpr encodedInner encodedIndex
+expressionGenerator (MethodCallExpression _ innerExpression method arguments) = do
+  encodedInner <- expressionGenerator innerExpression
+  encodedMethod <- expressionGenerator method
+  encodedArguments <- traverse' expressionGenerator arguments
+  return $ CallExpr encodedMethod (encodedInner <| encodedArguments)

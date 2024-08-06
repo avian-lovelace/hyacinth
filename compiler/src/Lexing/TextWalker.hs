@@ -101,15 +101,15 @@ consumeUntil condition = do
     Consumed _ -> return $ Consumed consumedText
     HitEOF -> return HitEOF
 
-consumeString :: String -> (Maybe Char -> Bool) -> State FileState (Maybe Text.Text)
-consumeString str nextCharCondition = do
+consumeString :: String -> State FileState (Maybe Text.Text)
+consumeString str = do
   FileState {text, position = Position {line, col}} <- get
   let strLength = length str
   let strText = Text.take strLength text
   let newText = Text.drop strLength text
-  if
-    | (Text.unpack strText == str) && (nextCharCondition $ fst <$> Text.uncons newText) -> do
-        let newCol = col + toInteger strLength
-        put $ FileState {text = newText, position = Position {line, col = newCol}}
-        return $ Just strText
-    | otherwise -> return Nothing
+  if Text.unpack strText == str
+    then do
+      let newCol = col + toInteger strLength
+      put $ FileState {text = newText, position = Position {line, col = newCol}}
+      return $ Just strText
+    else return Nothing

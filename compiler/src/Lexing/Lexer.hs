@@ -60,6 +60,7 @@ lexers =
     lexMultiCharSymbol "!=" NotEqualToken,
     lexMultiCharSymbol ">=" GreaterEqualToken,
     lexMultiCharSymbol "<=" LessEqualToken,
+    lexMultiCharSymbol ">>" RightRightToken,
     -- Symbols
     lexSymbol ';' SemicolonToken,
     lexSymbol ':' ColonToken,
@@ -102,7 +103,7 @@ lexWhiteSpace = do
 
 lexComment :: Lexer
 lexComment = do
-  consumeResult <- consumeString "//" (const True)
+  consumeResult <- consumeString "//"
   case consumeResult of
     Nothing -> return Nothing
     Just _ -> do
@@ -125,17 +126,13 @@ lexSymbol char makeToken = do
 lexMultiCharSymbol :: String -> (Range -> Token) -> Lexer
 lexMultiCharSymbol keyword makeToken = do
   start <- getPosition
-  consumeResult <- consumeString keyword nextIsNotIdentifierChar
+  consumeResult <- consumeString keyword
   case consumeResult of
     Just _ -> do
       end <- getPosition
       let token = makeToken $ Range {start, end}
       return $ Just $ Success $ singleton token
     _ -> return Nothing
-  where
-    nextIsNotIdentifierChar maybeNext = case maybeNext of
-      Nothing -> True
-      Just next -> not $ isIdentifierChar next
 
 lexNumericLiteral :: Lexer
 lexNumericLiteral = do
