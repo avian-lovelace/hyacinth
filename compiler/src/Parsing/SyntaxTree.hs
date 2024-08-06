@@ -28,7 +28,6 @@ where
 import Core.FilePositions
 import Core.Pretty
 import Core.SyntaxTree
-import Core.Utils
 import Data.Sequence (Seq)
 import Data.Text (Text)
 

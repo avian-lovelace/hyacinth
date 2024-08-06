@@ -65,7 +65,6 @@ where
 
 import Core.FilePositions
 import Core.Pretty
-import Core.Utils
 import Data.Text (Text)
 
 data Token

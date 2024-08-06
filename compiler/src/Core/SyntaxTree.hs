@@ -99,7 +99,6 @@ module Core.SyntaxTree
 where
 
 import Core.Pretty
-import Core.Utils
 import Data.Map (Map)
 import Data.Sequence (Seq)
 import Data.Text (Text)
