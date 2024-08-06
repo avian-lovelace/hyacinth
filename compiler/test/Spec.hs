@@ -7,6 +7,7 @@ import RecordSpec
 import StringSpec
 import Test.Hspec
 import VariableSpec
+import VarianceSpec
 
 main :: IO ()
 main = hspec $ do
@@ -18,3 +19,4 @@ main = hspec $ do
   testRecords
   testComments
   testLists
+  testVariance

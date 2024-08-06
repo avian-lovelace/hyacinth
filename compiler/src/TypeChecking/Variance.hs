@@ -17,7 +17,7 @@ instance Semigroup Variance where
   Bivariant <> v = v
 
 instance Monoid Variance where
-  mempty = Invariant
+  mempty = Bivariant
 
 (~*) :: Variance -> Variance -> Variance
 Bivariant ~* _ = Bivariant

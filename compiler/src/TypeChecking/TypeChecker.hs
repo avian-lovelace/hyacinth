@@ -1,4 +1,4 @@
-module TypeChecking.TypeChecker (runTypeChecking) where
+module TypeChecking.TypeChecker (runTypeChecking, typeCheckModule) where
 
 import Control.Monad (foldM, forM, forM_, unless, when, (>=>))
 import Core.ErrorState

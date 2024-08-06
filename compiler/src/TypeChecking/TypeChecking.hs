@@ -1,10 +1,11 @@
 module TypeChecking.TypeChecking
   ( TypeChecker,
-    TypeCheckingState,
+    TypeCheckingState (..),
     FunctionContext (FunctionContext, contextReturnType),
-    Variance (Covariant, Contravariant, Invariant),
     MutabilityContext (NormalContext),
     VarianceInfo,
+    RecordTypeInfo (..),
+    TypeSynonymTypeInfo (..),
     recordContext,
     setValueIdentifierType,
     getValueIdentifierType,

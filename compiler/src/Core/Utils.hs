@@ -11,10 +11,10 @@ module Core.Utils
     (<>?),
     uncurry3,
     seqTranspose,
+    sequence2,
   )
 where
 
-import Data.Foldable
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust, isJust)
@@ -22,8 +22,6 @@ import Data.Sequence (Seq (Empty, (:<|)), (<|))
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Text (Text)
-import qualified Data.Text as Text
 
 seqHead :: Seq a -> a
 seqHead s = Seq.index s 0
@@ -74,3 +72,9 @@ seqTranspose seqs =
   if all Seq.null seqs
     then Empty
     else (seqHead <$> seqs) :<| seqTranspose (Seq.drop 1 <$> seqs)
+
+sequence2 :: (Monad m) => (m a, m b) -> m (a, b)
+sequence2 (compA, compB) = do
+  a <- compA
+  b <- compB
+  return (a, b)
