@@ -11,11 +11,7 @@ module IdentifierBinding.SyntaxTree
     IBFunctionIdentifier,
     BoundValueIdentifier (BoundValueIdentifier),
     BoundFunctionIdentifier (BoundFunctionIdentifier),
-    BuiltInFunction
-      ( PrintFunction,
-        PrintLineFunction,
-        ReadLineFunction
-      ),
+    BuiltInFunction (..),
     BoundRecordIdentifier (BoundRecordIdentifier),
     IBRecordIdentifier,
     BoundTypeParameter (BoundTypeParameter),
@@ -140,6 +136,8 @@ data BuiltInFunction
   = PrintFunction
   | PrintLineFunction
   | ReadLineFunction
+  | PushFunction
+  | PopFunction
   deriving (Eq, Ord, Show)
 
 instance Pretty BuiltInFunction where

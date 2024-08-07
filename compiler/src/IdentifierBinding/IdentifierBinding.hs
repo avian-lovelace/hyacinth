@@ -350,11 +350,15 @@ getIdentifierBinding usageRange unboundIdentifier = do
 
 getIdentifierBindingInScopes :: Range -> UnboundIdentifier -> [ScopeInfo] -> IdentifierBinder (IdentifierInfo, [ScopeInfo])
 getIdentifierBindingInScopes usageRange unboundIdentifier scopes = case scopes of
-  [] -> case unboundIdentifier of
-    "print" -> return (BuiltInFunctionInfo PrintFunction, [])
-    "printLine" -> return (BuiltInFunctionInfo PrintLineFunction, [])
-    "readLine" -> return (BuiltInFunctionInfo ReadLineFunction, [])
-    _ -> throwError $ IdentifierUndefinedAtReferenceError unboundIdentifier usageRange
+  [] -> do
+    builtInFunction <- case unboundIdentifier of
+      "print" -> return PrintFunction
+      "printLine" -> return PrintLineFunction
+      "readLine" -> return ReadLineFunction
+      "push" -> return PushFunction
+      "pop" -> return PopFunction
+      _ -> throwError $ IdentifierUndefinedAtReferenceError unboundIdentifier usageRange
+    return (BuiltInFunctionInfo builtInFunction, [])
   ExpressionScope {scopeIdentifiers} : restScopes -> case Map.lookup unboundIdentifier scopeIdentifiers of
     Just info -> return (info, scopes)
     Nothing -> do

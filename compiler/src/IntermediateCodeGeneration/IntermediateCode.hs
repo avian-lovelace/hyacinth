@@ -2,56 +2,11 @@ module IntermediateCodeGeneration.IntermediateCode
   ( Mod (Mod),
     MainFunc (MainFunc),
     SubFunc (SubFunc),
-    Stmt
-      ( VariableDeclarationStmt,
-        VariableMutationStmt,
-        FieldMutationStmt,
-        IndexMutationStmt,
-        ExpressionStmt,
-        WhileLoopStmt,
-        ReturnStmt
-      ),
-    Expr
-      ( LiteralExpr,
-        IdentifierExpr,
-        BuiltInFunctionExpr,
-        IfThenElseExpr,
-        ScopeExpr,
-        FunctionExpr,
-        CallExpr,
-        RecordExpr,
-        FieldExpr,
-        CaseExpr,
-        ListExpr,
-        IndexExpr
-      ),
+    Stmt (..),
+    Expr (..),
     FieldIndex,
-    LiteralValue
-      ( IntLiteral,
-        FloatLiteral,
-        CharLiteral,
-        StringLiteral,
-        BoolLiteral,
-        NilLiteral
-      ),
-    BuiltInFn
-      ( NegateFn,
-        AddFn,
-        SubtractFn,
-        MultiplyFn,
-        DivideFn,
-        ModuloFn,
-        NotFn,
-        EqualFn,
-        NotEqualFn,
-        GreaterFn,
-        LessFn,
-        GreaterEqualFn,
-        LessEqualFn,
-        PrintFn,
-        PrintLineFn,
-        ReadLineFn
-      ),
+    LiteralValue (..),
+    BuiltInFn (..),
   )
 where
 
@@ -124,4 +79,6 @@ data BuiltInFn
   | PrintFn
   | PrintLineFn
   | ReadLineFn
+  | PushFn
+  | PopFn
   deriving (Show)

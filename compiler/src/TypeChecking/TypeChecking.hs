@@ -142,12 +142,20 @@ getFunctionType usageRange (Right builtInFunction) typeArguments = do
         PrintFunction -> 1
         PrintLineFunction -> 1
         ReadLineFunction -> 0
+        PushFunction -> 1
+        PopFunction -> 1
   unless (Seq.length typeArguments == functionTypeArity) $
     throwError (FunctionWrongNumberOfTypeArgumentsError usageRange (getTextName builtInFunction) functionTypeArity (Seq.length typeArguments))
   return $ case builtInFunction of
     PrintFunction -> FunctionType (Seq.singleton $ typeArguments `Seq.index` 0) NilType
     PrintLineFunction -> FunctionType (Seq.singleton $ typeArguments `Seq.index` 0) NilType
     ReadLineFunction -> FunctionType Empty StringType
+    PushFunction ->
+      let valueType = typeArguments `Seq.index` 0
+       in FunctionType (Seq.fromList [ListType Mutable valueType, valueType]) (ListType Mutable valueType)
+    PopFunction ->
+      let valueType = typeArguments `Seq.index` 0
+       in FunctionType (Seq.singleton $ ListType Mutable valueType) valueType
 
 setRecordTypeInfo ::
   BoundRecordIdentifier ->

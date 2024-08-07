@@ -22,6 +22,10 @@ testLists = do
       "let foo = mut List[10, 11, 12]; printLine⟨Int⟩[foo#1]; mut foo#1 = 13; printLine⟨Int⟩[foo#1]" `runsSuccessfullyWithOutput` "11\n13\n"
     it "Nested lists can be mutated" $
       "let foo = mut List[mut List[10, 11], mut List[12]]; printLine⟨Int⟩[foo#0#1]; mut foo#0#1 = 13; printLine⟨Int⟩[foo#0#1]" `runsSuccessfullyWithOutput` "11\n13\n"
+    it "Mutable lists can be pushed to" $
+      "let foo = mut List[3, 5]; foo>>push⟨Int⟩[7]; printLine⟨Int⟩[foo#0]; printLine⟨Int⟩[foo#1]; printLine⟨Int⟩[foo#2];" `runsSuccessfullyWithOutput` "3\n5\n7\n"
+    it "Mutable lists can be popped from" $
+      "let foo = mut List[3, 5]; let bar = foo>>pop⟨Int⟩[]; printLine⟨Int⟩[foo#0]; printLine⟨Int⟩[bar];" `runsSuccessfullyWithOutput` "3\n5\n"
   describe "List errors:" $ do
     it "The value type of an empty list cannot be generated" $
       "let foo = List[]" `failsToCompileWithError` listValueTypeInferenceError
