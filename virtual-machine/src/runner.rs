@@ -414,6 +414,39 @@ impl VM {
                                     self.heap.add(Object::StringObj(input.trim().to_owned()));
                                 self.push(input_string_ref);
                             }
+                            BuiltInFunction::Push => {
+                                let push_value = self.pop();
+                                let list_value = self.pop();
+                                self.pop();
+                                match list_value {
+                                    Value::Object(list_object_index) => {
+                                        let object = self.heap.get_mut(list_object_index);
+                                        match object {
+                                            Object::ListObj { values } => values.push(push_value),
+                                            obj => panic!("Ran push on object {}", obj),
+                                        }
+                                    }
+                                    _ => panic!("Ran push on {}", list_value),
+                                }
+                                self.push(list_value);
+                            }
+                            BuiltInFunction::Pop => {
+                                let list_value = self.pop();
+                                self.pop();
+                                let pop_value = match list_value {
+                                    Value::Object(list_object_index) => {
+                                        let object = self.heap.get_mut(list_object_index);
+                                        match object {
+                                            Object::ListObj { values } => {
+                                                values.pop().expect("Ran pop while list was empty")
+                                            }
+                                            obj => panic!("Ran pop on object {}", obj),
+                                        }
+                                    }
+                                    _ => panic!("Ran pop on {}", list_value),
+                                };
+                                self.push(pop_value);
+                            }
                         },
                         Value::Object(object_index) => match self.heap.get(object_index) {
                             Object::FunctionObj {
