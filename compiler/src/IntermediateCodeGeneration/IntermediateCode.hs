@@ -81,4 +81,5 @@ data BuiltInFn
   | ReadLineFn
   | PushFn
   | PopFn
+  | LengthFn
   deriving (Show)

@@ -138,6 +138,7 @@ data BuiltInFunction
   | ReadLineFunction
   | PushFunction
   | PopFunction
+  | LengthFunction
   deriving (Eq, Ord, Show)
 
 instance Pretty BuiltInFunction where

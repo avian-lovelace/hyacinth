@@ -447,6 +447,21 @@ impl VM {
                                 };
                                 self.push(pop_value);
                             }
+                            BuiltInFunction::Length => {
+                                let list_value = self.pop();
+                                self.pop();
+                                let length = match list_value {
+                                    Value::Object(list_object_index) => {
+                                        let object = self.heap.get_mut(list_object_index);
+                                        match object {
+                                            Object::ListObj { values } => values.len(),
+                                            obj => panic!("Ran pop on object {}", obj),
+                                        }
+                                    }
+                                    _ => panic!("Ran pop on {}", list_value),
+                                };
+                                self.push(Value::Int(length as i32));
+                            }
                         },
                         Value::Object(object_index) => match self.heap.get(object_index) {
                             Object::FunctionObj {

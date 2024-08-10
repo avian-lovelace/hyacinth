@@ -357,6 +357,7 @@ getIdentifierBindingInScopes usageRange unboundIdentifier scopes = case scopes o
       "readLine" -> return ReadLineFunction
       "push" -> return PushFunction
       "pop" -> return PopFunction
+      "length" -> return LengthFunction
       _ -> throwError $ IdentifierUndefinedAtReferenceError unboundIdentifier usageRange
     return (BuiltInFunctionInfo builtInFunction, [])
   ExpressionScope {scopeIdentifiers} : restScopes -> case Map.lookup unboundIdentifier scopeIdentifiers of

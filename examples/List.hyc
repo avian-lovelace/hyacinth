@@ -1,0 +1,23 @@
+let vals = range[0, 5];
+let squares = vals>>map⟨Int, Int⟩[[x] -> x * x];
+squares>>map⟨Int, Nil⟩[[x] -> printLine⟨Int⟩[x]];
+
+func map = ⟨T, V⟩ => [xs: List⟨T⟩, f: [T] -> V]: mut List⟨V⟩ -> {
+    let ys = mut List⟨V⟩ [];
+    let mut i = 0;
+    while i < xs>>length⟨T⟩[] loop {
+        ys>>push⟨V⟩[f[xs#i]];
+        mut i = i + 1;
+    };
+    return ys;
+};
+
+func range = [start: Int, end: Int]: mut List⟨Int⟩ -> {
+    let xs = mut List⟨Int⟩ [];
+    let mut i = start;
+    while i < end loop {
+        xs>>push⟨Int⟩[i];
+        mut i = i + 1;
+    };
+    return xs;
+};

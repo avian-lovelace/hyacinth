@@ -78,6 +78,7 @@ builtInFunctionInstruction builtInFn = BB.word8 2 <> BB.word8 functionId
       ReadLineFn -> 16
       PushFn -> 17
       PopFn -> 18
+      LengthFn -> 19
 
 constantInstruction :: ConstIndex -> BB.Builder
 constantInstruction constIndex = BB.word8 3 <> BB.word16BE constIndex

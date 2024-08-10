@@ -26,6 +26,10 @@ testLists = do
       "let foo = mut List[3, 5]; foo>>push⟨Int⟩[7]; printLine⟨Int⟩[foo#0]; printLine⟨Int⟩[foo#1]; printLine⟨Int⟩[foo#2];" `runsSuccessfullyWithOutput` "3\n5\n7\n"
     it "Mutable lists can be popped from" $
       "let foo = mut List[3, 5]; let bar = foo>>pop⟨Int⟩[]; printLine⟨Int⟩[foo#0]; printLine⟨Int⟩[bar];" `runsSuccessfullyWithOutput` "3\n5\n"
+    it "You can get the length of a mutable list" $
+      "let foo = mut List[1.23, 4.5]; print⟨Int⟩[foo>>length⟨Float⟩[]];" `runsSuccessfullyWithOutput` "2"
+    it "You can get the length of an immutable list" $
+      "let foo = List['a', 'b', 'c']; print⟨Int⟩[foo>>length⟨Char⟩[]];" `runsSuccessfullyWithOutput` "3"
   describe "List errors:" $ do
     it "The value type of an empty list cannot be generated" $
       "let foo = List[]" `failsToCompileWithError` listValueTypeInferenceError
@@ -39,6 +43,10 @@ testLists = do
       "let foo = 5; mut foo#3 = 1;" `failsToCompileWithError` mutatedNonListIndexError
     it "Immutable lists cannot have an index mutated" $
       "let foo = List[10, 11, 12]; mut foo#1 = 13;" `failsToCompileWithError` mutatedImmutableListIndexError
+    it "Immutable lists cannot be pushed to" $
+      "let foo = List[3, 5]; foo>>push⟨Int⟩[7]; printLine⟨Int⟩[foo#0]; printLine⟨Int⟩[foo#1]; printLine⟨Int⟩[foo#2];" `failsToCompileWithError` typeExpectationError
+    it "Immutable lists cannot be popped from" $
+      "let foo = List[3, 5]; let bar = foo>>pop⟨Int⟩[]; printLine⟨Int⟩[foo#0]; printLine⟨Int⟩[bar];" `failsToCompileWithError` typeExpectationError
 
 listValueTypeInferenceError :: Error -> Bool
 listValueTypeInferenceError (ListValueTypeInferenceError {}) = True
@@ -59,3 +67,7 @@ mutatedNonListIndexError _ = False
 mutatedImmutableListIndexError :: Error -> Bool
 mutatedImmutableListIndexError (MutatedImmutableListIndexError {}) = True
 mutatedImmutableListIndexError _ = False
+
+typeExpectationError :: Error -> Bool
+typeExpectationError (TypeExpectationError {}) = True
+typeExpectationError _ = False

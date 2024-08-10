@@ -61,6 +61,7 @@ pub enum BuiltInFunction {
     ReadLine,
     Push,
     Pop,
+    Length,
 }
 
 impl From<u8> for BuiltInFunction {
@@ -84,6 +85,7 @@ impl From<u8> for BuiltInFunction {
             16 => BuiltInFunction::ReadLine,
             17 => BuiltInFunction::Push,
             18 => BuiltInFunction::Pop,
+            19 => BuiltInFunction::Length,
             id => panic!("Got invalid built-in function id {}", id),
         };
     }
