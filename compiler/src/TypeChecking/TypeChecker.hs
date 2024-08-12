@@ -1,6 +1,6 @@
 module TypeChecking.TypeChecker (runTypeChecking, typeCheckModule) where
 
-import Control.Monad (foldM, forM, forM_, unless, when, (>=>))
+import Control.Monad (foldM, forM, forM_, unless, when)
 import Core.ErrorState
 import Core.Errors
 import Core.FilePositions
@@ -54,12 +54,14 @@ initializeTypeSynonym _ = return ()
 
 initializeNonPositionalStatement :: IBNonPositionalStatement -> TypeChecker (Maybe VarianceInfo)
 initializeNonPositionalStatement (FunctionStatement statementRange functionName typeParameters (FunctionDefinition _ parameters (WithTypeAnnotation _ returnTypeAnnotation))) = do
-  parameterTypes <- mapM (getParameterTypeExpression >=> getParametrizedTypeFunc (NormalContext Nothing) typeParameters) parameters
-  returnTypeFunc <- case returnTypeAnnotation of
-    Just returnTypeExpression -> getParametrizedTypeFunc (NormalContext Nothing) typeParameters returnTypeExpression
+  parameterTypeExpressions <- forM parameters getParameterTypeExpression
+  returnTypeExpression <- case returnTypeAnnotation of
+    Just returnTypeExpression -> return returnTypeExpression
     Nothing -> throwError $ FunctionMissingReturnTypeAnnotation statementRange
-  let functionTypeFunc typeArguments = FunctionType (parameterTypes <&> (\f -> f Immutable typeArguments)) (returnTypeFunc Immutable typeArguments)
-  setFunctionTypeInfo functionName (Seq.length typeParameters) functionTypeFunc
+  let functionTypeExpression = FunctionTypeExpression dummyRange parameterTypeExpressions returnTypeExpression
+  functionTypeFunc <- getParametrizedTypeFunc (NormalContext Nothing) typeParameters functionTypeExpression
+  inferTypeArgumentsFunc <- getInferFunctionTypeArgumentsFromTypeFunc typeParameters functionTypeExpression
+  setFunctionTypeInfo functionName (Seq.length typeParameters) (functionTypeFunc Immutable) inferTypeArgumentsFunc
   return Nothing
   where
     getParameterTypeExpression :: IBWithTypeAnnotation IBValueIdentifier -> TypeChecker IBTypeExpression
@@ -372,6 +374,12 @@ typeCheckExpression expectedType expression = case expression of
           (expressionReturnInfo . getExpressionData $ checkedInnerExpression)
             `riAnd` (expressionReturnInfo . getExpressionData $ checkedIndexExpression)
     return $ IndexExpression (TCExpresionData expressionRange expectedType returnInfo) checkedInnerExpression checkedIndexExpression
+  (IdentifierExpression expressionRange (FunctionValueIdentifier (Left functionIdentifier) typeArgumentExpressions)) -> do
+    typeArguments <- case typeArgumentExpressions of
+      Empty -> inferFunctionTypeArgumentsFromType expressionRange functionIdentifier expectedType
+      _ -> mapM fromTypeExpression typeArgumentExpressions
+    expressionType <- getFunctionType expressionRange (Left functionIdentifier) typeArguments
+    return $ IdentifierExpression (TCExpresionData expressionRange expressionType NeverReturns) (FunctionValueIdentifier (Left functionIdentifier) ())
   _ -> typeCheckExpressionDefault
   where
     typeCheckExpressionDefault :: TypeChecker TCExpression

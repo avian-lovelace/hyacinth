@@ -185,6 +185,7 @@ data Error
   | IndexTypeError Range Type
   | MutatedNonListIndexError Range Type
   | MutatedImmutableListIndexError Range Type
+  | CouldNotInferFunctionTypeArguments Range Text
   | -- Function lifting
     MutatedCapturedIdentifierError Text Range
   | IdentifierUndefinedBeforeCaptureError Text Text Range
@@ -468,6 +469,8 @@ instance Pretty Error where
     "Tried to mutate value of non-list type " ++ pretty actualType ++ " at " ++ pretty range
   pretty (MutatedImmutableListIndexError range actualType) =
     "Tried to mutate value of immutable list of type " ++ pretty actualType ++ " at " ++ pretty range
+  pretty (CouldNotInferFunctionTypeArguments range functionName) =
+    "Could not infer type arguments for function " ++ Text.unpack functionName ++ " at " ++ pretty range
   pretty (RuntimeError exitCode stdErr) = "VM failed with exit code " ++ show exitCode ++ " and stdErr " ++ stdErr
   pretty (TestError message) = "Test error: " ++ message
 
