@@ -34,6 +34,9 @@ module TypeChecking.TypeChecking
     inferTypeArguments,
     getInferFunctionTypeArgumentsFromTypeFunc,
     inferFunctionTypeArgumentsFromType,
+    getInferFunctionTypeArgumentsFromReturnTypeFunc,
+    getInferFunctionTypeArgumentsFromFirstParameterTypeFunc,
+    inferFunctionTypeArgumentsFromPartialType,
   )
 where
 
@@ -77,7 +80,9 @@ data TypeCheckingState = TypeCheckingState
 data FunctionTypeInfo = FunctionTypeInfo
   { functionTypeArity :: Int,
     functionTypeFunc :: Seq Type -> Type,
-    functionInferTypeArgumentsFromType :: Type -> Maybe (Seq Type)
+    functionInferTypeArgumentsFromType :: Type -> Maybe (Seq Type),
+    functionInferTypeArgumentsFromReturnType :: Type -> TypeArgumentsInference,
+    functionInferTypeArgumentsFromFirstParameterType :: Type -> TypeArgumentsInference
   }
 
 data TypeSynonymTypeInfo = TypeSynonymTypeInfo
@@ -129,12 +134,33 @@ getValueIdentifierType identifier = do
     Nothing -> do
       throwError $ ShouldNotGetHereError "Called getValueIdentifierType before identifier was initialized"
 
-setFunctionTypeInfo :: BoundFunctionIdentifier -> Int -> (Seq Type -> Type) -> (Type -> Maybe (Seq Type)) -> TypeChecker ()
-setFunctionTypeInfo functionName functionTypeArity functionTypeFunc functionInferTypeArgumentsFromType = do
-  state <- getState
-  let newFunctionTypeInfo = FunctionTypeInfo {functionTypeArity, functionTypeFunc, functionInferTypeArgumentsFromType}
-  let updatedFunctionTypeInfo = Map.insert functionName newFunctionTypeInfo $ functionTypeInfos state
-  setState state {functionTypeInfos = updatedFunctionTypeInfo}
+setFunctionTypeInfo ::
+  BoundFunctionIdentifier ->
+  Int ->
+  (Seq Type -> Type) ->
+  (Type -> Maybe (Seq Type)) ->
+  (Type -> TypeArgumentsInference) ->
+  (Type -> TypeArgumentsInference) ->
+  TypeChecker ()
+setFunctionTypeInfo
+  functionName
+  functionTypeArity
+  functionTypeFunc
+  functionInferTypeArgumentsFromType
+  functionInferTypeArgumentsFromFirstParameterType
+  functionInferTypeArgumentsFromReturnType =
+    do
+      state <- getState
+      let newFunctionTypeInfo =
+            FunctionTypeInfo
+              { functionTypeArity,
+                functionTypeFunc,
+                functionInferTypeArgumentsFromType,
+                functionInferTypeArgumentsFromReturnType,
+                functionInferTypeArgumentsFromFirstParameterType
+              }
+      let updatedFunctionTypeInfo = Map.insert functionName newFunctionTypeInfo $ functionTypeInfos state
+      setState state {functionTypeInfos = updatedFunctionTypeInfo}
 
 getFunctionType :: Range -> Either BoundFunctionIdentifier BuiltInFunction -> Seq Type -> TypeChecker Type
 getFunctionType usageRange (Left functionName) typeArguments = do
@@ -180,6 +206,27 @@ inferFunctionTypeArgumentsFromType usageRange functionName functionType = do
         else case functionInferTypeArgumentsFromType functionType of
           Nothing -> throwError $ CouldNotInferFunctionTypeArguments usageRange (getTextName functionName)
           Just typeArguments -> return typeArguments
+
+inferFunctionTypeArgumentsFromPartialType :: Range -> BoundFunctionIdentifier -> Maybe Type -> Maybe Type -> TypeChecker (Seq Type)
+inferFunctionTypeArgumentsFromPartialType usageRange functionName maybeFirstParameterType maybeReturnType = do
+  functionTypes <- functionTypeInfos <$> getState
+  case Map.lookup functionName functionTypes of
+    Nothing -> throwError $ ShouldNotGetHereError "Called inferFunctionTypeArgumentsFromType before function was initialized"
+    Just FunctionTypeInfo {functionTypeArity, functionInferTypeArgumentsFromFirstParameterType, functionInferTypeArgumentsFromReturnType} ->
+      if functionTypeArity == 0
+        then return Empty
+        else do
+          let noInformation = Just . Seq.fromList $ replicate functionTypeArity Nothing
+          let firstParameterTypeInference = case maybeFirstParameterType of
+                Nothing -> noInformation
+                Just firstParameterType -> functionInferTypeArgumentsFromFirstParameterType firstParameterType
+          let returnTypeInference = case maybeReturnType of
+                Nothing -> noInformation
+                Just returnType -> functionInferTypeArgumentsFromReturnType returnType
+          let combinedInference = combineTypeArgumentInferences firstParameterTypeInference returnTypeInference
+          case combinedInference >>= sequence of
+            Nothing -> throwError $ CouldNotInferFunctionTypeArguments usageRange (getTextName functionName)
+            Just typeArguments -> return typeArguments
 
 setRecordTypeInfo ::
   BoundRecordIdentifier ->
@@ -544,6 +591,15 @@ getInferFunctionTypeArgumentsFromTypeFunc typeParameters typeExpression = do
   return $ \expressionType -> do
     typeArgumentInferences <- tryInferTypeArguments expressionType
     sequence typeArgumentInferences
+
+getInferFunctionTypeArgumentsFromReturnTypeFunc :: Seq IBTypeParameter -> IBTypeExpression -> TypeChecker (Type -> TypeArgumentsInference)
+getInferFunctionTypeArgumentsFromReturnTypeFunc = inferTypeArguments
+
+getInferFunctionTypeArgumentsFromFirstParameterTypeFunc :: Seq IBTypeParameter -> Maybe IBTypeExpression -> TypeChecker (Type -> TypeArgumentsInference)
+getInferFunctionTypeArgumentsFromFirstParameterTypeFunc typeParameters maybeTypeExpression = case maybeTypeExpression of
+  Just typeExpression -> inferTypeArguments typeParameters typeExpression
+  -- If a function has no parameters, inference from the first parameter type should always fail
+  Nothing -> return $ const Nothing
 
 type TypeArgumentsInference = Maybe (Seq (Maybe Type))
 

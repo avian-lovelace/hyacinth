@@ -12,7 +12,7 @@ import Data.Functor ((<&>))
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
-import Data.Sequence (Seq (..), (<|))
+import Data.Sequence (Seq (..))
 import qualified Data.Sequence as Seq
 import IdentifierBinding.SyntaxTree
 import Parsing.SyntaxTree
@@ -61,7 +61,15 @@ initializeNonPositionalStatement (FunctionStatement statementRange functionName 
   let functionTypeExpression = FunctionTypeExpression dummyRange parameterTypeExpressions returnTypeExpression
   functionTypeFunc <- getParametrizedTypeFunc (NormalContext Nothing) typeParameters functionTypeExpression
   inferTypeArgumentsFunc <- getInferFunctionTypeArgumentsFromTypeFunc typeParameters functionTypeExpression
-  setFunctionTypeInfo functionName (Seq.length typeParameters) (functionTypeFunc Immutable) inferTypeArgumentsFunc
+  inferTypeArgumentsFromFirstParameterTypeFunc <- getInferFunctionTypeArgumentsFromFirstParameterTypeFunc typeParameters (Seq.lookup 0 parameterTypeExpressions)
+  inferTypeArgumentsFromReturnTypeFunc <- getInferFunctionTypeArgumentsFromReturnTypeFunc typeParameters returnTypeExpression
+  setFunctionTypeInfo
+    functionName
+    (Seq.length typeParameters)
+    (functionTypeFunc Immutable)
+    inferTypeArgumentsFunc
+    inferTypeArgumentsFromFirstParameterTypeFunc
+    inferTypeArgumentsFromReturnTypeFunc
   return Nothing
   where
     getParameterTypeExpression :: IBWithTypeAnnotation IBValueIdentifier -> TypeChecker IBTypeExpression
@@ -374,12 +382,70 @@ typeCheckExpression expectedType expression = case expression of
           (expressionReturnInfo . getExpressionData $ checkedInnerExpression)
             `riAnd` (expressionReturnInfo . getExpressionData $ checkedIndexExpression)
     return $ IndexExpression (TCExpresionData expressionRange expectedType returnInfo) checkedInnerExpression checkedIndexExpression
-  (IdentifierExpression expressionRange (FunctionValueIdentifier (Left functionIdentifier) typeArgumentExpressions)) -> do
-    typeArguments <- case typeArgumentExpressions of
-      Empty -> inferFunctionTypeArgumentsFromType expressionRange functionIdentifier expectedType
-      _ -> mapM fromTypeExpression typeArgumentExpressions
+  (IdentifierExpression expressionRange (FunctionValueIdentifier (Left functionIdentifier) Empty)) -> do
+    typeArguments <- inferFunctionTypeArgumentsFromType expressionRange functionIdentifier expectedType
     expressionType <- getFunctionType expressionRange (Left functionIdentifier) typeArguments
-    return $ IdentifierExpression (TCExpresionData expressionRange expressionType NeverReturns) (FunctionValueIdentifier (Left functionIdentifier) ())
+    typeMeetsExpectation <- expressionType `isCompatibleWith` expectedType
+    unless typeMeetsExpectation $
+      throwError (TypeExpectationError (getRange expression) expectedType expressionType)
+    return $ IdentifierExpression (TCExpresionData expressionRange expectedType NeverReturns) (FunctionValueIdentifier (Left functionIdentifier) ())
+  (FunctionCallExpression expressionRange function arguments) -> case function of
+    {- Special case: when a named function is called directly (e.g. readLine[]), we try to infer the function type
+       arguments from the function return type
+    -}
+    (IdentifierExpression functionExpressionRange (FunctionValueIdentifier (Left functionIdentifier) Empty)) -> do
+      -- Infer function type arguments
+      typeArguments <- inferFunctionTypeArgumentsFromPartialType expressionRange functionIdentifier Nothing (Just expectedType)
+      functionType <- getFunctionType expressionRange (Left functionIdentifier) typeArguments
+      let checkedFunction = IdentifierExpression (TCExpresionData functionExpressionRange functionType NeverReturns) (FunctionValueIdentifier (Left functionIdentifier) ())
+
+      -- Type check function arguments
+      (parameterTypes, returnType) <- case functionType of
+        FunctionType parameterTypes returnType -> return (parameterTypes, returnType)
+        unexpectedType -> throwError $ FunctionCallExpressionNotAFunctionTypeError expressionRange unexpectedType
+      unless (Seq.length parameterTypes == Seq.length arguments) $
+        throwError (FunctionCallExpressionArityError expressionRange (Seq.length parameterTypes) (Seq.length arguments))
+      checkedArguments <- forM (Seq.zip parameterTypes arguments) (uncurry typeCheckExpression)
+      typeMeetsExpectation <- returnType `isCompatibleWith` expectedType
+      unless typeMeetsExpectation $ throwError (TypeExpectationError (getRange expression) expectedType returnType)
+      let returnInfo = foldMap (expressionReturnInfo . getExpressionData) checkedArguments
+      return $ FunctionCallExpression (TCExpresionData expressionRange expectedType returnInfo) checkedFunction checkedArguments
+    _ -> typeCheckExpressionDefault
+  (MethodCallExpression expressionRange innerExpression method arguments) -> case method of
+    {- Special case: when a named function is called as a method directly (e.g. 5>>print[]), we try to infer the
+       function type arguments from the return type and the type of the inner expression
+    -}
+    (IdentifierExpression functionExpressionRange (FunctionValueIdentifier (Left functionIdentifier) Empty)) -> do
+      -- Type synthesize inner expression
+      checkedInnerExpression <- typeSynthesizeExpression innerExpression
+      let innerExpressionType = expressionType . getExpressionData $ checkedInnerExpression
+
+      -- Infer method type arguments
+      typeArguments <- inferFunctionTypeArgumentsFromPartialType expressionRange functionIdentifier (Just innerExpressionType) (Just expectedType)
+      functionType <- getFunctionType expressionRange (Left functionIdentifier) typeArguments
+      let checkedMethod = IdentifierExpression (TCExpresionData functionExpressionRange functionType NeverReturns) (FunctionValueIdentifier (Left functionIdentifier) ())
+
+      -- Type check other method arguments
+      (innerExpressionExpectedType, restParameterTypes, returnType) <- case expressionType . getExpressionData $ checkedMethod of
+        FunctionType parameterTypes returnType -> case parameterTypes of
+          innerExpressionExpectedType :<| restParameterTypes -> return (innerExpressionExpectedType, restParameterTypes, returnType)
+          Empty -> throwError (MethodCallExpressionArityError expressionRange 0 (Seq.length arguments + 1))
+        unexpectedType -> throwError $ MethodCallExpressionNotAFunctionTypeError expressionRange unexpectedType
+      unless (Seq.length restParameterTypes == Seq.length arguments) $
+        throwError (MethodCallExpressionArityError expressionRange (Seq.length restParameterTypes + 1) (Seq.length arguments + 1))
+      innerExpressionTypeIsCompatible <- innerExpressionType `isCompatibleWith` innerExpressionExpectedType
+      unless innerExpressionTypeIsCompatible $
+        throwError (TypeExpectationError (getRange innerExpression) innerExpressionExpectedType innerExpressionType)
+      returnTypeIsCompatible <- returnType `isCompatibleWith` expectedType
+      unless returnTypeIsCompatible $
+        throwError (TypeExpectationError (getRange expression) expectedType returnType)
+      checkedArguments <- forM (Seq.zip restParameterTypes arguments) (uncurry typeCheckExpression)
+      let returnInfo =
+            (expressionReturnInfo . getExpressionData $ checkedInnerExpression)
+              `riAnd` (expressionReturnInfo . getExpressionData $ checkedMethod)
+              `riAnd` foldMap (expressionReturnInfo . getExpressionData) checkedArguments
+      return $ MethodCallExpression (TCExpresionData expressionRange expectedType returnInfo) checkedInnerExpression checkedMethod checkedArguments
+    _ -> typeCheckExpressionDefault
   _ -> typeCheckExpressionDefault
   where
     typeCheckExpressionDefault :: TypeChecker TCExpression
@@ -697,18 +763,35 @@ typeSynthesizeExpression (IndexExpression expressionRange innerExpression indexE
           `riAnd` (expressionReturnInfo . getExpressionData $ checkedIndexExpression)
   return $ IndexExpression (TCExpresionData expressionRange expressionType returnInfo) checkedInnerExpression checkedIndexExpression
 typeSynthesizeExpression (MethodCallExpression expressionRange innerExpression method arguments) = do
-  checkedMethod <- typeSynthesizeExpression method
-  (parameterTypes, returnType) <- case expressionType . getExpressionData $ checkedMethod of
-    FunctionType parameterTypes returnType -> return (parameterTypes, returnType)
+  -- Type synthesize inner expression
+  checkedInnerExpression <- typeSynthesizeExpression innerExpression
+  let innerExpressionType = expressionType . getExpressionData $ checkedInnerExpression
+
+  -- Type synthesize method
+  checkedMethod <- case method of
+    {- Special case: when a named function is called as a method directly (e.g. 5>>print[]), we try to infer the
+       function type arguments from the type of the inner expression
+    -}
+    (IdentifierExpression functionExpressionRange (FunctionValueIdentifier (Left functionIdentifier) Empty)) -> do
+      typeArguments <- inferFunctionTypeArgumentsFromPartialType expressionRange functionIdentifier (Just innerExpressionType) Nothing
+      functionType <- getFunctionType expressionRange (Left functionIdentifier) typeArguments
+      return $ IdentifierExpression (TCExpresionData functionExpressionRange functionType NeverReturns) (FunctionValueIdentifier (Left functionIdentifier) ())
+    _ -> typeSynthesizeExpression method
+
+  -- Type check other method arguments
+  (innerExpressionExpectedType, restParameterTypes, returnType) <- case expressionType . getExpressionData $ checkedMethod of
+    FunctionType parameterTypes returnType -> case parameterTypes of
+      innerExpressionExpectedType :<| restParameterTypes -> return (innerExpressionExpectedType, restParameterTypes, returnType)
+      Empty -> throwError (MethodCallExpressionArityError expressionRange 0 (Seq.length arguments + 1))
     unexpectedType -> throwError $ MethodCallExpressionNotAFunctionTypeError expressionRange unexpectedType
-  let allArguments = innerExpression <| arguments
-  unless (Seq.length parameterTypes == Seq.length allArguments) $
-    throwError (MethodCallExpressionArityError expressionRange (Seq.length parameterTypes) (Seq.length arguments))
-  checkedAllArguments <- forM (Seq.zip parameterTypes allArguments) (uncurry typeCheckExpression)
-  (checkedInnerExpression, checkedArguments) <- case checkedAllArguments of
-    checkedInnerExpression :<| checkedArguments -> return (checkedInnerExpression, checkedArguments)
-    _ -> throwError $ ShouldNotGetHereError "Argument list was unexpectedly empty when type synthesizing MethodCallExpression"
+  unless (Seq.length restParameterTypes == Seq.length arguments) $
+    throwError (MethodCallExpressionArityError expressionRange (Seq.length restParameterTypes + 1) (Seq.length arguments + 1))
+  innerExpressionTypeIsCompatible <- innerExpressionType `isCompatibleWith` innerExpressionExpectedType
+  unless innerExpressionTypeIsCompatible $
+    throwError (TypeExpectationError (getRange innerExpression) innerExpressionExpectedType innerExpressionType)
+  checkedArguments <- forM (Seq.zip restParameterTypes arguments) (uncurry typeCheckExpression)
   let returnInfo =
-        (expressionReturnInfo . getExpressionData $ checkedMethod)
-          `riAnd` foldMap (expressionReturnInfo . getExpressionData) checkedAllArguments
+        (expressionReturnInfo . getExpressionData $ checkedInnerExpression)
+          `riAnd` (expressionReturnInfo . getExpressionData $ checkedMethod)
+          `riAnd` foldMap (expressionReturnInfo . getExpressionData) checkedArguments
   return $ MethodCallExpression (TCExpresionData expressionRange returnType returnInfo) checkedInnerExpression checkedMethod checkedArguments
