@@ -56,6 +56,7 @@ import Data.Maybe (listToMaybe)
 import Data.Sequence (Seq (..))
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 import Data.Traversable (forM)
 import IdentifierBinding.SyntaxTree
 import Parsing.SyntaxTree
@@ -65,6 +66,7 @@ import TypeChecking.Variance
 data TypeCheckingState = TypeCheckingState
   { valueIdentifierTypes :: Map BoundValueIdentifier Type,
     functionTypeInfos :: Map BoundFunctionIdentifier FunctionTypeInfo,
+    builtInFunctionTypeInfos :: Map BuiltInFunction FunctionTypeInfo,
     recordTypeInfos :: Map BoundRecordIdentifier RecordTypeInfo,
     typeSynonymTypeInfos ::
       Map
@@ -112,6 +114,7 @@ initialTypeCheckingState =
   TypeCheckingState
     { valueIdentifierTypes = Map.empty,
       functionTypeInfos = Map.empty,
+      builtInFunctionTypeInfos = Map.empty,
       recordTypeInfos = Map.empty,
       typeSynonymTypeInfos = Map.empty,
       functionContextStack = [],
@@ -162,71 +165,124 @@ setFunctionTypeInfo
       let updatedFunctionTypeInfo = Map.insert functionName newFunctionTypeInfo $ functionTypeInfos state
       setState state {functionTypeInfos = updatedFunctionTypeInfo}
 
+getFunctionTypeInfo :: Either BoundFunctionIdentifier BuiltInFunction -> TypeChecker FunctionTypeInfo
+getFunctionTypeInfo (Left functionName) = do
+  functionTypeInfos <- functionTypeInfos <$> getState
+  case Map.lookup functionName functionTypeInfos of
+    Just typeInfo -> return typeInfo
+    Nothing -> throwError $ ShouldNotGetHereError "Called getFunctionTypeInfo before function was initialized"
+getFunctionTypeInfo (Right builtInFunction) = do
+  state <- getState
+  case Map.lookup builtInFunction $ builtInFunctionTypeInfos state of
+    Just typeInfo -> return typeInfo
+    Nothing -> do
+      let (typeParameters, parameterTypeExpressions, returnTypeExpression) = builtInFunctionTypeExpression
+      let functionTypeExpression = FunctionTypeExpression dummyRange parameterTypeExpressions returnTypeExpression
+      functionTypeFunc <- getParametrizedTypeFunc (NormalContext Nothing) typeParameters functionTypeExpression
+      inferTypeArgumentsFunc <- getInferFunctionTypeArgumentsFromTypeFunc typeParameters functionTypeExpression
+      inferTypeArgumentsFromFirstParameterTypeFunc <- getInferFunctionTypeArgumentsFromFirstParameterTypeFunc typeParameters (Seq.lookup 0 parameterTypeExpressions)
+      inferTypeArgumentsFromReturnTypeFunc <- getInferFunctionTypeArgumentsFromReturnTypeFunc typeParameters returnTypeExpression
+      let typeInfo =
+            FunctionTypeInfo
+              { functionTypeArity = builtInFunctionArity,
+                functionTypeFunc = functionTypeFunc Immutable,
+                functionInferTypeArgumentsFromType = inferTypeArgumentsFunc,
+                functionInferTypeArgumentsFromFirstParameterType = inferTypeArgumentsFromFirstParameterTypeFunc,
+                functionInferTypeArgumentsFromReturnType = inferTypeArgumentsFromReturnTypeFunc
+              }
+      let updatedBuiltInFunctionTypeInfos = Map.insert builtInFunction typeInfo $ builtInFunctionTypeInfos state
+      setState state {builtInFunctionTypeInfos = updatedBuiltInFunctionTypeInfos}
+      return typeInfo
+  where
+    builtInFunctionArity :: Int
+    builtInFunctionArity = case builtInFunction of
+      PrintFunction -> 1
+      PrintLineFunction -> 1
+      ReadLineFunction -> 0
+      PushFunction -> 1
+      PopFunction -> 1
+      LengthFunction -> 1
+    {- It would probably be preferable to create a special built-in type family instance for the AST so that we don't
+       have to use dummy data in these type expressions. This could help give better type checking around making sure
+       that we never throw errors when calculating type info for built-in functions. However, for now just using
+       IBTypeExpression and unit testing all the built-ins is good enough.
+    -}
+    builtInFunctionTypeExpression :: (Seq IBTypeParameter, Seq IBTypeExpression, IBTypeExpression)
+    builtInFunctionTypeExpression = case builtInFunction of
+      PrintFunction ->
+        let valueTypeParameter = makeTypeParameter 1
+            inputType = typeParameterReference valueTypeParameter
+            returnType = NilTypeExpression dummyRange
+         in (Seq.fromList [valueTypeParameter], Seq.fromList [inputType], returnType)
+      PrintLineFunction ->
+        let valueTypeParameter = makeTypeParameter 1
+            inputType = typeParameterReference valueTypeParameter
+            returnType = NilTypeExpression dummyRange
+         in (Seq.fromList [valueTypeParameter], Seq.fromList [inputType], returnType)
+      ReadLineFunction ->
+        let returnType = StringTypeExpression dummyRange
+         in (Seq.fromList [], Seq.fromList [], returnType)
+      PushFunction ->
+        let valueTypeParameter = makeTypeParameter 1
+            valueType = typeParameterReference valueTypeParameter
+            listType = ListTypeExpression dummyRange (Left Mutable) (Seq.singleton valueType)
+            returnType = listType
+         in (Seq.fromList [valueTypeParameter], Seq.fromList [listType, valueType], returnType)
+      PopFunction ->
+        let valueTypeParameter = makeTypeParameter 1
+            valueType = typeParameterReference valueTypeParameter
+            listType = ListTypeExpression dummyRange (Left Mutable) (Seq.singleton valueType)
+            returnType = valueType
+         in (Seq.fromList [valueTypeParameter], Seq.fromList [listType], returnType)
+      LengthFunction ->
+        let valueTypeParameter = makeTypeParameter 1
+            valueType = typeParameterReference valueTypeParameter
+            listType = ListTypeExpression dummyRange (Left Immutable) (Seq.singleton valueType)
+            returnType = IntTypeExpression dummyRange
+         in (Seq.fromList [valueTypeParameter], Seq.fromList [listType], returnType)
+    makeTypeParameter :: Int -> IBTypeParameter
+    makeTypeParameter x = BoundTypeParameter (-x) ("Dummy Parameter " <> (Text.pack . show $ x))
+    typeParameterReference :: IBTypeParameter -> IBTypeExpression
+    typeParameterReference typeParameter = IdentifierTypeExpression dummyRange (Left Immutable) (Left typeParameter) Empty
+
 getFunctionType :: Range -> Either BoundFunctionIdentifier BuiltInFunction -> Seq Type -> TypeChecker Type
-getFunctionType usageRange (Left functionName) typeArguments = do
-  functionTypes <- functionTypeInfos <$> getState
-  case Map.lookup functionName functionTypes of
-    Just FunctionTypeInfo {functionTypeArity, functionTypeFunc} -> do
-      unless (Seq.length typeArguments == functionTypeArity) $
-        throwError (FunctionWrongNumberOfTypeArgumentsError usageRange (getTextName functionName) functionTypeArity (Seq.length typeArguments))
-      return $ functionTypeFunc typeArguments
-    Nothing -> throwError $ ShouldNotGetHereError "Called getFunctionType before function was initialized"
-getFunctionType usageRange (Right builtInFunction) typeArguments = do
-  let functionTypeArity = case builtInFunction of
-        PrintFunction -> 1
-        PrintLineFunction -> 1
-        ReadLineFunction -> 0
-        PushFunction -> 1
-        PopFunction -> 1
-        LengthFunction -> 1
+getFunctionType usageRange functionName typeArguments = do
+  FunctionTypeInfo {functionTypeArity, functionTypeFunc} <- getFunctionTypeInfo functionName
   unless (Seq.length typeArguments == functionTypeArity) $
-    throwError (FunctionWrongNumberOfTypeArgumentsError usageRange (getTextName builtInFunction) functionTypeArity (Seq.length typeArguments))
-  return $ case builtInFunction of
-    PrintFunction -> FunctionType (Seq.singleton $ typeArguments `Seq.index` 0) NilType
-    PrintLineFunction -> FunctionType (Seq.singleton $ typeArguments `Seq.index` 0) NilType
-    ReadLineFunction -> FunctionType Empty StringType
-    PushFunction ->
-      let valueType = typeArguments `Seq.index` 0
-       in FunctionType (Seq.fromList [ListType Mutable valueType, valueType]) (ListType Mutable valueType)
-    PopFunction ->
-      let valueType = typeArguments `Seq.index` 0
-       in FunctionType (Seq.singleton $ ListType Mutable valueType) valueType
-    LengthFunction ->
-      let valueType = typeArguments `Seq.index` 0
-       in FunctionType (Seq.singleton $ ListType Immutable valueType) IntType
+    throwError (FunctionWrongNumberOfTypeArgumentsError usageRange (getTextName functionName) functionTypeArity (Seq.length typeArguments))
+  return $ functionTypeFunc typeArguments
 
-inferFunctionTypeArgumentsFromType :: Range -> BoundFunctionIdentifier -> Type -> TypeChecker (Seq Type)
+inferFunctionTypeArgumentsFromType :: Range -> Either BoundFunctionIdentifier BuiltInFunction -> Type -> TypeChecker (Seq Type)
 inferFunctionTypeArgumentsFromType usageRange functionName functionType = do
-  functionTypes <- functionTypeInfos <$> getState
-  case Map.lookup functionName functionTypes of
-    Nothing -> throwError $ ShouldNotGetHereError "Called inferFunctionTypeArgumentsFromType before function was initialized"
-    Just FunctionTypeInfo {functionTypeArity, functionInferTypeArgumentsFromType} ->
-      if functionTypeArity == 0
-        then return Empty
-        else case functionInferTypeArgumentsFromType functionType of
-          Nothing -> throwError $ CouldNotInferFunctionTypeArguments usageRange (getTextName functionName)
-          Just typeArguments -> return typeArguments
+  FunctionTypeInfo {functionTypeArity, functionInferTypeArgumentsFromType} <- getFunctionTypeInfo functionName
+  if functionTypeArity == 0
+    then return Empty
+    else case functionInferTypeArgumentsFromType functionType of
+      Nothing -> throwError $ CouldNotInferFunctionTypeArguments usageRange (getTextName functionName)
+      Just typeArguments -> return typeArguments
 
-inferFunctionTypeArgumentsFromPartialType :: Range -> BoundFunctionIdentifier -> Maybe Type -> Maybe Type -> TypeChecker (Seq Type)
+inferFunctionTypeArgumentsFromPartialType :: Range -> Either BoundFunctionIdentifier BuiltInFunction -> Maybe Type -> Maybe Type -> TypeChecker (Seq Type)
 inferFunctionTypeArgumentsFromPartialType usageRange functionName maybeFirstParameterType maybeReturnType = do
-  functionTypes <- functionTypeInfos <$> getState
-  case Map.lookup functionName functionTypes of
-    Nothing -> throwError $ ShouldNotGetHereError "Called inferFunctionTypeArgumentsFromType before function was initialized"
-    Just FunctionTypeInfo {functionTypeArity, functionInferTypeArgumentsFromFirstParameterType, functionInferTypeArgumentsFromReturnType} ->
-      if functionTypeArity == 0
-        then return Empty
-        else do
-          let noInformation = Just . Seq.fromList $ replicate functionTypeArity Nothing
-          let firstParameterTypeInference = case maybeFirstParameterType of
-                Nothing -> noInformation
-                Just firstParameterType -> functionInferTypeArgumentsFromFirstParameterType firstParameterType
-          let returnTypeInference = case maybeReturnType of
-                Nothing -> noInformation
-                Just returnType -> functionInferTypeArgumentsFromReturnType returnType
-          let combinedInference = combineTypeArgumentInferences firstParameterTypeInference returnTypeInference
-          case combinedInference >>= sequence of
-            Nothing -> throwError $ CouldNotInferFunctionTypeArguments usageRange (getTextName functionName)
-            Just typeArguments -> return typeArguments
+  FunctionTypeInfo
+    { functionTypeArity,
+      functionInferTypeArgumentsFromFirstParameterType,
+      functionInferTypeArgumentsFromReturnType
+    } <-
+    getFunctionTypeInfo functionName
+  if functionTypeArity == 0
+    then return Empty
+    else do
+      let noInformation = Just . Seq.fromList $ replicate functionTypeArity Nothing
+      let firstParameterTypeInference = case maybeFirstParameterType of
+            Nothing -> noInformation
+            Just firstParameterType -> functionInferTypeArgumentsFromFirstParameterType firstParameterType
+      let returnTypeInference = case maybeReturnType of
+            Nothing -> noInformation
+            Just returnType -> functionInferTypeArgumentsFromReturnType returnType
+      let combinedInference = combineTypeArgumentInferences firstParameterTypeInference returnTypeInference
+      case combinedInference >>= sequence of
+        Nothing -> throwError $ CouldNotInferFunctionTypeArguments usageRange (getTextName functionName)
+        Just typeArguments -> return typeArguments
 
 setRecordTypeInfo ::
   BoundRecordIdentifier ->
@@ -592,14 +648,14 @@ getInferFunctionTypeArgumentsFromTypeFunc typeParameters typeExpression = do
     typeArgumentInferences <- tryInferTypeArguments expressionType
     sequence typeArgumentInferences
 
-getInferFunctionTypeArgumentsFromReturnTypeFunc :: Seq IBTypeParameter -> IBTypeExpression -> TypeChecker (Type -> TypeArgumentsInference)
-getInferFunctionTypeArgumentsFromReturnTypeFunc = inferTypeArguments
-
 getInferFunctionTypeArgumentsFromFirstParameterTypeFunc :: Seq IBTypeParameter -> Maybe IBTypeExpression -> TypeChecker (Type -> TypeArgumentsInference)
 getInferFunctionTypeArgumentsFromFirstParameterTypeFunc typeParameters maybeTypeExpression = case maybeTypeExpression of
   Just typeExpression -> inferTypeArguments typeParameters typeExpression
   -- If a function has no parameters, inference from the first parameter type should always fail
   Nothing -> return $ const Nothing
+
+getInferFunctionTypeArgumentsFromReturnTypeFunc :: Seq IBTypeParameter -> IBTypeExpression -> TypeChecker (Type -> TypeArgumentsInference)
+getInferFunctionTypeArgumentsFromReturnTypeFunc = inferTypeArguments
 
 type TypeArgumentsInference = Maybe (Seq (Maybe Type))
 
