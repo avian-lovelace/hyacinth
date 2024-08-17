@@ -1,5 +1,5 @@
 let vals = range[0, 5];
-let squares = vals>>map⟨Int, Int⟩[[x] -> x * x];
+let squares: List⟨Int⟩ = vals>>map[[x] -> x * x];
 squares>>map⟨Int, Nil⟩[[x] -> printLine⟨Int⟩[x]];
 
 func map = ⟨T, V⟩ => [xs: List⟨T⟩, f: [T] -> V]: mut List⟨V⟩ -> {

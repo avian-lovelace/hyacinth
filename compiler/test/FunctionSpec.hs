@@ -94,6 +94,67 @@ testFunctions = do
       "let foo = [x: Int, y: Int]: Int -> x + y; foo[1];" `failsToCompileWithError` functionCallExpressionArityError
     it "The number of arguments in a function call cannot be more than the number of parameters" $
       "let foo = [x: Int, y: Int]: Int -> x + y; foo[1, 2, 3];" `failsToCompileWithError` functionCallExpressionArityError
+  describe "Function type argument inference:" $ do
+    it "Function type arguments can sometimes be inferred if the overall function type is known" $
+      "func id = ⟨T⟩ => [value: T]: T -> value; let foo: [Int] -> Int = id;" `runsSuccessfullyWithOutput` ""
+    it "Multiple function type arguments can sometimes be inferred if the overall function type is known" $
+      "func foo = ⟨T, U, V⟩ => [t: T, u: U, v: V]: Nil -> {}; let bar: [Int, Float, String] -> Nil = foo;" `runsSuccessfullyWithOutput` ""
+    it "Function type arguments can sometimes be inferred from the return type if the function is called directly" $
+      "func id = ⟨T⟩ => [value: T]: T -> value; let foo: Int = id[5];" `runsSuccessfullyWithOutput` ""
+    it "Function type arguments can sometimes be inferred from the first parameter type if the function is called directly as a method" $
+      "func id = ⟨T⟩ => [value: T]: T -> value; let foo = 5>>id[];" `runsSuccessfullyWithOutput` ""
+    it "Function type arguments can sometimes be inferred from the first parameter type and return type if the function is called directly as a method" $
+      "func foo = ⟨T, U⟩ => [t: T, u: U]: U -> u; let bar: Char = 5>>foo['a'];" `runsSuccessfullyWithOutput` ""
+    it "Type argument inference can deconstruct function types" $
+      "func foo = ⟨T, U, V⟩ => [value: [T, U] -> V]: Nil -> {}; let bar: [[Int, Float] -> Nil] -> Nil = foo;" `runsSuccessfullyWithOutput` ""
+    it "Type argument inference can deconstruct record types" $
+      "rec A = ⟨T⟩ => []; rec B = ⟨T⟩ => []; func foo = ⟨T, U⟩ => [value: A⟨T⟩ | B⟨U⟩]: Nil -> {}; let bar: [A⟨Float⟩ | B⟨Bool⟩] -> Nil = foo;" `runsSuccessfullyWithOutput` ""
+    it "Type argument inference can deconstruct type synonyms" $
+      "type A = ⟨T, U⟩ => [T] -> U; func foo = ⟨T, U⟩ => [value: A⟨T, U⟩]: Nil -> {}; let bar: [[Int] -> String] -> Nil = foo;" `runsSuccessfullyWithOutput` ""
+  describe "Built-in function type argument inference:" $ do
+    it "The type arguments of print can be inferred from the overall type" $
+      "let foo: [Int] -> Nil = print; foo[5];" `runsSuccessfullyWithOutput` "5"
+    it "The type arguments of print can be inferred from the first parameter type" $
+      "5>>print[]" `runsSuccessfullyWithOutput` "5"
+    it "The type arguments of printLine can be inferred from the overall type" $
+      "let foo: [Bool] -> Nil = print; foo[true];" `runsSuccessfullyWithOutput` "true"
+    it "The type arguments of printLine can be inferred from the first parameter type" $
+      "'a'>>print[]" `runsSuccessfullyWithOutput` "a"
+    it "The type arguments of push can be inferred from the overall type" $
+      "let foo: [mut List⟨String⟩, String] -> List⟨String⟩ = push;" `runsSuccessfullyWithOutput` ""
+    it "The type arguments of push can be inferred from the return parameter type" $
+      "let foo: List⟨Int⟩ = push[List[], 5];" `runsSuccessfullyWithOutput` ""
+    it "The type arguments of push can be inferred from the first parameter type" $
+      "let foo = mut List⟨Int⟩[1, 2, 3]; foo>>push[4];" `runsSuccessfullyWithOutput` ""
+    it "The type arguments of pop can be inferred from the overall type" $
+      "let foo: [mut List⟨String⟩] -> String = pop;" `runsSuccessfullyWithOutput` ""
+    it "The type arguments of pop can be inferred from the return parameter type" $
+      "let foo: Int = pop[List[1, 2, 3]];" `runsSuccessfullyWithOutput` ""
+    it "The type arguments of pop can be inferred from the first parameter type" $
+      "let foo = mut List⟨Int⟩[1, 2, 3]; foo>>pop[];" `runsSuccessfullyWithOutput` ""
+    it "The type arguments of length can be inferred from the overall type" $
+      "let foo: [List⟨String⟩] -> Int = length;" `runsSuccessfullyWithOutput` ""
+    it "The type arguments of length can be inferred from the first parameter type" $
+      "let foo = List⟨Int⟩[1, 2, 3]; foo>>length[];" `runsSuccessfullyWithOutput` ""
+  describe "Type inference errors:" $ do
+    it "Type arguments cannot be inferred if the type shapes don't match" $
+      "func foo = ⟨T, U⟩ => [value: [T] -> U]: Nil -> {}; let bar: [String] -> Nil = foo;" `failsToCompileWithError` couldNotInferFunctionTypeArguments
+    it "Type arguments cannot be inferred if the number of function parameters doesn't match" $
+      "func foo = ⟨T, U⟩ => [value: T, u: U]: Nil -> {}; let bar: [String] -> Nil = foo;" `failsToCompileWithError` couldNotInferFunctionTypeArguments
+    it "Type arguments cannot be inferred if a type parameter has conflicting values" $
+      "func foo = ⟨T⟩ => [value: T]: T -> value; let bar: [String] -> Float = foo;" `failsToCompileWithError` couldNotInferFunctionTypeArguments
+    it "Type arguments cannot be inferred from the return type if not all type parameters are used in the return type" $
+      "func foo = ⟨T, U⟩ => [t: T, u: U]: U -> u; let bar: Int = foo['a', 5];" `failsToCompileWithError` couldNotInferFunctionTypeArguments
+    it "Type arguments cannot be inferred from the first parameter if not all type parameters are used in the first parameter type" $
+      "func foo = ⟨T, U⟩ => [t: T, u: U]: U -> u; let bar = 'a'>>foo[5];" `failsToCompileWithError` couldNotInferFunctionTypeArguments
+    it "Type arguments can be inferred even when a simple type is substituted" $
+      "func foo = ⟨T⟩ => [value: [T] -> Int]: Nil -> {}; let bar: [[Bool] -> Char] -> Nil = foo;" `failsToCompileWithError` typeExpectationError
+    it "Type arguments can be inferred even when a list mutability doesn't match" $
+      "func foo = ⟨T⟩ => [value: mut List⟨T⟩]: Nil -> {}; let bar: [List⟨Int⟩] -> Nil = foo;" `failsToCompileWithError` typeExpectationError
+    it "Type arguments inference can fail on built-in functions" $
+      "let bar: [Int, String] -> Nil = printLine;" `failsToCompileWithError` couldNotInferFunctionTypeArguments
+    it "Type arguments inference can succeed on built-in functions even when a simple type is substituted" $
+      "let bar: [List⟨Int⟩] -> Bool = length;" `failsToCompileWithError` typeExpectationError
 
 conflictingParameterNamesError :: Error -> Bool
 conflictingParameterNamesError (ConflictingParameterNamesError {}) = True
@@ -134,3 +195,7 @@ functionCallExpressionNotAFunctionTypeError _ = False
 functionCallExpressionArityError :: Error -> Bool
 functionCallExpressionArityError (FunctionCallExpressionArityError {}) = True
 functionCallExpressionArityError _ = False
+
+couldNotInferFunctionTypeArguments :: Error -> Bool
+couldNotInferFunctionTypeArguments (CouldNotInferFunctionTypeArguments {}) = True
+couldNotInferFunctionTypeArguments _ = False

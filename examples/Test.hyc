@@ -1,0 +1,4 @@
+func singleton = ⟨T⟩ => [value: T]: List⟨T⟩ -> List[value];
+
+let bar: List⟨Int⟩ = 5>>singleton[];
+bar#0>>printLine[]
