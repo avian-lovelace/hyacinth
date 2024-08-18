@@ -127,6 +127,10 @@ getValueIdentifierIndex (BoundValueIdentifier index _) = index
 class WithTextName i where
   getTextName :: i -> Text
 
+instance (WithTextName a, WithTextName b) => WithTextName (Either a b) where
+  getTextName (Left x) = getTextName x
+  getTextName (Right x) = getTextName x
+
 instance WithTextName BoundValueIdentifier where
   getTextName (BoundValueIdentifier _ name) = name
 
