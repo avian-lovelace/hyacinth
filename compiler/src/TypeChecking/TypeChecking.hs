@@ -562,10 +562,24 @@ getTypeVarianceFunc mutabilityContext typeParameters typeExpression = case typeE
        in collapse $ Seq.zipWith matrixMultiply typeArgumentVariancesList recordInnerVariances
   where
     updatedMutabilityContext = updateMutabilityContext mutabilityContext
-    -- Performs a matrix multiplication between a variance matrix and vector. This can be used to find the variances of
-    -- a type function application where the matrix is the list of type argument variance lists, and the vector is the
-    -- variance list of the type function with respect to its own arguments
+    {- Performs a matrix multiplication between a variance matrix and vector. This is used to find the variances of
+       a type function application where the matrix is the list of type argument variance lists, and the vector is the
+       variance list of the type function with respect to its own arguments.
+
+       The empty case of this function assumes that the output vector should have size equal to the number of type parameters.
+    -}
     matrixMultiply :: Seq (Seq Variance) -> Seq Variance -> Seq Variance
+    {- If the matrix and vector have common dimension of zero (the record has no type parameters), the normal calculation
+       yields an empty vector. What we actually want in this case is a zero vector of the desired dimension.
+
+       The normal calculation failing in this way feels like an indication of a broader bug in the implementation, but
+       after review, it seems to be right except in this case. The core of the issue is that for a matrix with zero
+       columns, there is no difference in representation depending on the number of rows. This causes transposing the
+       matrix to always yield the same result, when it should actually vary on the number of rows. A more robust
+       solution to this type of issue could be to use more robust representations of vectors and matrices that
+       explicitly track dimensions.
+    -}
+    matrixMultiply Empty Empty = typeParameters $> Bivariant
     matrixMultiply typeArgumentsVariances innerVariances =
       collapse $ Seq.zipWith (\typeArgumentVariance innerVariance -> (innerVariance ~*) <$> typeArgumentVariance) typeArgumentsVariances innerVariances
 

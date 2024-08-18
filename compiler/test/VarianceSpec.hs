@@ -202,6 +202,16 @@ testVariance = do
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Invariant, Bivariant]
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Contravariant, Bivariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Invariant, Bivariant]
+    it "References to records with no type parameters in type synonyms have their variances calculated correctly" $ do
+      testTypeInfo
+        "rec foo = [a: Int]; type bar = ⟨T, U⟩ => foo"
+        (sequence2 (getRecordTypeInfoByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooTypeInfo, barVarianceFunc) -> do
+          let fooVarianceFunc = recordVarianceFunc fooTypeInfo
+          fooVarianceFunc Immutable `shouldBe` Seq.fromList []
+          fooVarianceFunc Mutable `shouldBe` Seq.fromList []
+          barVarianceFunc Immutable `shouldBe` Seq.fromList [Bivariant, Bivariant]
+          barVarianceFunc Mutable `shouldBe` Seq.fromList [Bivariant, Bivariant]
     it "Record references with complex type argyments in type synonyms have their variances calculated correctly" $ do
       testTypeInfo
         "rec foo = ⟨T, U⟩ => [a: [T] -> Int]; type bar = ⟨mut M, T, U, V⟩ => M foo⟨[T] -> U, [U] -> V⟩"
