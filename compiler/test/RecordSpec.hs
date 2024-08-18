@@ -147,6 +147,15 @@ testRecords = do
       "rec Foo = ⟨T⟩ => [value: T]; rec Bar = []; rec Baz = []; let x: Foo⟨Bar | Baz⟩ = Foo⟨Bar⟩[value = Bar];" `runsSuccessfullyWithOutput` ""
     it "Type parameters of mutable records are invariant" $
       "rec Foo = ⟨T⟩ => [value: T]; rec Bar = []; rec Baz = []; let x: mut Foo⟨Bar | Baz⟩ = mut Foo⟨Bar⟩[value = Bar];" `failsToCompileWithError` typeExpectationError
+  describe "Records and type synonyms:" $ do
+    it "A type synonym can reference a record defined later" $
+      "type Foo = Bar; rec Bar = [value: Int];" `runsSuccessfullyWithOutput` ""
+    it "A record can reference a type synonym defined later" $
+      "rec Bar = [value: Bar]; type Foo = Int;" `runsSuccessfullyWithOutput` ""
+    it "A type synonym and record can reference each other circularly" $
+      "type Foo = Bar; rec Bar = [value: Foo];" `runsSuccessfullyWithOutput` ""
+    it "A record and type synonym can reference each other circularly" $
+      "rec Bar = [value: Foo]; type Foo = Bar;" `runsSuccessfullyWithOutput` ""
 
 conflictingIdentifierDefinitionsError :: Error -> Bool
 conflictingIdentifierDefinitionsError (ConflictingIdentifierDefinitionsError {}) = True

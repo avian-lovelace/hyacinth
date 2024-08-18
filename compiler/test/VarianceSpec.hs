@@ -15,174 +15,142 @@ testVariance :: Spec
 testVariance = do
   describe "Type component variances:" $ do
     it "A type is bivariant wrt unused type parameters" $ do
-      testTypeInfo "type foo = ⟨T⟩ => Int" (getTypeSynonymInfoByName "foo") $ \typeInfo -> do
-        let varianceFunc = typeSynonymVarianceFunc typeInfo
+      testTypeInfo "type foo = ⟨T⟩ => Int" (getTypeSynonymVarianceFuncByName "foo") $ \varianceFunc -> do
         varianceFunc Immutable `shouldBe` Seq.fromList [Bivariant]
         varianceFunc Mutable `shouldBe` Seq.fromList [Bivariant]
     it "A type parameter reference is covariant wrt itself" $ do
-      testTypeInfo "type foo = ⟨T⟩ => T" (getTypeSynonymInfoByName "foo") $ \typeInfo -> do
-        let varianceFunc = typeSynonymVarianceFunc typeInfo
+      testTypeInfo "type foo = ⟨T⟩ => T" (getTypeSynonymVarianceFuncByName "foo") $ \varianceFunc -> do
         varianceFunc Immutable `shouldBe` Seq.fromList [Covariant]
         varianceFunc Mutable `shouldBe` Seq.fromList [Covariant]
     it "A function is covariant wrt its output" $ do
-      testTypeInfo "type foo = ⟨T⟩ => [Int] -> T" (getTypeSynonymInfoByName "foo") $ \typeInfo -> do
-        let varianceFunc = typeSynonymVarianceFunc typeInfo
+      testTypeInfo "type foo = ⟨T⟩ => [Int] -> T" (getTypeSynonymVarianceFuncByName "foo") $ \varianceFunc -> do
         varianceFunc Immutable `shouldBe` Seq.fromList [Covariant]
         varianceFunc Mutable `shouldBe` Seq.fromList [Covariant]
     it "A function is contravariant wrt its inputs" $ do
-      testTypeInfo "type foo = ⟨T⟩ => [T] -> Int" (getTypeSynonymInfoByName "foo") $ \typeInfo -> do
-        let varianceFunc = typeSynonymVarianceFunc typeInfo
+      testTypeInfo "type foo = ⟨T⟩ => [T] -> Int" (getTypeSynonymVarianceFuncByName "foo") $ \varianceFunc -> do
         varianceFunc Immutable `shouldBe` Seq.fromList [Contravariant]
         varianceFunc Mutable `shouldBe` Seq.fromList [Contravariant]
     it "Type synonyms with multiple type parameters have variances calculated correctly" $ do
-      testTypeInfo "type foo = ⟨T, U, V⟩ => [T, U] -> V" (getTypeSynonymInfoByName "foo") $ \typeInfo -> do
-        let varianceFunc = typeSynonymVarianceFunc typeInfo
+      testTypeInfo "type foo = ⟨T, U, V⟩ => [T, U] -> V" (getTypeSynonymVarianceFuncByName "foo") $ \varianceFunc -> do
         varianceFunc Immutable `shouldBe` Seq.fromList [Contravariant, Contravariant, Covariant]
         varianceFunc Mutable `shouldBe` Seq.fromList [Contravariant, Contravariant, Covariant]
     it "An immutable list is covariant wrt its type argument" $ do
-      testTypeInfo "type foo = ⟨T⟩ => List⟨T⟩" (getTypeSynonymInfoByName "foo") $ \typeInfo -> do
-        let varianceFunc = typeSynonymVarianceFunc typeInfo
+      testTypeInfo "type foo = ⟨T⟩ => List⟨T⟩" (getTypeSynonymVarianceFuncByName "foo") $ \varianceFunc -> do
         varianceFunc Immutable `shouldBe` Seq.fromList [Covariant]
         varianceFunc Mutable `shouldBe` Seq.fromList [Covariant]
     it "A mutable list is invariant wrt its type argument" $ do
-      testTypeInfo "type foo = ⟨T⟩ => mut List⟨T⟩" (getTypeSynonymInfoByName "foo") $ \typeInfo -> do
-        let varianceFunc = typeSynonymVarianceFunc typeInfo
+      testTypeInfo "type foo = ⟨T⟩ => mut List⟨T⟩" (getTypeSynonymVarianceFuncByName "foo") $ \varianceFunc -> do
         varianceFunc Immutable `shouldBe` Seq.fromList [Invariant]
         varianceFunc Mutable `shouldBe` Seq.fromList [Invariant]
     it "Variance calculations correctly handle mutability parameters of type synonyms" $ do
-      testTypeInfo "type foo = ⟨mut M, T⟩ => M List⟨T⟩" (getTypeSynonymInfoByName "foo") $ \typeInfo -> do
-        let varianceFunc = typeSynonymVarianceFunc typeInfo
+      testTypeInfo "type foo = ⟨mut M, T⟩ => M List⟨T⟩" (getTypeSynonymVarianceFuncByName "foo") $ \varianceFunc -> do
         varianceFunc Immutable `shouldBe` Seq.fromList [Covariant]
         varianceFunc Mutable `shouldBe` Seq.fromList [Invariant]
   describe "Combining variances:" $ do
     it "Functions: Covariant + Contravariant = Invariant" $ do
-      testTypeInfo "type foo = ⟨T⟩ => [T] -> T" (getTypeSynonymInfoByName "foo") $ \typeInfo -> do
-        let varianceFunc = typeSynonymVarianceFunc typeInfo
+      testTypeInfo "type foo = ⟨T⟩ => [T] -> T" (getTypeSynonymVarianceFuncByName "foo") $ \varianceFunc -> do
         varianceFunc Immutable `shouldBe` Seq.fromList [Invariant]
         varianceFunc Mutable `shouldBe` Seq.fromList [Invariant]
     it "Functions: Covariant * Covariant = Covariant" $ do
-      testTypeInfo "type foo = ⟨T⟩ => [] -> [] -> T" (getTypeSynonymInfoByName "foo") $ \typeInfo -> do
-        let varianceFunc = typeSynonymVarianceFunc typeInfo
+      testTypeInfo "type foo = ⟨T⟩ => [] -> [] -> T" (getTypeSynonymVarianceFuncByName "foo") $ \varianceFunc -> do
         varianceFunc Immutable `shouldBe` Seq.fromList [Covariant]
         varianceFunc Mutable `shouldBe` Seq.fromList [Covariant]
     it "Functions: Covariant * Contravariant = Contravariant" $ do
-      testTypeInfo "type foo = ⟨T⟩ => [] -> [T] -> Int" (getTypeSynonymInfoByName "foo") $ \typeInfo -> do
-        let varianceFunc = typeSynonymVarianceFunc typeInfo
+      testTypeInfo "type foo = ⟨T⟩ => [] -> [T] -> Int" (getTypeSynonymVarianceFuncByName "foo") $ \varianceFunc -> do
         varianceFunc Immutable `shouldBe` Seq.fromList [Contravariant]
         varianceFunc Mutable `shouldBe` Seq.fromList [Contravariant]
     it "Functions: Contravariant * Contravariant = Covariant" $ do
-      testTypeInfo "type foo = ⟨T⟩ => [[T] -> Int] -> Int" (getTypeSynonymInfoByName "foo") $ \typeInfo -> do
-        let varianceFunc = typeSynonymVarianceFunc typeInfo
+      testTypeInfo "type foo = ⟨T⟩ => [[T] -> Int] -> Int" (getTypeSynonymVarianceFuncByName "foo") $ \varianceFunc -> do
         varianceFunc Immutable `shouldBe` Seq.fromList [Covariant]
         varianceFunc Mutable `shouldBe` Seq.fromList [Covariant]
     it "Type synonyms: Covariant * Covariant = Covariant" $ do
       testTypeInfo
         "type foo = ⟨T⟩ => T; type bar = ⟨T⟩ => foo⟨T⟩"
-        (sequence2 (getTypeSynonymInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
-          let fooVarianceFunc = typeSynonymVarianceFunc fooTypeInfo
+        (sequence2 (getTypeSynonymVarianceFuncByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooVarianceFunc, barVarianceFunc) -> do
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Covariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Covariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Covariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Covariant]
     it "Type synonyms: Covariant * Contravariant = Covariant" $ do
       testTypeInfo
         "type foo = ⟨T⟩ => T; type bar = ⟨T⟩ => foo⟨[T] -> Int⟩"
-        (sequence2 (getTypeSynonymInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
-          let fooVarianceFunc = typeSynonymVarianceFunc fooTypeInfo
+        (sequence2 (getTypeSynonymVarianceFuncByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooVarianceFunc, barVarianceFunc) -> do
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Covariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Covariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Contravariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Contravariant]
     it "Type synonyms: Contravariant * Contravariant = Covariant" $ do
       testTypeInfo
         "type foo = ⟨T⟩ => [T] -> Int; type bar = ⟨T⟩ => foo⟨[T] -> Int⟩"
-        (sequence2 (getTypeSynonymInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
-          let fooVarianceFunc = typeSynonymVarianceFunc fooTypeInfo
+        (sequence2 (getTypeSynonymVarianceFuncByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooVarianceFunc, barVarianceFunc) -> do
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Contravariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Contravariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Covariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Covariant]
     it "Type synonyms: Bivariant * Contravariant = Bivariant" $ do
       testTypeInfo
         "type foo = ⟨T⟩ => Int; type bar = ⟨T⟩ => foo⟨[T] -> Int⟩"
-        (sequence2 (getTypeSynonymInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
-          let fooVarianceFunc = typeSynonymVarianceFunc fooTypeInfo
+        (sequence2 (getTypeSynonymVarianceFuncByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooVarianceFunc, barVarianceFunc) -> do
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Bivariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Bivariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Bivariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Bivariant]
     it "Type synonyms: Invariant * Contravariant = Invariant" $ do
       testTypeInfo
         "type foo = ⟨T⟩ => [T] -> T; type bar = ⟨T⟩ => foo⟨[T] -> Int⟩"
-        (sequence2 (getTypeSynonymInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
-          let fooVarianceFunc = typeSynonymVarianceFunc fooTypeInfo
+        (sequence2 (getTypeSynonymVarianceFuncByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooVarianceFunc, barVarianceFunc) -> do
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Invariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Invariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Invariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Invariant]
     it "Type synonyms: Invariant * Bivariant = Bivariant" $ do
       testTypeInfo
         "type foo = ⟨T⟩ => [T] -> T; type bar = ⟨T⟩ => foo⟨Int⟩"
-        (sequence2 (getTypeSynonymInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
-          let fooVarianceFunc = typeSynonymVarianceFunc fooTypeInfo
+        (sequence2 (getTypeSynonymVarianceFuncByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooVarianceFunc, barVarianceFunc) -> do
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Invariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Invariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Bivariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Bivariant]
     it "Type synonyms: Bivariant * Invariant = Bivariant" $ do
       testTypeInfo
         "type foo = ⟨T⟩ => Int; type bar = ⟨T⟩ => foo⟨[T] -> T⟩"
-        (sequence2 (getTypeSynonymInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
-          let fooVarianceFunc = typeSynonymVarianceFunc fooTypeInfo
+        (sequence2 (getTypeSynonymVarianceFuncByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooVarianceFunc, barVarianceFunc) -> do
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Bivariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Bivariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Bivariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Bivariant]
     it "Type synonyms: Covariant + Contravariant = Invariant" $ do
       testTypeInfo
         "type foo = ⟨T, U⟩ => [T] -> U; type bar = ⟨T⟩ => foo⟨T, T⟩"
-        (sequence2 (getTypeSynonymInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
-          let fooVarianceFunc = typeSynonymVarianceFunc fooTypeInfo
+        (sequence2 (getTypeSynonymVarianceFuncByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooVarianceFunc, barVarianceFunc) -> do
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Contravariant, Covariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Contravariant, Covariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Invariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Invariant]
     it "Type synonyms: Contravariant + Contravariant = Contravariant" $ do
       testTypeInfo
         "type foo = ⟨T, U⟩ => [T, U] -> Int; type bar = ⟨T⟩ => foo⟨T, T⟩"
-        (sequence2 (getTypeSynonymInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
-          let fooVarianceFunc = typeSynonymVarianceFunc fooTypeInfo
+        (sequence2 (getTypeSynonymVarianceFuncByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooVarianceFunc, barVarianceFunc) -> do
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Contravariant, Contravariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Contravariant, Contravariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Contravariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Contravariant]
     it "Multi-way by multi-way type synonym variances are calculated correctly" $ do
       testTypeInfo
         "type foo = ⟨T, U⟩ => [T] -> U; type bar = ⟨T, U, V⟩ => foo⟨[T, V] -> U, [U, V] -> Int⟩"
-        (sequence2 (getTypeSynonymInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
-          let fooVarianceFunc = typeSynonymVarianceFunc fooTypeInfo
+        (sequence2 (getTypeSynonymVarianceFuncByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooVarianceFunc, barVarianceFunc) -> do
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Contravariant, Covariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Contravariant, Covariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Covariant, Contravariant, Invariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Covariant, Contravariant, Invariant]
   describe "Record variances:" $ do
@@ -207,45 +175,41 @@ testVariance = do
     it "Immutable record references in type synonyms have their variances calculated correctly" $ do
       testTypeInfo
         "rec foo = ⟨T, U⟩ => [a: [T] -> Int]; type bar = ⟨T, U⟩ => foo⟨T, U⟩"
-        (sequence2 (getRecordTypeInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
+        (sequence2 (getRecordTypeInfoByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooTypeInfo, barVarianceFunc) -> do
           let fooVarianceFunc = recordVarianceFunc fooTypeInfo
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Contravariant, Bivariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Invariant, Bivariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Contravariant, Bivariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Contravariant, Bivariant]
     it "Mutable record references in type synonyms have their variances calculated correctly" $ do
       testTypeInfo
         "rec foo = ⟨T, U⟩ => [a: [T] -> Int]; type bar = ⟨T, U⟩ => mut foo⟨T, U⟩"
-        (sequence2 (getRecordTypeInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
+        (sequence2 (getRecordTypeInfoByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooTypeInfo, barVarianceFunc) -> do
           let fooVarianceFunc = recordVarianceFunc fooTypeInfo
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Contravariant, Bivariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Invariant, Bivariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Invariant, Bivariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Invariant, Bivariant]
     it "Record references with variable mutability in type synonyms have their variances calculated correctly" $ do
       testTypeInfo
         "rec foo = ⟨T, U⟩ => [a: [T] -> Int]; type bar = ⟨mut M, T, U⟩ => M foo⟨T, U⟩"
-        (sequence2 (getRecordTypeInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
+        (sequence2 (getRecordTypeInfoByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooTypeInfo, barVarianceFunc) -> do
           let fooVarianceFunc = recordVarianceFunc fooTypeInfo
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Contravariant, Bivariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Invariant, Bivariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Contravariant, Bivariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Invariant, Bivariant]
     it "Record references with complex type argyments in type synonyms have their variances calculated correctly" $ do
       testTypeInfo
         "rec foo = ⟨T, U⟩ => [a: [T] -> Int]; type bar = ⟨mut M, T, U, V⟩ => M foo⟨[T] -> U, [U] -> V⟩"
-        (sequence2 (getRecordTypeInfoByName "foo", getTypeSynonymInfoByName "bar"))
-        $ \(fooTypeInfo, barTypeInfo) -> do
+        (sequence2 (getRecordTypeInfoByName "foo", getTypeSynonymVarianceFuncByName "bar"))
+        $ \(fooTypeInfo, barVarianceFunc) -> do
           let fooVarianceFunc = recordVarianceFunc fooTypeInfo
           fooVarianceFunc Immutable `shouldBe` Seq.fromList [Contravariant, Bivariant]
           fooVarianceFunc Mutable `shouldBe` Seq.fromList [Invariant, Bivariant]
-          let barVarianceFunc = typeSynonymVarianceFunc barTypeInfo
           barVarianceFunc Immutable `shouldBe` Seq.fromList [Covariant, Contravariant, Bivariant]
           barVarianceFunc Mutable `shouldBe` Seq.fromList [Invariant, Invariant, Bivariant]
     it "Immutable record references in records have their variances calculated correctly" $ do

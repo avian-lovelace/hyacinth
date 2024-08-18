@@ -75,8 +75,19 @@ data TypeCheckingState = TypeCheckingState
             (Maybe IBMutabilityParameter, Seq IBTypeParameter, IBTypeExpression)
             TypeSynonymTypeInfo
         ),
+    {- Type synonym variance functions are split out into a separate map to ensure that variance calculations are not
+       triggered before all records in a block are initialized.
+    -}
+    typeSynonymVarianceFuncs ::
+      Map
+        BoundTypeSynonym
+        ( Either
+            (Maybe IBMutabilityParameter, Seq IBTypeParameter, IBTypeExpression)
+            (Mutability -> Seq Variance)
+        ),
     functionContextStack :: [FunctionContext],
-    inProgressTypeSynonyms :: Seq BoundTypeSynonym
+    inProgressTypeSynonyms :: Seq BoundTypeSynonym,
+    inProgressTypeSynonymVariances :: Seq BoundTypeSynonym
   }
 
 data FunctionTypeInfo = FunctionTypeInfo
@@ -90,7 +101,6 @@ data FunctionTypeInfo = FunctionTypeInfo
 data TypeSynonymTypeInfo = TypeSynonymTypeInfo
   { typeSynonymArity :: Int,
     typeSynonymTypeFunc :: Mutability -> Seq Type -> Type,
-    typeSynonymVarianceFunc :: Mutability -> Seq Variance,
     typeSynonymInferTypeArguments :: Type -> TypeArgumentsInference
   }
 
@@ -117,8 +127,10 @@ initialTypeCheckingState =
       builtInFunctionTypeInfos = Map.empty,
       recordTypeInfos = Map.empty,
       typeSynonymTypeInfos = Map.empty,
+      typeSynonymVarianceFuncs = Map.empty,
       functionContextStack = [],
-      inProgressTypeSynonyms = []
+      inProgressTypeSynonyms = [],
+      inProgressTypeSynonymVariances = []
     }
 
 -- Identifier info getters/setters
@@ -334,7 +346,8 @@ initializeTypeSynonymTypeInfo :: IBTypeSynonym -> Maybe IBMutabilityParameter ->
 initializeTypeSynonymTypeInfo typeSynonym maybeMutabilityParameter typeParameters typeValueExpression = do
   state <- getState
   let updatedTypeSynonymTypeInfo = Map.insert typeSynonym (Left (maybeMutabilityParameter, typeParameters, typeValueExpression)) $ typeSynonymTypeInfos state
-  setState state {typeSynonymTypeInfos = updatedTypeSynonymTypeInfo}
+  let updatedTypeSynonymVarianceFuncs = Map.insert typeSynonym (Left (maybeMutabilityParameter, typeParameters, typeValueExpression)) $ typeSynonymVarianceFuncs state
+  setState state {typeSynonymTypeInfos = updatedTypeSynonymTypeInfo, typeSynonymVarianceFuncs = updatedTypeSynonymVarianceFuncs}
 
 setTypeSynonymTypeInfo :: BoundTypeSynonym -> TypeSynonymTypeInfo -> TypeChecker ()
 setTypeSynonymTypeInfo typeSynonym typeSynonymTypeInfo = do
@@ -342,10 +355,11 @@ setTypeSynonymTypeInfo typeSynonym typeSynonymTypeInfo = do
   let updatedTypeSynonymTypeInfos = Map.insert typeSynonym (Right typeSynonymTypeInfo) $ typeSynonymTypeInfos state
   setState state {typeSynonymTypeInfos = updatedTypeSynonymTypeInfos}
 
-setTypeSynonymVariancesFunc :: BoundTypeSynonym -> (Mutability -> Seq Variance) -> TypeChecker ()
-setTypeSynonymVariancesFunc typeSynonym typeSynonymVarianceFunc = do
-  currentTypeSynonymTypeInfo <- getTypeSynonymTypeInfo typeSynonym
-  setTypeSynonymTypeInfo typeSynonym currentTypeSynonymTypeInfo {typeSynonymVarianceFunc}
+setTypeSynonymVarianceFunc :: BoundTypeSynonym -> (Mutability -> Seq Variance) -> TypeChecker ()
+setTypeSynonymVarianceFunc typeSynonym typeSynonymVarianceFunc = do
+  state <- getState
+  let updatedTypeSynonymVarianceFuncs = Map.insert typeSynonym (Right typeSynonymVarianceFunc) $ typeSynonymVarianceFuncs state
+  setState state {typeSynonymVarianceFuncs = updatedTypeSynonymVarianceFuncs}
 
 getTypeSynonymTypeInfo :: BoundTypeSynonym -> TypeChecker TypeSynonymTypeInfo
 getTypeSynonymTypeInfo typeSynonym = do
@@ -360,13 +374,11 @@ getTypeSynonymTypeInfo typeSynonym = do
         Just index -> throwError $ TypeSynonymCyclicReferencesError (toList $ Seq.take (index + 1) $ getTextName <$> inProgressTypeSynonyms)
       setTypeSynonymInProgress
       typeSynonymTypeFunc <- getParametrizedTypeFunc (NormalContext maybeMutabilityParameter) typeParameters typeValueExpression
-      typeSynonymVarianceFunc <- getTypeVarianceFunc (NormalContext maybeMutabilityParameter) typeParameters typeValueExpression
       typeSynonymInferTypeArguments <- inferTypeArguments typeParameters typeValueExpression
       let typeSynonymTypeInfo =
             TypeSynonymTypeInfo
               { typeSynonymArity = Seq.length typeParameters,
                 typeSynonymTypeFunc,
-                typeSynonymVarianceFunc,
                 typeSynonymInferTypeArguments
               }
       setTypeSynonymTypeInfo typeSynonym typeSynonymTypeInfo
@@ -382,17 +394,38 @@ getTypeSynonymTypeInfo typeSynonym = do
         headInProgress :<| tailInProgress | headInProgress == typeSynonym -> setState state {inProgressTypeSynonyms = tailInProgress}
         _ -> throwError $ ShouldNotGetHereError "setTypeSynonymNotInProgress error"
 
+getTypeSynonymVarianceFunc :: BoundTypeSynonym -> TypeChecker (Mutability -> Seq Variance)
+getTypeSynonymVarianceFunc typeSynonym = do
+  typeSynonymVarianceFuncs <- typeSynonymVarianceFuncs <$> getState
+  case Map.lookup typeSynonym typeSynonymVarianceFuncs of
+    Nothing -> throwError $ ShouldNotGetHereError "Called getTypeSynonymVariances before type synonym was initialized"
+    Just (Right typeSynonymVarianceFunc) -> return typeSynonymVarianceFunc
+    Just (Left (maybeMutabilityParameter, typeParameters, typeValueExpression)) -> do
+      inProgressTypeSynonyms <- inProgressTypeSynonyms <$> getState
+      case Seq.elemIndexL typeSynonym inProgressTypeSynonyms of
+        Nothing -> return ()
+        Just index -> throwError $ TypeSynonymCyclicReferencesError (toList $ Seq.take (index + 1) $ getTextName <$> inProgressTypeSynonyms)
+      setTypeSynonymInProgress
+      typeSynonymVarianceFunc <- getTypeVarianceFunc (NormalContext maybeMutabilityParameter) typeParameters typeValueExpression
+      setTypeSynonymVarianceFunc typeSynonym typeSynonymVarianceFunc
+      setTypeSynonymNotInProgress
+      return typeSynonymVarianceFunc
+  where
+    setTypeSynonymInProgress = do
+      state <- getState
+      setState state {inProgressTypeSynonymVariances = typeSynonym :<| inProgressTypeSynonymVariances state}
+    setTypeSynonymNotInProgress = do
+      state <- getState
+      case inProgressTypeSynonymVariances state of
+        headInProgress :<| tailInProgress | headInProgress == typeSynonym -> setState state {inProgressTypeSynonymVariances = tailInProgress}
+        _ -> throwError $ ShouldNotGetHereError "setTypeSynonymNotInProgress error"
+
 getTypeSynonymTypeFunc :: Range -> Int -> BoundTypeSynonym -> TypeChecker (Mutability -> Seq Type -> Type)
 getTypeSynonymTypeFunc usageRange numArguments typeSynonym = do
   TypeSynonymTypeInfo {typeSynonymArity, typeSynonymTypeFunc} <- getTypeSynonymTypeInfo typeSynonym
   unless (numArguments == typeSynonymArity) $
     throwError (TypeSynonymWrongNumberOfTypeArgumentsError usageRange (getTextName typeSynonym) typeSynonymArity numArguments)
-  return $ typeSynonymTypeFunc
-
-getTypeSynonymVariances :: BoundTypeSynonym -> Mutability -> TypeChecker (Seq Variance)
-getTypeSynonymVariances typeSynonym mutability = do
-  TypeSynonymTypeInfo {typeSynonymVarianceFunc} <- getTypeSynonymTypeInfo typeSynonym
-  return $ typeSynonymVarianceFunc mutability
+  return typeSynonymTypeFunc
 
 getListVariance :: Mutability -> Variance
 getListVariance Immutable = Covariant
@@ -457,7 +490,7 @@ calculateVariancesHelper typeInfos initialVarianceMap = do
     Right (typeSynonym, vaueTypeExpression) -> do
       let mutabilityContext = NormalContext mutabilityParameter
       valueTypeExpressionVarianceFunc <- getTypeVarianceFunc mutabilityContext typeParameters vaueTypeExpression
-      setTypeSynonymVariancesFunc typeSynonym valueTypeExpressionVarianceFunc
+      setTypeSynonymVarianceFunc typeSynonym valueTypeExpressionVarianceFunc
   finalVariancesMap <- getVariancesMap $ typeInfos <&> \(typeNameAndValues, _, _) -> bimap fst fst typeNameAndValues
   if initialVarianceMap == finalVariancesMap
     then return ()
@@ -468,7 +501,9 @@ getVariancesMap typeNames = do
   variancePairsList <- forM typeNames $ \typeName -> do
     let getVariances = case typeName of
           Left recordName -> getRecordVariances recordName
-          Right typeSynonym -> getTypeSynonymVariances typeSynonym
+          Right typeSynonym -> \mutability -> do
+            typeSynonymVarianceFunc <- getTypeSynonymVarianceFunc typeSynonym
+            return $ typeSynonymVarianceFunc mutability
     immutableVariances <- getVariances Immutable
     mutableVariances <- getVariances Mutable
     return [((typeName, Immutable), immutableVariances), ((typeName, Mutable), mutableVariances)]
@@ -498,7 +533,7 @@ getTypeVarianceFunc mutabilityContext typeParameters typeExpression = case typeE
     return . const $ typeParameters <&> \tp -> if tp == typeParameter then Covariant else Bivariant
   IdentifierTypeExpression expressionRange mutabilityExpression (Right typeSynonym) typeArguments -> do
     typeArgumentVarianceFuncs <- forM typeArguments $ getTypeVarianceFunc updatedMutabilityContext typeParameters
-    typeSynonymVarianceFunc <- typeSynonymVarianceFunc <$> getTypeSynonymTypeInfo typeSynonym
+    typeSynonymVarianceFunc <- getTypeSynonymVarianceFunc typeSynonym
     mutabilityFunc <- getMutabilityFunc expressionRange mutabilityContext mutabilityExpression
     return $ \mutabilityArgument ->
       let mutability = mutabilityFunc mutabilityArgument

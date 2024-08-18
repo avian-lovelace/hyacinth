@@ -1,10 +1,18 @@
-module TypeTesting (testTypeInfo, getTypeSynonymInfoByName, getRecordTypeInfoByName) where
+module TypeTesting
+  ( testTypeInfo,
+    getTypeSynonymInfoByName,
+    getRecordTypeInfoByName,
+    getTypeSynonymVarianceFuncByName,
+  )
+where
 
 import Core.ErrorState
 import Core.Errors
 import Core.Pretty
+import Core.SyntaxTree
 import Data.Foldable (fold)
 import qualified Data.Map as Map
+import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -16,6 +24,7 @@ import Sectioning.Sectioner
 import Test.Hspec
 import TypeChecking.TypeChecker
 import TypeChecking.TypeChecking
+import TypeChecking.Variance
 
 testTypeInfo :: Text -> TypeChecker a -> (a -> Expectation) -> Expectation
 testTypeInfo code getTypeInfo typeInfoExpectations = case typeInfoOrError of
@@ -38,6 +47,16 @@ getTypeSynonymInfoByName typeSynonym = do
   case typeSynonymTypeInfosWithName of
     [] -> throwError $ TestError ("No type synonyms found with name " ++ Text.unpack typeSynonym)
     [(_, Right typeSynonymTypeInfo)] -> return typeSynonymTypeInfo
+    [(_, Left _)] -> throwError $ TestError ("Type synonym " ++ Text.unpack typeSynonym ++ " was unchecked after type checking")
+    _ -> throwError $ TestError ("Multiple type synonyms found with name " ++ Text.unpack typeSynonym)
+
+getTypeSynonymVarianceFuncByName :: Text -> TypeChecker (Mutability -> Seq Variance)
+getTypeSynonymVarianceFuncByName typeSynonym = do
+  typeSynonymVarianceFuncs <- typeSynonymVarianceFuncs <$> getState
+  let typeSynonymVarianceFuncsWithName = filter (\(typeSynonymId, _) -> getTextName typeSynonymId == typeSynonym) $ Map.toList typeSynonymVarianceFuncs
+  case typeSynonymVarianceFuncsWithName of
+    [] -> throwError $ TestError ("No type synonyms found with name " ++ Text.unpack typeSynonym)
+    [(_, Right typeSynonymVarianceFunc)] -> return typeSynonymVarianceFunc
     [(_, Left _)] -> throwError $ TestError ("Type synonym " ++ Text.unpack typeSynonym ++ " was unchecked after type checking")
     _ -> throwError $ TestError ("Multiple type synonyms found with name " ++ Text.unpack typeSynonym)
 
