@@ -1,7 +1,7 @@
 // Outputs:
 // 55
 
-printLine⟨Int⟩[fibonacci[10]];
+fibonacci[10]>>printLine[];
 
 // Calculate the nth Fibonacci number, returning zero when n is negative
 func fibonacci = [n: Int]: Int -> {

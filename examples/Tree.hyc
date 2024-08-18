@@ -1,0 +1,36 @@
+// Outputs:
+// 2
+// 1
+// 2
+// 0
+// 2
+// 1
+// 2
+
+depthTree[2]>>forEachInOrder[printLine];
+
+type Tree = ⟨mut M, T⟩ => M Leaf | Node⟨T⟩;
+rec Leaf = [];
+rec Node = ⟨T⟩ => [value: T, left: Tree⟨T⟩, right: Tree⟨T⟩];
+
+func depthTree = [maxDepth: Int]: mut Tree⟨Int⟩ -> {
+    return makeTree[maxDepth, 0];
+
+    func makeTree = [maxDepth: Int, depth: Int]: mut Tree⟨Int⟩ -> {
+        if depth > maxDepth then {
+            return Leaf;
+        } else {
+            return mut Node[value = depth, left = makeTree[maxDepth, depth + 1], right = makeTree[maxDepth, depth + 1]];
+        };
+    };
+};
+
+func forEachInOrder = ⟨T⟩ => [tree: Tree⟨T⟩, f: [T] -> Nil]: Nil -> 
+    case tree of [
+        Leaf: leaf -> nil,
+        Node: node -> {
+            forEachInOrder⟨T⟩[node.left, f];
+            f[node.value];
+            forEachInOrder⟨T⟩[node.right, f];
+        }
+    ];
