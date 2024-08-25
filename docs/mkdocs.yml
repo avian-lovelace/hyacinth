@@ -8,6 +8,7 @@ nav:
     - variables.md
     - control_flow.md
     - functions.md
+    - lists.md
     - records.md
     - type_synonyms.md
     - misc.md

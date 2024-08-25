@@ -12,8 +12,8 @@ let myPet = Dog[
     name = "Fido",
     age = 4,
 ];
-printLine⟨String⟩[myPet.name];
-printLine⟨Int⟩[myPet.age];
+myPet.name>>printLine[];
+myPet.age>>printLine[];
 
 // Outputs:
 // Fido
@@ -41,9 +41,9 @@ rec Bar = [
 ];
 
 let mut x: Foo | Bar = Foo[shared = 1, justFoo = "foo"];
-printLine⟨Int⟩[x.shared];
+x.shared>>printLine[];
 mut x = Bar[shared = 2, justBar = true];
-printLine⟨Int⟩[x.shared];
+x.shared>>printLine[];
 
 // Outputs:
 // 1
@@ -57,10 +57,10 @@ rec Bar = [];
 
 func printFooBar = [fb: Foo | Bar]: Nil -> case fb of [
     Foo: f -> {
-        printLine⟨String⟩[f.value];
+        f.value>>printLine[];
     },
     Bar: b -> {
-        printLine⟨String⟩["Bar"];
+        "Bar">>printLine[];
     },
 ];
 
@@ -82,8 +82,8 @@ rec Pair = ⟨T⟩ => [
 ];
 
 let point = Pair⟨Float⟩[first = 1.23, second = 4.5];
-printLine⟨Float⟩[point.first];
-printLine⟨Float⟩[point.second];
+point.first>>printLine[];
+point.second>>printLine[];
 
 // Outputs:
 // 1.23
@@ -92,14 +92,14 @@ printLine⟨Float⟩[point.second];
 
 ## Mutability
 
-Records are immutable by default, but a record instance can be made mutable with the `mut` keyword.
+Records are immutable by default, but a record instance can be made mutable with the `mut` keyword. The fields of a mutable record can be modified using `mut` statements.
 ```
 rec Box = [value: Int];
 
 let myBox = mut Box[value = 1];
-printLine⟨Int⟩[myBox.value];
+myBox.value>>printLine[];
 mut myBox.value = 2;
-printLine⟨Int⟩[myBox.value];
+myBox.value>>printLine[];
 
 // Output
 // 1
@@ -115,9 +115,9 @@ func doubleValue = [box: mut Box]: Nil -> {
 };
 
 let myBox = mut Box[value = 4];
-printLine⟨Int⟩[myBox.value];
+myBox.value>>printLine[];
 doubleValue[myBox];
-printLine⟨Int⟩[myBox.value];
+myBox.value>>printLine[];
 
 // Outputs:
 // 4
@@ -136,9 +136,9 @@ let mutableFoo = mut Foo[
         b = 1
     ]
 ];
-printLine⟨Int⟩[mutableFoo.a.b];
+mutableFoo.a.b>>printLine[];
 mut mutableFoo.a.b = 2;
-printLine⟨Int⟩[mutableFoo.a.b];
+mutableFoo.a.b>>printLine[];
 
 let immutableFooCopy: Foo = mutableFoo;
 // The following would result in a type error, as immutableFooCopy is deeply immutable

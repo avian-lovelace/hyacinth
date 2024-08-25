@@ -50,3 +50,13 @@ printLine⟨String⟩["concatenating" + ' ' + "strings"];
 // true
 // concatenating strings
 ```
+
+## Comments
+In Hyacinth, a double forward slash (`//`) makes the rest of the line into a comment which is not evaluated as code.
+```
+// This text is not evaluated
+"Hello, World!">>printLine[]; // This text is not evaluated either
+
+// Outputs:
+// Hello, World!
+```

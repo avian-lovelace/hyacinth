@@ -6,7 +6,7 @@ type FileName = String;
 type Extension = String;
 
 func printFile = [fileName: FileName, extension: Extension]: Nil -> {
-    printLine⟨String⟩[fileName + '.' + extension];
+    (fileName + '.' + extension)>>printLine[];
 };
 
 printFile["myDoc", "txt"];
@@ -21,8 +21,8 @@ type Latitude = Float;
 type Longitude = Float;
 
 func printCoordinates = [lat: Latitude, lon: Longitude]: Nil -> {
-    printLine⟨Latitude⟩[lat];
-    printLine⟨Longitude⟩[lon];
+    lat>>printLine[];
+    lon>>printLine[];
 };
 
 let currentLat: Latitude = 32.1;
@@ -48,7 +48,7 @@ func getValueOrDefault = ⟨T⟩ => [maybe: Maybe⟨T⟩, default: T]: T ->
         Nothing: n -> default,
     ];
 
-print⟨Bool⟩[getValueOrDefault⟨Bool⟩[Just[value = true], false]];
+Just⟨Bool⟩[value = true]>>getValueOrDefault⟨Bool⟩[false]>>printLine[];
 
 // Outputs:
 // true
@@ -56,15 +56,17 @@ print⟨Bool⟩[getValueOrDefault⟨Bool⟩[Just[value = true], false]];
 
 Type synonyms may also have mutability parameters.
 ```
-type List = ⟨mut M, T⟩ => M Empty | Cons⟨T⟩;
-rec Empty = [];
-rec Cons = ⟨T⟩ => [value: T, next: List⟨T⟩];
+type Tree = ⟨mut M, T⟩ => M Leaf | Node⟨T⟩;
+rec Leaf = [];
+rec Node = ⟨T⟩ => [value: T, left: Tree⟨T⟩, right: Tree⟨T⟩];
 
-let mutableList: mut List⟨Int⟩ = mut Cons[
+let mutableTree: mut Tree⟨Int⟩ = mut Node[
     value = 1,
-    next = mut Cons[
+    left = mut Node[
         value = 2,
-        next = Empty,
-    ]
+        left = Leaf,
+        right = Leaf,
+    ],
+    right = Leaf,
 ];
 ```

@@ -20,7 +20,7 @@ If expressions allow for code branching depending on a condition. They can be us
 let a = 5;
 let b = 3;
 let max = if a > b then a else b;
-print⟨Int⟩[max];
+max>>printLine[];
 
 // Outputs:
 // 5
@@ -30,9 +30,9 @@ If expressions can also be used for the side-effects of their branches, often in
 
 ```
 if 1 + 1 == 2 then {
-    print⟨String⟩["1 + 1 is 2"];
+    "1 + 1 is 2">>printLine[];
 } else {
-    print⟨String⟩["1 + 1 is not 2"];
+    "1 + 1 is not 2">>printLine[];
 };
 
 // Outputs:
@@ -43,7 +43,7 @@ When the `true` branch of an if expressions has type `Nil`, the `false` branch m
 
 ```
 if !(true && false) then {
-    print⟨String⟩["evaluated to true"];
+    "evaluated to true">>printLine[];
 };
 
 // Outputs:
@@ -56,7 +56,7 @@ While loop statements evaluate their body expression repeatedly until their cond
 ```
 let mut a = 1;
 while a < 10 loop {
-    printLine⟨Int⟩[a];
+    a>>printLine[];
     mut a = a * 3;
 };
 
