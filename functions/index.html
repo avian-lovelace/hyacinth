@@ -72,7 +72,13 @@
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#built-in-functions">Built-in Functions</a>
     </li>
+    <li class="toctree-l2"><a class="reference internal" href="#method-call-operator">Method Call Operator</a>
+    </li>
     </ul>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../lists/">Lists</a>
                 </li>
               </ul>
               <ul>
@@ -113,7 +119,7 @@
                 <h1 id="functions">Functions</h1>
 <p>In Hyacinth, function declarations statements can be used to define functions.</p>
 <pre><code>func sumSquare = [x: Int, y: Int]: Int -&gt; x * x + y * y;
-print⟨Int⟩[sumSquare[3, 4]];
+sumSquare[3, 4]&gt;&gt;printLine[];
 
 // Outputs:
 // 25
@@ -121,7 +127,7 @@ print⟨Int⟩[sumSquare[3, 4]];
 <p>Functions defined via function declaration statements may be referenced earlier in a scope than their definition.</p>
 <pre><code>printFoo[];
 func printFoo = []: Nil -&gt; {
-    print⟨String⟩[&quot;Foo&quot;];
+    &quot;Foo&quot;&gt;&gt;printLine[];
 }
 
 // Outputs:
@@ -132,7 +138,7 @@ func printFoo = []: Nil -&gt; {
     if n &lt;= 0
         then 0
         else n + triangle[n-1];
-print⟨Int⟩[triangle[5]];
+triangle[5]&gt;&gt;printLine[];
 
 // Outputs:
 // 15
@@ -143,12 +149,12 @@ print⟨Int⟩[triangle[5]];
     if x &lt;= 0.0 then {
         return -x * 0.5;
     };
-    printLine⟨String⟩[&quot;input was positive&quot;];
+    &quot;input was positive&quot;&gt;&gt;printLine[];
     return x * 2.0;
 };
 
-printLine⟨Float⟩[myFunc[-1.2]];
-printLine⟨Float⟩[myFunc[1.2]];
+myFunc[-1.2]&gt;&gt;printLine[];
+myFunc[1.2]&gt;&gt;printLine[];
 
 // Outputs:
 // 0.6
@@ -159,10 +165,10 @@ printLine⟨Float⟩[myFunc[1.2]];
 <p>Return statements can be used without a return value to return <code>nil</code>.</p>
 <pre><code>func countdown = [x: Int]: Nil -&gt; {
     if x &lt;= 0 then {
-        printLine⟨String⟩[&quot;Happy New Year!&quot;];
+        &quot;Happy New Year!&quot;&gt;&gt;printLine[];
         return;
     };
-    printLine⟨Int⟩[x];
+    x&gt;&gt;printLine[];
     countdown[x - 1];
 };
 countdown[3];
@@ -175,13 +181,11 @@ countdown[3];
 </code></pre>
 <h2 id="function-expressions">Function Expressions</h2>
 <p>Functions can also be created inline with function expressions.</p>
-<pre><code>print⟨Int⟩[
-    applyTwice[
-        // Function expression
-        [x] -&gt; x * 3,
-        1
-    ]
-];
+<pre><code>applyTwice[
+    // Function expression
+    [x] -&gt; x * 3,
+    1
+]&gt;&gt;printLine[];
 
 func applyTwice = [f: [Int] -&gt; Int, x: Int]: Int -&gt; f[f[x]];
 // Outputs:
@@ -189,7 +193,7 @@ func applyTwice = [f: [Int] -&gt; Int, x: Int]: Int -&gt; f[f[x]];
 </code></pre>
 <p>Function expressions can be combined with variables to get something like a function declaration statement.</p>
 <pre><code>let sumSquare = [x: Int, y: Int]: Int -&gt; x * x + y * y;
-print⟨Int⟩[sumSquare[3, 4]];
+sumSquare[3, 4]&gt;&gt;printLine[];
 
 // Outputs:
 // 25
@@ -199,7 +203,7 @@ print⟨Int⟩[sumSquare[3, 4]];
 <p>Functions can capture variables. That is, the body of a function can reference an identifier defined in an enclosing scope.</p>
 <pre><code>let message = &quot;Have a nice day :)&quot;;
 let printMessage = []: Nil -&gt; {
-    print⟨String⟩[message];
+    message&gt;&gt;printLine[];
 };
 printMessage[];
 
@@ -209,10 +213,10 @@ printMessage[];
 <p>In Hyacinth, variables are captured statically, and if a captured variable is mutated after capture, the captured value will not change. For function expressions, variables are captured when the function is defined.</p>
 <pre><code>let mut x = 1;
 let printCapturedValue = []: Nil -&gt; {
-    printLine⟨Int⟩[x];
+    x&gt;&gt;printLine[];
 };
 mut x = 2;
-printLine⟨Int⟩[x];
+x&gt;&gt;printLine[];
 printCapturedValue[];
 
 // Outputs:
@@ -229,7 +233,7 @@ printLine⟨Int⟩[x];
 firstReference[];
 
 func printCapturedValue = []: Nil -&gt; {
-    printLine⟨Int⟩[x];
+    x&gt;&gt;printLine[];
 };
 
 // Outputs:
@@ -238,26 +242,78 @@ func printCapturedValue = []: Nil -&gt; {
 // 1
 </code></pre>
 <h2 id="type-parameters">Type Parameters</h2>
-<p>Functions defined by a function declaration statement may take type parameters. If a function has type parameters, type arguments must be explicitly provided when the function is referenced.</p>
+<p>Functions defined by a function declaration statement may take type parameters. If a function has type parameters, type arguments can be provided when the function is referenced.</p>
 <pre><code>func apply = ⟨T, V⟩ =&gt; [f: [T] -&gt; V, x: T]: V -&gt; f[x];
-print⟨Bool⟩[apply⟨Int, Bool⟩[[x] -&gt; x &gt; 0, 5]];
+apply⟨Int, Bool⟩[[x] -&gt; x &gt; 0, 5]&gt;&gt;printLine[];
 
 // Outputs:
 // true
 </code></pre>
+<p>In some cases, a function's type arguments can be inferred from known type information by the compiler, and the type arguments can be omitted.</p>
+<pre><code>func printAndReturn = ⟨T⟩ =&gt; [x: T]: T -&gt; {
+    x&gt;&gt;printLine[];
+    return x;
+};
+let foo: Int = printAndReturn[3];
+
+// Outputs:
+// 3
+</code></pre>
 <h2 id="built-in-functions">Built-in Functions</h2>
-<p>Hyacinth includes a number of built-in functions that give access to otherwise unavailable functionality. Below is a list of the currently provided built-in functions.</p>
+<p>Hyacinth includes a number of built-in functions that give access to otherwise unavailable functionality. Below are some of the built-in functions provided by Hyacinth. Some more built-in functions are covered in the <a href="../lists/">list documentation</a>.</p>
 <ul>
 <li><code>print: ⟨T⟩ =&gt; [T] -&gt; Nil</code> - Outputs a value to the standard output</li>
 <li><code>printLine: ⟨T⟩ =&gt; [T] -&gt; Nil</code> - Outputs a value to the standard output with a line break after</li>
 <li><code>readLine: [] -&gt; String</code> - Reads a line from the standard input and returns it as a string</li>
 </ul>
+<h2 id="method-call-operator">Method Call Operator</h2>
+<p>The method call operator (<code>&gt;&gt;</code>) is an alternate syntax for calling functions.</p>
+<pre><code>func myFunc = [x: String, y: String]: Nil -&gt; {
+    (&quot;The first parameter is &quot; + x)&gt;&gt;printLine[];
+    (&quot;The second parameter is &quot; + y)&gt;&gt;printLine[];
+};
+
+let foo = &quot;foo&quot;;
+let bar = &quot;bar&quot;;
+foo&gt;&gt;myFunc[bar];
+
+// Outputs:
+// The first parameter is foo
+// The second parameter is bar
+</code></pre>
+<p>Unlike some other languages, the method call operator does not enable dynamic dispatch; it is equivalent at run-time to a normal function call. However, using method call syntax can help to write cleaner code in a couple ways.</p>
+<p>Method calls can be chained, passing the output of one function as the first parameter of the next.</p>
+<pre><code>func double = [x: Int]: Int -&gt; 2 * x;
+func addOne = [x: Int]: Int -&gt; x + 1;
+
+3&gt;&gt;double[]&gt;&gt;addOne[]&gt;&gt;double[]&gt;&gt;printLine[];
+
+// Outputs:
+// 14
+</code></pre>
+<p>With method call syntax, the compiler uses the type of the first parameter when inferring a function's type arguments. This in some cases allows omitting a function's type arguments when a normal function call would require passing them explicitly.</p>
+<pre><code>func printIfPositive = ⟨T⟩ =&gt; [printValue: T, switchValue: Int]: Nil -&gt;
+    if switchValue &gt; 0 then {
+        printValue&gt;&gt;printLine[];
+    };
+
+// With normal function call syntax, explicit type arguments are required
+printIfPositive⟨String⟩[&quot;foo&quot;, 5];
+
+// With method call syntax, type arguments can be inferred
+&quot;foo&quot;&gt;&gt;printIfPositive[5];
+
+
+// Outputs:
+// foo
+// foo
+</code></pre>
               
             </div>
           </div><footer>
     <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
         <a href="../control_flow/" class="btn btn-neutral float-left" title="Control Flow"><span class="icon icon-circle-arrow-left"></span> Previous</a>
-        <a href="../records/" class="btn btn-neutral float-right" title="Records">Next <span class="icon icon-circle-arrow-right"></span></a>
+        <a href="../lists/" class="btn btn-neutral float-right" title="Lists">Next <span class="icon icon-circle-arrow-right"></span></a>
     </div>
 
   <hr/>
@@ -283,7 +339,7 @@ print⟨Bool⟩[apply⟨Int, Bool⟩[[x] -&gt; x &gt; 0, 5]];
       <span><a href="../control_flow/" style="color: #fcfcfc">&laquo; Previous</a></span>
     
     
-      <span><a href="../records/" style="color: #fcfcfc">Next &raquo;</a></span>
+      <span><a href="../lists/" style="color: #fcfcfc">Next &raquo;</a></span>
     
   </span>
 </div>

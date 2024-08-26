@@ -63,6 +63,10 @@
                 <li class="toctree-l1"><a class="reference internal" href="../functions/">Functions</a>
                 </li>
               </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../lists/">Lists</a>
+                </li>
+              </ul>
               <ul class="current">
                 <li class="toctree-l1 current"><a class="reference internal current" href="#">Records</a>
     <ul class="current">
@@ -119,8 +123,8 @@ let myPet = Dog[
     name = &quot;Fido&quot;,
     age = 4,
 ];
-printLine⟨String⟩[myPet.name];
-printLine⟨Int⟩[myPet.age];
+myPet.name&gt;&gt;printLine[];
+myPet.age&gt;&gt;printLine[];
 
 // Outputs:
 // Fido
@@ -143,9 +147,9 @@ rec Bar = [
 ];
 
 let mut x: Foo | Bar = Foo[shared = 1, justFoo = &quot;foo&quot;];
-printLine⟨Int⟩[x.shared];
+x.shared&gt;&gt;printLine[];
 mut x = Bar[shared = 2, justBar = true];
-printLine⟨Int⟩[x.shared];
+x.shared&gt;&gt;printLine[];
 
 // Outputs:
 // 1
@@ -157,10 +161,10 @@ rec Bar = [];
 
 func printFooBar = [fb: Foo | Bar]: Nil -&gt; case fb of [
     Foo: f -&gt; {
-        printLine⟨String⟩[f.value];
+        f.value&gt;&gt;printLine[];
     },
     Bar: b -&gt; {
-        printLine⟨String⟩[&quot;Bar&quot;];
+        &quot;Bar&quot;&gt;&gt;printLine[];
     },
 ];
 
@@ -179,21 +183,21 @@ printFooBar[Bar];
 ];
 
 let point = Pair⟨Float⟩[first = 1.23, second = 4.5];
-printLine⟨Float⟩[point.first];
-printLine⟨Float⟩[point.second];
+point.first&gt;&gt;printLine[];
+point.second&gt;&gt;printLine[];
 
 // Outputs:
 // 1.23
 // 4.5
 </code></pre>
 <h2 id="mutability">Mutability</h2>
-<p>Records are immutable by default, but a record instance can be made mutable with the <code>mut</code> keyword.</p>
+<p>Records are immutable by default, but a record instance can be made mutable with the <code>mut</code> keyword. The fields of a mutable record can be modified using <code>mut</code> statements.</p>
 <pre><code>rec Box = [value: Int];
 
 let myBox = mut Box[value = 1];
-printLine⟨Int⟩[myBox.value];
+myBox.value&gt;&gt;printLine[];
 mut myBox.value = 2;
-printLine⟨Int⟩[myBox.value];
+myBox.value&gt;&gt;printLine[];
 
 // Output
 // 1
@@ -207,9 +211,9 @@ func doubleValue = [box: mut Box]: Nil -&gt; {
 };
 
 let myBox = mut Box[value = 4];
-printLine⟨Int⟩[myBox.value];
+myBox.value&gt;&gt;printLine[];
 doubleValue[myBox];
-printLine⟨Int⟩[myBox.value];
+myBox.value&gt;&gt;printLine[];
 
 // Outputs:
 // 4
@@ -225,9 +229,9 @@ let mutableFoo = mut Foo[
         b = 1
     ]
 ];
-printLine⟨Int⟩[mutableFoo.a.b];
+mutableFoo.a.b&gt;&gt;printLine[];
 mut mutableFoo.a.b = 2;
-printLine⟨Int⟩[mutableFoo.a.b];
+mutableFoo.a.b&gt;&gt;printLine[];
 
 let immutableFooCopy: Foo = mutableFoo;
 // The following would result in a type error, as immutableFooCopy is deeply immutable
@@ -252,7 +256,7 @@ rec Bar = [value: Int];
             </div>
           </div><footer>
     <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
-        <a href="../functions/" class="btn btn-neutral float-left" title="Functions"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../lists/" class="btn btn-neutral float-left" title="Lists"><span class="icon icon-circle-arrow-left"></span> Previous</a>
         <a href="../type_synonyms/" class="btn btn-neutral float-right" title="Type synonyms">Next <span class="icon icon-circle-arrow-right"></span></a>
     </div>
 
@@ -276,7 +280,7 @@ rec Bar = [value: Int];
   <span class="rst-current-version" data-toggle="rst-current-version">
     
     
-      <span><a href="../functions/" style="color: #fcfcfc">&laquo; Previous</a></span>
+      <span><a href="../lists/" style="color: #fcfcfc">&laquo; Previous</a></span>
     
     
       <span><a href="../type_synonyms/" style="color: #fcfcfc">Next &raquo;</a></span>

@@ -56,6 +56,8 @@
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#operators">Operators</a>
     </li>
+    <li class="toctree-l2"><a class="reference internal" href="#comments">Comments</a>
+    </li>
     </ul>
                 </li>
               </ul>
@@ -69,6 +71,10 @@
               </ul>
               <ul>
                 <li class="toctree-l1"><a class="reference internal" href="../functions/">Functions</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../lists/">Lists</a>
                 </li>
               </ul>
               <ul>
@@ -152,6 +158,14 @@ printLine⟨String⟩[&quot;concatenating&quot; + ' ' + &quot;strings&quot;];
 // 7
 // true
 // concatenating strings
+</code></pre>
+<h2 id="comments">Comments</h2>
+<p>In Hyacinth, a double forward slash (<code>//</code>) makes the rest of the line into a comment which is not evaluated as code.</p>
+<pre><code>// This text is not evaluated
+&quot;Hello, World!&quot;&gt;&gt;printLine[]; // This text is not evaluated either
+
+// Outputs:
+// Hello, World!
 </code></pre>
               
             </div>

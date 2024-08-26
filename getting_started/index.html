@@ -76,6 +76,10 @@
                 </li>
               </ul>
               <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../lists/">Lists</a>
+                </li>
+              </ul>
+              <ul>
                 <li class="toctree-l1"><a class="reference internal" href="../records/">Records</a>
                 </li>
               </ul>
@@ -134,7 +138,7 @@ cargo install --path .
 </code></pre>
 <h2 id="running-the-compiler">Running the compiler</h2>
 <p>Let's write our first Hyacinth program! Create a file named <code>Hello.hyc</code>, and write the following Hyacinth code to it.</p>
-<pre><code>printLine⟨String⟩[&quot;Hello, World!&quot;];
+<pre><code>&quot;Hello, World!&quot;&gt;&gt;printLine[];
 </code></pre>
 <p>Navigate to the file location in a terminal and run the following command to compile your Hyacinth code file.</p>
 <pre><code>hyacinth Hello.hyc
